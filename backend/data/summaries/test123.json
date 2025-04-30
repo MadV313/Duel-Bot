@@ -1,0 +1,15 @@
+{
+  "duelId": "test123",
+  "winner": "player1",
+  "player1": {
+    "discordId": "111111111111111111",
+    "cardsPlayed": 14,
+    "damageDealt": 120
+  },
+  "player2": {
+    "discordId": "222222222222222222",
+    "cardsPlayed": 11,
+    "damageDealt": 95
+  },
+  "turns": 9
+}
