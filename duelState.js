@@ -4,6 +4,7 @@ export const duelState = {
   players: {},
   currentPlayer: null,
   winner: null,
+  spectators: [] // NEW: Track spectators
 };
 
 // PRACTICE DUEL LAUNCHER
@@ -15,6 +16,7 @@ export function startPracticeDuel() {
   };
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
+  duelState.spectators = []; // NEW: Reset spectators on new duel
 
   // Load mock decks (20 random cards each)
   import('./CoreMasterReference.json', { assert: { type: 'json' } })
