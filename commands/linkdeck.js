@@ -19,6 +19,7 @@ export default {
 
   execute(interaction) {
     const userId = interaction.user.id;
+    const userName = interaction.user.username;
     const deckInput = interaction.options.getString('deck');
 
     let deck;
@@ -34,25 +35,29 @@ export default {
       });
     }
 
-    // Read existing linked decks
-    let linkedDecks = {};
+    // Read existing structure
+    let existing = { players: [] };
     try {
       if (fs.existsSync(linkedDecksPath)) {
-        const raw = fs.readFileSync(linkedDecksPath);
-        linkedDecks = JSON.parse(raw);
+        const raw = fs.readFileSync(linkedDecksPath, 'utf-8');
+        existing = JSON.parse(raw);
       }
     } catch (err) {
       console.error("Failed to read linked decks:", err);
     }
 
-    // Save deck
-    linkedDecks[userId] = {
-      discordName: interaction.user.username,
-      deck,
-    };
+    // Update or insert player
+    const index = existing.players.findIndex(p => p.discordId === userId);
+    if (index >= 0) {
+      existing.players[index].deck = deck;
+      existing.players[index].discordName = userName;
+    } else {
+      existing.players.push({ discordId: userId, discordName: userName, deck });
+    }
 
+    // Save back
     try {
-      fs.writeFileSync(linkedDecksPath, JSON.stringify(linkedDecks, null, 2));
+      fs.writeFileSync(linkedDecksPath, JSON.stringify(existing, null, 2));
       return interaction.reply({ content: '✅ Deck linked successfully!', ephemeral: true });
     } catch (err) {
       console.error("Failed to write linked deck:", err);
