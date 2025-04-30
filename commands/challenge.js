@@ -18,7 +18,7 @@ export default {
     const opponent = interaction.options.getUser('opponent');
     const opponentId = opponent.id;
 
-    // POST to duel backend
+    // POST to backend to initialize duel state
     try {
       const response = await fetch('https://duel-bot-backend-production.up.railway.app/duel/start', {
         method: 'POST',
@@ -32,9 +32,9 @@ export default {
         throw new Error(result.error || 'Unknown error');
       }
 
-      // Return link to Duel UI (frontend URL can be customized)
+      // Customize the frontend UI link for loading the duel
       return interaction.reply({
-        content: `Duel initialized! [Click here to duel](https://your-frontend-ui-link.com?player1=${challengerId}&player2=${opponentId})`,
+        content: `Duel initialized! [Click here to duel](https://madv313.github.io/Duel-UI/index.html?player1=${challengerId}&player2=${opponentId})`,
         ephemeral: true
       });
     } catch (err) {
