@@ -9,6 +9,7 @@ import linkDeckCommand from './commands/linkdeck.js';
 import challengeCommand from './commands/challenge.js';
 import watchCommand from './commands/watch.js';
 import leaveCommand from './commands/leave.js';
+import buyCardCommand from './commands/buycard.js';
 
 config(); // Load .env variables
 
@@ -17,7 +18,8 @@ const commands = [
   linkDeckCommand.data.toJSON(),
   challengeCommand.data.toJSON(),
   watchCommand.data.toJSON(),
-  leaveCommand.data.toJSON()
+  leaveCommand.data.toJSON(),
+  buyCardCommand.data.toJSON()
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
