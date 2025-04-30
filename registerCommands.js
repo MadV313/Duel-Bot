@@ -10,6 +10,7 @@ import challengeCommand from './commands/challenge.js';
 import watchCommand from './commands/watch.js';
 import leaveCommand from './commands/leave.js';
 import buyCardCommand from './commands/buycard.js';
+import sellCardCommand from './commands/sellcard.js'; // NEW
 
 config(); // Load .env variables
 
@@ -19,7 +20,8 @@ const commands = [
   challengeCommand.data.toJSON(),
   watchCommand.data.toJSON(),
   leaveCommand.data.toJSON(),
-  buyCardCommand.data.toJSON()
+  buyCardCommand.data.toJSON(),
+  sellCardCommand.data.toJSON() // NEW
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
