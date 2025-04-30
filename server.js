@@ -11,6 +11,11 @@ app.use(express.json());
 // Routes
 app.use('/bot', duelRoutes);
 
+// Health Check Route
+app.get('/', (req, res) => {
+  res.send('Duel Bot Backend is live.');
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Duel Bot Backend running on port ${PORT}`);
