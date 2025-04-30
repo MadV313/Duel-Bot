@@ -13,14 +13,23 @@ router.post('/start', async (req, res) => {
     const raw = await fs.readFile(dataPath, 'utf-8');
     const deckMap = JSON.parse(raw);
 
-    const player1Deck = deckMap[player1Id];
-    const player2Deck = player2Id === 'bot' ? generateBotDeck() : deckMap[player2Id];
+    // Convert to fast lookup
+    const deckById = {};
+    for (const entry of deckMap.players) {
+      deckById[entry.discordId] = entry.deck.map(id => ({
+        cardId: id,
+        isFaceDown: false
+      }));
+    }
+
+    const player1Deck = deckById[player1Id];
+    const player2Deck = player2Id === 'bot' ? generateBotDeck() : deckById[player2Id];
 
     if (!player1Deck || !player2Deck) {
       return res.status(400).json({ error: 'One or both decks not found for the given player IDs.' });
     }
 
-    // Update global duelState
+    // Launch duel
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck);
 
     return res.status(200).json({ message: 'Duel started.' });
