@@ -1,8 +1,17 @@
-# Ignore sensitive environment config
+# Ignore environment files
 .env
 
-# Node modules and system files
+# Node dependencies
 node_modules/
-.DS_Store
+
+# Logs
 logs/
 *.log
+npm-debug.log*
+
+# OS-specific files
+.DS_Store
+
+# Optional: ignore build output
+dist/
+build/
