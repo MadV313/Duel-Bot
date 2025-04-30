@@ -10,7 +10,7 @@ router.post('/start', async (req, res) => {
   const { player1Id, player2Id } = req.body;
 
   try {
-    const dataPath = path.join(process.cwd(), 'data', 'linked_decks.json');
+    const dataPath = path.join(process.cwd(), 'data', 'linkdeck.json');
     const raw = await fs.readFile(dataPath, 'utf-8');
     const deckMap = JSON.parse(raw);
 
@@ -52,7 +52,6 @@ router.post('/start', async (req, res) => {
 });
 
 function generateBotDeck() {
-  // Generate a default mock deck of 30 cards (cardId: 001–030 for testing)
   return Array.from({ length: 30 }, (_, i) => ({ cardId: String(i + 1).padStart(3, '0') }));
 }
 
