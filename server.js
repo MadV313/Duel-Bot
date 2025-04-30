@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import duelRoutes from './routes/duel.js';
+import statusRoutes from './routes/status.js'; // NEW LINE
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,21 +9,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Primary duel routes
+// Route registrations
 app.use('/bot', duelRoutes);
+app.use('/', statusRoutes); // NEW LINE
 
-// Health check route
+// Root health text
 app.get('/', (req, res) => {
   res.send('Duel Bot Backend is live.');
-});
-
-// Status check route
-app.get('/status', (req, res) => {
-  res.json({
-    status: 'online',
-    uptime: process.uptime().toFixed(2) + 's',
-    timestamp: new Date().toISOString()
-  });
 });
 
 // Start server
