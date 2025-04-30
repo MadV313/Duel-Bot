@@ -16,7 +16,7 @@ export function startPracticeDuel() {
   };
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
-  duelState.spectators = []; // NEW: Reset spectators on new duel
+  duelState.spectators = []; // Reset spectators for practice mode
 
   // Load mock decks (20 random cards each)
   import('./CoreMasterReference.json', { assert: { type: 'json' } })
@@ -36,4 +36,15 @@ export function startPracticeDuel() {
       duelState.players.bot.deck = randomCards(20);
     })
     .catch(err => console.error('Failed to load deck for practice duel:', err));
+}
+
+// PVP DUEL LAUNCHER (Live duel via /challenge)
+export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck) {
+  duelState.players = {
+    player1: { discordId: player1Id, hp: 200, hand: [], field: [], deck: [...player1Deck], discardPile: [] },
+    player2: { discordId: player2Id, hp: 200, hand: [], field: [], deck: [...player2Deck], discardPile: [] }
+  };
+  duelState.currentPlayer = 'player1';
+  duelState.winner = null;
+  duelState.spectators = []; // Reset for new duel
 }
