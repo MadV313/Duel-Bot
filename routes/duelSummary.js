@@ -6,7 +6,7 @@ import path from 'path';
 
 const router = express.Router();
 
-// Load summary by duelId
+// GET summary by duelId
 router.get('/:duelId', async (req, res) => {
   const { duelId } = req.params;
 
@@ -22,7 +22,7 @@ router.get('/:duelId', async (req, res) => {
   }
 });
 
-// Save summary (called by frontend at end of duel)
+// POST new summary after duel ends
 router.post('/save', async (req, res) => {
   const summary = req.body;
 
