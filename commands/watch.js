@@ -2,6 +2,8 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import { duelState } from '../logic/duelState.js';
+import fs from 'fs/promises';
+import path from 'path';
 
 export default {
   data: new SlashCommandBuilder()
@@ -14,6 +16,32 @@ export default {
 
     if (!duelState.spectators.includes(userId)) {
       duelState.spectators.push(userId);
+    }
+
+    // Log spectator join
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      action: 'joined',
+      userId,
+      username
+    };
+
+    const logPath = path.join(process.cwd(), 'data', 'logs', 'current_duel_log.json');
+
+    try {
+      let existing = [];
+      try {
+        const raw = await fs.readFile(logPath, 'utf-8');
+        existing = JSON.parse(raw);
+      } catch (readErr) {
+        // File might not exist — safe to continue
+      }
+
+      existing.push(logEntry);
+      await fs.mkdir(path.dirname(logPath), { recursive: true });
+      await fs.writeFile(logPath, JSON.stringify(existing, null, 2));
+    } catch (writeErr) {
+      console.error('Failed to write spectator log:', writeErr);
     }
 
     return interaction.reply({
