@@ -2,25 +2,22 @@
 
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
+
+// Import all command files
 import practiceCommand from './commands/practice.js';
 import linkDeckCommand from './commands/linkdeck.js';
 import challengeCommand from './commands/challenge.js';
+import watchCommand from './commands/watch.js';
+import leaveCommand from './commands/leave.js';
 
-config(); // Load .env for local dev or Railway in production
+config(); // Load .env variables
 
 const commands = [
-  {
-    name: practiceCommand.name,
-    description: practiceCommand.description,
-  },
-  {
-    name: linkDeckCommand.name,
-    description: linkDeckCommand.description,
-  },
-  {
-    name: challengeCommand.data.name,
-    description: challengeCommand.data.description,
-  },
+  practiceCommand.data.toJSON(),
+  linkDeckCommand.data.toJSON(),
+  challengeCommand.data.toJSON(),
+  watchCommand.data.toJSON(),
+  leaveCommand.data.toJSON()
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
