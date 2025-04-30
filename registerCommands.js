@@ -4,8 +4,9 @@ import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 import practiceCommand from './commands/practice.js';
 import linkDeckCommand from './commands/linkdeck.js';
+import challengeCommand from './commands/challenge.js';
 
-config(); // Load .env for local, Railway vars in production
+config(); // Load .env for local dev or Railway in production
 
 const commands = [
   {
@@ -15,6 +16,10 @@ const commands = [
   {
     name: linkDeckCommand.name,
     description: linkDeckCommand.description,
+  },
+  {
+    name: challengeCommand.data.name,
+    description: challengeCommand.data.description,
   },
 ];
 
