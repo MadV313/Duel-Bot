@@ -1,3 +1,11 @@
+// duelState.js
+
+export const duelState = {
+  players: {},
+  currentPlayer: null,
+  winner: null,
+};
+
 // PRACTICE DUEL LAUNCHER
 export function startPracticeDuel() {
   // Reset state
@@ -12,9 +20,6 @@ export function startPracticeDuel() {
   import('./CoreMasterReference.json', { assert: { type: 'json' } })
     .then(module => {
       const allCards = module.default;
-
-      const playerDeck = [];
-      const botDeck = [];
 
       const randomCards = (count) => {
         const sample = [];
