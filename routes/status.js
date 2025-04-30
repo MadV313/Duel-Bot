@@ -5,9 +5,8 @@ const router = express.Router();
 
 router.get('/status', (req, res) => {
   res.json({
-    status: 'ok',
-    message: 'Duel Bot Backend is healthy',
-    uptime: process.uptime(),
+    status: 'online',
+    uptime: process.uptime().toFixed(2) + 's',
     timestamp: new Date().toISOString()
   });
 });
