@@ -3,13 +3,18 @@
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 import practiceCommand from './commands/practice.js';
+import linkDeckCommand from './commands/linkdeck.js';
 
-config(); // Loads .env for local dev, or Railway vars in production
+config(); // Load .env for local, Railway vars in production
 
 const commands = [
   {
     name: practiceCommand.name,
     description: practiceCommand.description,
+  },
+  {
+    name: linkDeckCommand.name,
+    description: linkDeckCommand.description,
   },
 ];
 
