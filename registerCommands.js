@@ -1,22 +1,31 @@
-// commands/practice.js
+// registerCommands.js
 
-import { startPracticeDuel } from '../logic/duelState.js';
+import { REST, Routes } from 'discord.js';
+import { config } from 'dotenv';
+import practiceCommand from './commands/practice.js';
 
-export default {
-  name: 'practice',
-  description: 'Start a practice duel vs the bot (admin-only)',
-  async execute(interaction) {
-    const isAdmin = interaction.member.permissions.has('Administrator');
+config(); // Loads .env for local dev, or Railway vars in production
 
-    if (!isAdmin) {
-      return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
-    }
+const commands = [
+  {
+    name: practiceCommand.name,
+    description: practiceCommand.description,
+  },
+];
 
-    startPracticeDuel(); // Launch the duel state in memory
+const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 
-    return interaction.reply({
-      content: 'Practice duel started! Load the duel UI to begin.',
-      ephemeral: true
-    });
+(async () => {
+  try {
+    console.log('Registering slash commands...');
+
+    await rest.put(
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: commands }
+    );
+
+    console.log('✅ Successfully registered commands.');
+  } catch (error) {
+    console.error('❌ Failed to register commands:', error);
   }
-};
+})();
