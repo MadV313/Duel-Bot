@@ -2,14 +2,14 @@
   "duelId": "test123",
   "winner": "player1",
   "player1": {
-    "discordId": "111111111111111111",
-    "cardsPlayed": 14,
-    "damageDealt": 120
+    "discordId": "1234567890",
+    "cardsPlayed": 12,
+    "damageDealt": 180
   },
   "player2": {
-    "discordId": "222222222222222222",
-    "cardsPlayed": 11,
-    "damageDealt": 95
+    "discordId": "9876543210",
+    "cardsPlayed": 9,
+    "damageDealt": 160
   },
-  "turns": 9
+  "timestamp": "2025-04-30T15:00:00Z"
 }
