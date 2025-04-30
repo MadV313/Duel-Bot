@@ -6,7 +6,7 @@ import path from 'path';
 
 const router = express.Router();
 
-// Load summary data by duelId
+// Load summary by duelId
 router.get('/:duelId', async (req, res) => {
   const { duelId } = req.params;
 
@@ -19,6 +19,28 @@ router.get('/:duelId', async (req, res) => {
   } catch (err) {
     console.error("Summary fetch error:", err);
     res.status(404).json({ error: 'Summary not found.' });
+  }
+});
+
+// Save summary (called by frontend at end of duel)
+router.post('/save', async (req, res) => {
+  const summary = req.body;
+
+  if (!summary || !summary.duelId || !summary.players || !summary.winner) {
+    return res.status(400).json({ error: 'Missing or invalid summary data.' });
+  }
+
+  try {
+    const summaryDir = path.join(process.cwd(), 'data', 'summaries');
+    await fs.mkdir(summaryDir, { recursive: true });
+
+    const filePath = path.join(summaryDir, `${summary.duelId}.json`);
+    await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
+
+    res.status(200).json({ message: 'Summary saved.' });
+  } catch (err) {
+    console.error('Error saving summary:', err);
+    res.status(500).json({ error: 'Failed to save summary.' });
   }
 });
 
