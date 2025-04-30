@@ -17,7 +17,7 @@ export default {
     }
 
     return interaction.reply({
-      content: `You are now watching the duel! Open the UI here:\nhttps://your-spectator-ui-link.com?duelId=current&user=${username}`,
+      content: `You are now watching the duel! [Open Spectator View](https://your-spectator-ui-link.com?duelId=current&user=${encodeURIComponent(username)})`,
       ephemeral: true
     });
   }
