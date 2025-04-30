@@ -1,3 +1,8 @@
-node_modules/
+# Ignore sensitive environment config
 .env
+
+# Node modules and system files
+node_modules/
 .DS_Store
+logs/
+*.log
