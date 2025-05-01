@@ -1,4 +1,28 @@
-// Automatically extract and store DISCORD_ID if found in clipboard or query
+function showToast(message) {
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.style.position = 'fixed';
+  toast.style.bottom = '30px';
+  toast.style.left = '50%';
+  toast.style.transform = 'translateX(-50%)';
+  toast.style.background = '#111';
+  toast.style.color = '#fff';
+  toast.style.padding = '10px 20px';
+  toast.style.borderRadius = '6px';
+  toast.style.fontSize = '14px';
+  toast.style.zIndex = '9999';
+  toast.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+  toast.style.opacity = '0';
+  toast.style.transition = 'opacity 0.5s ease-in-out';
+
+  document.body.appendChild(toast);
+  setTimeout(() => (toast.style.opacity = '1'), 100);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 500);
+  }, 3000);
+}
+
 function detectAndStoreDiscordId() {
   const clipboardCheck = async () => {
     try {
@@ -6,7 +30,7 @@ function detectAndStoreDiscordId() {
       const match = text.match(/DISCORD_ID:(\d{17,})/);
       if (match) {
         localStorage.setItem('discord_id', match[1]);
-        console.log(`Stored Discord ID: ${match[1]}`);
+        showToast(`Discord ID stored: ${match[1]}`);
       }
     } catch (err) {
       console.warn('Clipboard read failed or not allowed.');
@@ -18,7 +42,7 @@ function detectAndStoreDiscordId() {
     if (params.has('discord_id')) {
       const id = params.get('discord_id');
       localStorage.setItem('discord_id', id);
-      console.log(`Stored Discord ID from URL: ${id}`);
+      showToast(`Discord ID stored: ${id}`);
     }
   };
 
@@ -26,7 +50,6 @@ function detectAndStoreDiscordId() {
   urlCheck();
 }
 
-// Fetches card + coin totals for the current user
 async function loadPlayerStats() {
   const userId = localStorage.getItem('discord_id');
 
@@ -43,7 +66,6 @@ async function loadPlayerStats() {
     const data = await res.json();
     document.getElementById('cardCount').textContent = `${data.cardsOwned} / 127`;
     document.getElementById('coinCount').textContent = data.coins;
-
   } catch (err) {
     console.error('Failed to load user stats:', err);
     document.getElementById('cardCount').textContent = 'Unavailable';
