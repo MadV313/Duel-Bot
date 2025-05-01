@@ -35,7 +35,7 @@ export default {
       });
     }
 
-    // Read existing structure
+    // Load existing decks
     let existing = { players: [] };
     try {
       if (fs.existsSync(linkedDecksPath)) {
@@ -46,7 +46,7 @@ export default {
       console.error("Failed to read linked decks:", err);
     }
 
-    // Update or insert player
+    // Update or add new player
     const index = existing.players.findIndex(p => p.discordId === userId);
     if (index >= 0) {
       existing.players[index].deck = deck;
@@ -55,13 +55,20 @@ export default {
       existing.players.push({ discordId: userId, discordName: userName, deck });
     }
 
-    // Save back
+    // Save changes
     try {
       fs.writeFileSync(linkedDecksPath, JSON.stringify(existing, null, 2));
-      return interaction.reply({ content: '✅ Deck linked successfully!', ephemeral: true });
+
+      return interaction.reply({
+        content: `✅ Deck linked successfully! Please visit the [Hub UI](https://your-frontend-domain.com) to continue.\n\n**To auto-link your account in the UI, this message includes:**\n\`DISCORD_ID:${userId}\``,
+        ephemeral: true
+      });
     } catch (err) {
       console.error("Failed to write linked deck:", err);
-      return interaction.reply({ content: '❌ Failed to save your deck.', ephemeral: true });
+      return interaction.reply({
+        content: '❌ Failed to save your deck.',
+        ephemeral: true
+      });
     }
   },
 };
