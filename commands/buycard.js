@@ -7,6 +7,7 @@ import { getCardRarity } from '../utils/cardRarity.js';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
+const revealDir = path.resolve('./public/data');
 
 export default {
   data: {
@@ -60,11 +61,11 @@ export default {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
       fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
     } catch (err) {
-      console.error('Failed saving files:', err);
+      console.error('Failed saving decks or coin bank:', err);
       return interaction.reply({ content: 'Failed to complete your purchase.', ephemeral: true });
     }
 
-    // Generate reveal payload
+    // Construct reveal payload
     const revealPayload = {
       title: 'New Card Pack Unlocked!',
       cards: newCards.map(cardId => ({
@@ -75,8 +76,15 @@ export default {
       autoCloseIn: 10
     };
 
-    const revealPath = path.resolve(`./public/data/reveal_${userId}.json`);
-    fs.writeFileSync(revealPath, JSON.stringify(revealPayload, null, 2));
+    try {
+      if (!fs.existsSync(revealDir)) {
+        fs.mkdirSync(revealDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
+    } catch (err) {
+      console.error('Failed writing reveal file:', err);
+      return interaction.reply({ content: 'Purchase completed, but failed to prepare reveal.', ephemeral: true });
+    }
 
     return interaction.reply({
       content: `✅ Pack purchased! [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
