@@ -1,6 +1,34 @@
+// Automatically extract and store DISCORD_ID if found in clipboard or query
+function detectAndStoreDiscordId() {
+  const clipboardCheck = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const match = text.match(/DISCORD_ID:(\d{17,})/);
+      if (match) {
+        localStorage.setItem('discord_id', match[1]);
+        console.log(`Stored Discord ID: ${match[1]}`);
+      }
+    } catch (err) {
+      console.warn('Clipboard read failed or not allowed.');
+    }
+  };
+
+  const urlCheck = () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('discord_id')) {
+      const id = params.get('discord_id');
+      localStorage.setItem('discord_id', id);
+      console.log(`Stored Discord ID from URL: ${id}`);
+    }
+  };
+
+  clipboardCheck();
+  urlCheck();
+}
+
 // Fetches card + coin totals for the current user
 async function loadPlayerStats() {
-  const userId = localStorage.getItem('discord_id'); // Must be set after login or linking
+  const userId = localStorage.getItem('discord_id');
 
   if (!userId) {
     document.getElementById('cardCount').textContent = 'Link deck to begin';
@@ -13,7 +41,6 @@ async function loadPlayerStats() {
     if (!res.ok) throw new Error('Player not found');
 
     const data = await res.json();
-
     document.getElementById('cardCount').textContent = `${data.cardsOwned} / 127`;
     document.getElementById('coinCount').textContent = data.coins;
 
@@ -24,4 +51,7 @@ async function loadPlayerStats() {
   }
 }
 
-window.addEventListener('DOMContentLoaded', loadPlayerStats);
+window.addEventListener('DOMContentLoaded', () => {
+  detectAndStoreDiscordId();
+  loadPlayerStats();
+});
