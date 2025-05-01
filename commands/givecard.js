@@ -7,6 +7,7 @@ import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 
 const decksPath = path.resolve('./data/linked_decks.json');
+const revealDir = path.resolve('./public/data');
 
 export default {
   data: new SlashCommandBuilder()
@@ -32,13 +33,12 @@ export default {
         decks = JSON.parse(fs.readFileSync(decksPath));
       }
     } catch (err) {
-      console.error('Failed to load decks:', err);
-      return interaction.reply({ content: 'Failed to access user decks.', ephemeral: true });
+      console.error('Failed to read decks:', err);
+      return interaction.reply({ content: 'Failed to load player decks.', ephemeral: true });
     }
 
     const userDeck = decks[userId]?.deck || [];
     const previous = new Set(userDeck);
-
     const newCards = weightedRandomCards(3);
     newCards.forEach(card => userDeck.push(card));
 
@@ -50,11 +50,11 @@ export default {
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
-      console.error('Failed to save deck:', err);
-      return interaction.reply({ content: 'Could not save updated deck.', ephemeral: true });
+      console.error('Failed to save updated deck:', err);
+      return interaction.reply({ content: 'Could not update the player’s deck.', ephemeral: true });
     }
 
-    // Generate reveal payload
+    // Reveal file generation
     const revealPayload = {
       title: 'New Card Pack Unlocked!',
       cards: newCards.map(cardId => ({
@@ -65,8 +65,15 @@ export default {
       autoCloseIn: 10
     };
 
-    const revealPath = path.resolve(`./public/data/reveal_${userId}.json`);
-    fs.writeFileSync(revealPath, JSON.stringify(revealPayload, null, 2));
+    try {
+      if (!fs.existsSync(revealDir)) {
+        fs.mkdirSync(revealDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
+    } catch (err) {
+      console.error('Failed to write reveal file:', err);
+      return interaction.reply({ content: 'Failed to prepare pack reveal file.', ephemeral: true });
+    }
 
     return interaction.reply({
       content: `✅ Cards given to ${user.username}. [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
