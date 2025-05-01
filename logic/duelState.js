@@ -1,6 +1,6 @@
 // logic/duelState.js
 
-// Core practice duel state structure
+// Core duel state structure
 export const duelState = {
   players: {
     player1: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
@@ -10,7 +10,7 @@ export const duelState = {
   winner: null,
 };
 
-// Function to start a new practice duel (admin-only command triggers this)
+// Function to start a new practice duel (admin-only)
 export function startPracticeDuel(cardList) {
   const getRandomDeck = () => {
     const deck = [];
@@ -33,6 +33,30 @@ export function startPracticeDuel(cardList) {
   duelState.players.bot.field = [];
   duelState.players.player1.discardPile = [];
   duelState.players.bot.discardPile = [];
+  duelState.currentPlayer = 'player1';
+  duelState.winner = null;
+}
+
+// Function to start a live PvP duel
+export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck) {
+  duelState.players = {
+    player1: {
+      discordId: player1Id,
+      hp: 200,
+      hand: [],
+      field: [],
+      deck: [...player1Deck],
+      discardPile: [],
+    },
+    player2: {
+      discordId: player2Id,
+      hp: 200,
+      hand: [],
+      field: [],
+      deck: [...player2Deck],
+      discardPile: [],
+    },
+  };
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
 }
