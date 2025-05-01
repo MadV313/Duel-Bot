@@ -4,8 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { getCardRarity } from '../utils/cardRarity.js';
 
-const coinBankPath = path.resolve('./data/coin_bank.json');
 const decksPath = path.resolve('./data/linked_decks.json');
+const coinBankPath = path.resolve('./data/coin_bank.json');
 const sellLogPath = path.resolve('./data/sell_log.json');
 
 export default {
@@ -31,8 +31,11 @@ export default {
     const cardId = interaction.options.getString('cardid');
     const quantity = interaction.options.getInteger('quantity');
 
-    if (quantity < 1) {
-      return interaction.reply({ content: 'You must sell at least 1 card.', ephemeral: true });
+    if (quantity < 1 || quantity > 5) {
+      return interaction.reply({
+        content: 'You must sell between 1 and 5 cards.',
+        ephemeral: true
+      });
     }
 
     let decks = {}, coinBank = {}, sellLog = {};
@@ -41,31 +44,39 @@ export default {
       if (fs.existsSync(coinBankPath)) coinBank = JSON.parse(fs.readFileSync(coinBankPath));
       if (fs.existsSync(sellLogPath)) sellLog = JSON.parse(fs.readFileSync(sellLogPath));
     } catch (err) {
-      console.error("Failed reading data:", err);
-      return interaction.reply({ content: 'Internal error reading data.', ephemeral: true });
+      console.error("Failed to load player data:", err);
+      return interaction.reply({ content: 'Internal error occurred.', ephemeral: true });
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    if (!sellLog[userId]) sellLog[userId] = {};
-    if (!sellLog[userId][today]) sellLog[userId][today] = 0;
+    const soldToday = (sellLog[userId]?.[today] || 0);
+    const remaining = 5 - soldToday;
 
-    if (sellLog[userId][today] + quantity > 5) {
-      return interaction.reply({ content: 'You can only sell 5 cards per day.', ephemeral: true });
+    if (quantity > remaining) {
+      return interaction.reply({
+        content: `You can only sell ${remaining} more card(s) today.`,
+        ephemeral: true
+      });
     }
 
-    const userDeck = decks[userId]?.deck || [];
-    const owned = userDeck.filter(c => c === cardId).length;
+    const playerDeck = decks[userId]?.deck || [];
+    const ownedCount = playerDeck.filter(c => c === cardId).length;
 
-    if (owned < quantity) {
-      return interaction.reply({ content: `You only have ${owned} of that card.`, ephemeral: true });
+    if (ownedCount < quantity) {
+      return interaction.reply({
+        content: `You only own ${ownedCount} of card #${cardId}.`,
+        ephemeral: true
+      });
     }
 
+    // Determine payout
     const rarity = getCardRarity(cardId);
-    const coinValue = rarity === 'Legendary' ? 1 : 0.5;
-    const payout = coinValue * quantity;
+    const valuePerCard = rarity === 'Legendary' ? 1 : 0.5;
+    const payout = quantity * valuePerCard;
 
+    // Remove cards
     let removed = 0;
-    decks[userId].deck = userDeck.filter(c => {
+    decks[userId].deck = playerDeck.filter(c => {
       if (c === cardId && removed < quantity) {
         removed++;
         return false;
@@ -73,20 +84,23 @@ export default {
       return true;
     });
 
+    // Update logs + bank
+    if (!sellLog[userId]) sellLog[userId] = {};
+    sellLog[userId][today] = soldToday + quantity;
     coinBank[userId] = (coinBank[userId] || 0) + payout;
-    sellLog[userId][today] += quantity;
 
+    // Save
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
       fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
       fs.writeFileSync(sellLogPath, JSON.stringify(sellLog, null, 2));
     } catch (err) {
-      console.error("Failed saving sell transaction:", err);
-      return interaction.reply({ content: 'Sell failed to save.', ephemeral: true });
+      console.error("Sell save error:", err);
+      return interaction.reply({ content: 'Failed to finalize sale.', ephemeral: true });
     }
 
     return interaction.reply({
-      content: `✅ Sold ${quantity} card(s) for ${payout} coins.`,
+      content: `✅ Sold ${quantity}x #${cardId} (${rarity}) for **${payout} coin(s)**.`,
       ephemeral: true
     });
   }
