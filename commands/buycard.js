@@ -3,64 +3,83 @@
 import fs from 'fs';
 import path from 'path';
 import { weightedRandomCards } from '../utils/cardPicker.js';
+import { getCardRarity } from '../utils/cardRarity.js';
 
+const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
 export default {
-  name: 'buycard',
-  description: 'Buy a card pack (3 random cards for 3 coins)',
+  data: {
+    name: 'buycard',
+    description: 'Buy a pack of 3 cards (3 coins required)'
+  },
 
   async execute(interaction) {
     const userId = interaction.user.id;
+    const username = interaction.user.username;
 
     let coinBank = {};
     let decks = {};
-
     try {
       if (fs.existsSync(coinBankPath)) {
         coinBank = JSON.parse(fs.readFileSync(coinBankPath));
       }
-      if (fs.existsSync(linkedDecksPath)) {
-        decks = JSON.parse(fs.readFileSync(linkedDecksPath));
+      if (fs.existsSync(decksPath)) {
+        decks = JSON.parse(fs.readFileSync(decksPath));
       }
     } catch (err) {
-      console.error('Failed to read data:', err);
-      return interaction.reply({ content: 'Internal error occurred.', ephemeral: true });
+      console.error('Failed reading files:', err);
+      return interaction.reply({ content: 'Internal error loading data.', ephemeral: true });
     }
 
     const balance = coinBank[userId] || 0;
-    if (balance < 3) {
-      return interaction.reply({ content: 'You need 3 coins to buy a card pack.', ephemeral: true });
-    }
+    const userDeck = decks[userId]?.deck || [];
 
-    const currentDeck = decks[userId]?.deck || [];
-    if (currentDeck.length >= 248) {
+    if (userDeck.length >= 250) {
       return interaction.reply({
         content: 'You must have a maximum of 247 cards in your collection to buy more or make room.',
         ephemeral: true
       });
     }
 
+    if (balance < 3) {
+      return interaction.reply({ content: 'You need 3 coins to buy a card pack.', ephemeral: true });
+    }
+
+    const previous = new Set(userDeck);
     const newCards = weightedRandomCards(3);
-    const updatedDeck = [...currentDeck, ...newCards];
+    newCards.forEach(card => userDeck.push(card));
 
     decks[userId] = {
-      discordName: interaction.user.username,
-      deck: updatedDeck
+      discordName: username,
+      deck: userDeck
     };
     coinBank[userId] = balance - 3;
 
     try {
-      fs.writeFileSync(linkedDecksPath, JSON.stringify(decks, null, 2));
+      fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
       fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
     } catch (err) {
-      console.error('Failed to save updates:', err);
-      return interaction.reply({ content: 'Purchase failed. Try again.', ephemeral: true });
+      console.error('Failed saving files:', err);
+      return interaction.reply({ content: 'Failed to complete your purchase.', ephemeral: true });
     }
 
+    // Generate reveal payload
+    const revealPayload = {
+      title: 'New Card Pack Unlocked!',
+      cards: newCards.map(cardId => ({
+        cardId,
+        rarity: getCardRarity(cardId),
+        newUnlock: !previous.has(cardId)
+      })),
+      autoCloseIn: 10
+    };
+
+    const revealPath = path.resolve(`./public/data/reveal_${userId}.json`);
+    fs.writeFileSync(revealPath, JSON.stringify(revealPayload, null, 2));
+
     return interaction.reply({
-      content: `✅ You bought a card pack: ${newCards.join(', ')}\n\nPack will reveal in your UI.`,
+      content: `✅ Pack purchased! [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
       ephemeral: true
     });
   }
