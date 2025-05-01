@@ -1,10 +1,12 @@
+// routes/userStats.js
+
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 
 const router = express.Router();
 
-router.get('/stats/:id', async (req, res) => {
+router.get('/:id', async (req, res) => {
   const userId = req.params.id;
 
   try {
@@ -16,14 +18,15 @@ router.get('/stats/:id', async (req, res) => {
       fs.readFile(coinsPath, 'utf-8'),
     ]);
 
-    const decks = JSON.parse(deckDataRaw);
-    const coins = JSON.parse(coinDataRaw);
+    const deckData = JSON.parse(deckDataRaw);
+    const coinData = JSON.parse(coinDataRaw);
 
-    const userDeck = decks[userId]?.deck || [];
-    const coinCount = coins[userId] || 0;
+    const userEntry = deckData.players.find(p => p.discordId === userId);
+    const cardCount = userEntry?.deck?.length || 0;
+    const coinCount = coinData[userId] || 0;
 
     return res.json({
-      cardsOwned: userDeck.length,
+      cardsOwned: cardCount,
       coins: coinCount
     });
   } catch (err) {
