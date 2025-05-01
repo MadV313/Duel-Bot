@@ -12,6 +12,7 @@ import leaveCommand from './commands/leave.js';
 import buyCardCommand from './commands/buycard.js';
 import sellCardCommand from './commands/sellcard.js';
 import giveCardCommand from './commands/givecard.js';
+import viewDeckCommand from './commands/viewdeck.js'; // NEW
 
 config(); // Load from .env or Railway
 
@@ -23,7 +24,8 @@ const commands = [
   leaveCommand.data.toJSON(),
   buyCardCommand.data.toJSON(),
   sellCardCommand.data.toJSON(),
-  giveCardCommand.data.toJSON()
+  giveCardCommand.data.toJSON(),
+  viewDeckCommand.data.toJSON() // NEW
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
