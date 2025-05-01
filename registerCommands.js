@@ -3,7 +3,7 @@
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 
-// Import all command files
+// Import all command modules
 import practiceCommand from './commands/practice.js';
 import linkDeckCommand from './commands/linkdeck.js';
 import challengeCommand from './commands/challenge.js';
@@ -13,7 +13,7 @@ import buyCardCommand from './commands/buycard.js';
 import sellCardCommand from './commands/sellcard.js';
 import giveCardCommand from './commands/givecard.js';
 
-config(); // Load environment variables
+config(); // Load from .env or Railway
 
 const commands = [
   practiceCommand.data.toJSON(),
@@ -26,16 +26,18 @@ const commands = [
   giveCardCommand.data.toJSON()
 ];
 
-const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
     console.log('Registering slash commands...');
+
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
-    console.log('✅ Successfully registered all commands.');
+
+    console.log('✅ Successfully registered commands.');
   } catch (error) {
     console.error('❌ Failed to register commands:', error);
   }
