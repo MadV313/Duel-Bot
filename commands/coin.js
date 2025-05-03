@@ -2,14 +2,16 @@
 
 import fs from 'fs';
 import path from 'path';
+import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 import config from '../config.json';
 
 const coinBankPath = path.resolve('./data/coin_bank.json');
 
 export default {
-  name: 'coin',
-  description: 'Check your current coin balance.',
+  data: new SlashCommandBuilder()
+    .setName('coin')
+    .setDescription('Check your current coin balance.'),
 
   async execute(interaction) {
     // Restrict to #manage-cards channel
