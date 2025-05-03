@@ -24,7 +24,7 @@ import takeCardCommand from './commands/takecard.js';
 // Use DISCORD_TOKEN now (not BOT_TOKEN)
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-const commands = [
+const commandModules = [
   practiceCommand,
   linkDeckCommand,
   challengeCommand,
@@ -41,13 +41,19 @@ const commands = [
   takeCardCommand
 ];
 
-// Normalize structure in case .data exists
-const formatted = commands.map(cmd =>
-  cmd.data ? cmd.data.toJSON() : {
-    name: cmd.name,
-    description: cmd.description
+// Debug: Log which commands are valid or broken
+commandModules.forEach((cmd, index) => {
+  if (!cmd || !cmd.data || !cmd.data.name) {
+    console.warn(`⚠️ Command at index ${index} is invalid or missing .data:`, cmd);
+  } else {
+    console.log(`✅ Loaded command: /${cmd.data.name}`);
   }
-);
+});
+
+// Filter and format valid commands
+const formatted = commandModules
+  .filter(cmd => cmd && cmd.data && typeof cmd.data.toJSON === 'function')
+  .map(cmd => cmd.data.toJSON());
 
 (async () => {
   try {
