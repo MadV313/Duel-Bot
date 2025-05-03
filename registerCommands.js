@@ -2,8 +2,10 @@
 
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
+config(); // Load DISCORD_TOKEN and CLIENT_ID from .env
 
-config(); // Load environment variables
+// Your Discord Server ID (for SV13)
+const GUILD_ID = '1166441420643639348';
 
 // Import all command modules
 import practiceCommand from './commands/practice.js';
@@ -19,7 +21,7 @@ import discardCommand from './commands/discard.js';
 import coinCommand from './commands/coin.js';
 import viewLogCommand from './commands/viewlog.js';
 
-// Optional admin or utility commands
+// Optional commands (commented out until used)
 // import buildCommand from './commands/build.js';
 // import saveCommand from './commands/save.js';
 // import clearCommand from './commands/clear.js';
@@ -27,7 +29,7 @@ import viewLogCommand from './commands/viewlog.js';
 
 const commands = [
   practiceCommand.data.toJSON(),
-  linkDeckCommand.data.toJSON(), // ✅ Uses SlashCommandBuilder now
+  linkDeckCommand.data.toJSON(),
   challengeCommand.data.toJSON(),
   watchCommand.data.toJSON(),
   leaveCommand.data.toJSON(),
@@ -48,16 +50,15 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Registering slash commands...');
-    console.log('Commands to register:');
+    console.log('Registering slash commands for GUILD...');
     commands.forEach(cmd => console.log(`- /${cmd.name}`));
 
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
       { body: commands }
     );
 
-    console.log('✅ Successfully registered all commands.');
+    console.log('✅ All slash commands registered to SV13 immediately.');
   } catch (error) {
     console.error('❌ Failed to register commands:', error);
   }
