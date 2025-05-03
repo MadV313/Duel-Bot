@@ -2,6 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { SlashCommandBuilder } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
@@ -12,8 +13,9 @@ const coinBankPath = path.resolve('./data/coin_bank.json');
 const revealDir = path.resolve('./public/data');
 
 export default {
-  name: 'buycard',
-  description: 'Buy a pack of 3 cards (3 coins required)',
+  data: new SlashCommandBuilder()
+    .setName('buycard')
+    .setDescription('Buy a pack of 3 cards (3 coins required)'),
 
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
