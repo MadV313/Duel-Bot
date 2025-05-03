@@ -1,45 +1,47 @@
+// utils/tradeQueue.js
+
 import fs from 'fs';
 import path from 'path';
 
-const filePath = path.resolve('./data/trade_queue.json');
+const tradeFile = path.resolve('./data/trade_queue.json');
 
-function loadQueue() {
+// Load current queue
+export function loadQueue() {
   try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath);
-      return JSON.parse(raw);
+    if (fs.existsSync(tradeFile)) {
+      return JSON.parse(fs.readFileSync(tradeFile, 'utf8'));
     }
   } catch (err) {
-    console.error('Failed to load trade queue:', err);
+    console.error('Error loading trade queue:', err);
   }
-  return {};
+  return [];
 }
 
-function saveQueue(queue) {
+// Save queue to file
+export function saveQueue(queue) {
   try {
-    fs.writeFileSync(filePath, JSON.stringify(queue, null, 2));
+    fs.writeFileSync(tradeFile, JSON.stringify(queue, null, 2));
   } catch (err) {
-    console.error('Failed to save trade queue:', err);
+    console.error('Error saving trade queue:', err);
   }
 }
 
-export function addTrade(tradeId, data) {
+// Add new trade
+export function enqueueTrade(trade) {
   const queue = loadQueue();
-  queue[tradeId] = data;
+  queue.push(trade);
   saveQueue(queue);
 }
 
-export function getTrade(tradeId) {
-  const queue = loadQueue();
-  return queue[tradeId];
-}
-
-export function removeTrade(tradeId) {
-  const queue = loadQueue();
-  delete queue[tradeId];
+// Remove a trade by ID
+export function removeTradeById(tradeId) {
+  let queue = loadQueue();
+  queue = queue.filter(t => t.id !== tradeId);
   saveQueue(queue);
 }
 
-export function getAllTrades() {
-  return loadQueue();
+// Find a trade by ID
+export function getTradeById(tradeId) {
+  const queue = loadQueue();
+  return queue.find(t => t.id === tradeId);
 }
