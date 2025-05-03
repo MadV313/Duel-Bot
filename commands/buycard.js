@@ -86,16 +86,10 @@ export default {
       if (!fs.existsSync(revealDir)) {
         fs.mkdirSync(revealDir, { recursive: true });
       }
-      fs.writeFileSync(
-        path.join(revealDir, `reveal_${userId}.json`),
-        JSON.stringify(revealPayload, null, 2)
-      );
+      fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
     } catch (err) {
       console.error('Failed writing reveal file:', err);
-      return interaction.reply({
-        content: 'Purchase completed, but failed to prepare reveal.',
-        ephemeral: true
-      });
+      return interaction.reply({ content: 'Purchase completed, but failed to prepare reveal.', ephemeral: true });
     }
 
     return interaction.reply({
