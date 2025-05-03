@@ -1,6 +1,6 @@
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config(); // Load .env secrets
+config();
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = '1166441420643639348';
@@ -39,17 +39,26 @@ const commands = [
   takeCardCommand
 ];
 
-console.log('Loaded command modules:', commands.length);
+// DEBUG: Show imported command names
+console.log('Imported commands:', commands.map(c => c?.data?.name || '[no data]'));
 
+// Format commands and log formatting issues
 const formatted = commands
-  .map((cmd, index) => {
-    if (!cmd || !cmd.data || typeof cmd.data.toJSON !== 'function') {
-      console.warn(`⚠️ Skipped invalid command at index ${index}`);
+  .map((cmd, i) => {
+    if (!cmd || !cmd.data) {
+      console.warn(`⚠️ Command at index ${i} is missing 'data':`, cmd);
       return null;
     }
-    return cmd.data.toJSON();
+    try {
+      return cmd.data.toJSON();
+    } catch (e) {
+      console.error(`❌ Error converting command to JSON at index ${i}:`, e);
+      return null;
+    }
   })
   .filter(Boolean);
+
+console.log('Commands to register:', formatted.map(c => c.name));
 
 (async () => {
   try {
@@ -57,10 +66,11 @@ const formatted = commands
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     console.log('✅ All commands wiped successfully.');
 
-    console.log('Registering commands...');
-    formatted.forEach((cmd, i) => console.log(`  #${i + 1}: /${cmd.name}`));
+    console.log('Registering new commands...');
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+      body: formatted
+    });
 
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: formatted });
     console.log('✅ All commands registered to SV13.');
   } catch (err) {
     console.error('❌ Command registration failed:', err);
