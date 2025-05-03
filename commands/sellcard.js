@@ -2,6 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { SlashCommandBuilder } from 'discord.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 import config from '../config.json';
@@ -11,25 +12,21 @@ const coinBankPath = path.resolve('./data/coin_bank.json');
 const sellLogPath = path.resolve('./data/sell_log.json');
 
 export default {
-  name: 'sellcard',
-  description: 'Sell up to 5 cards per day for coins.',
-  options: [
-    {
-      name: 'cardid',
-      type: 3, // STRING
-      description: 'Card ID to sell (e.g. 045)',
-      required: true,
-    },
-    {
-      name: 'quantity',
-      type: 4, // INTEGER
-      description: 'How many of this card to sell (max 5/day total)',
-      required: true,
-    },
-  ],
+  data: new SlashCommandBuilder()
+    .setName('sellcard')
+    .setDescription('Sell up to 5 cards per day for coins.')
+    .addStringOption(option =>
+      option.setName('cardid')
+        .setDescription('Card ID to sell (e.g. 045)')
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option.setName('quantity')
+        .setDescription('How many of this card to sell (max 5/day total)')
+        .setRequired(true)
+    ),
 
   async execute(interaction) {
-    // Restrict to #manage-cards
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
@@ -79,7 +76,6 @@ export default {
       });
     }
 
-    // Determine payout
     const rarity = getCardRarity(cardId);
     const valuePerCard = rarity === 'Legendary' ? 1 : 0.5;
     const payout = quantity * valuePerCard;
@@ -99,7 +95,6 @@ export default {
     sellLog[userId][today] = soldToday + quantity;
     coinBank[userId] = (coinBank[userId] || 0) + payout;
 
-    // Save
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
       fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
