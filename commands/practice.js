@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import checkChannel from '../utils/checkChannel.js';
+import fetch from 'node-fetch';
 
 export const data = new SlashCommandBuilder()
   .setName('practice')
@@ -7,35 +7,37 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const allowedChannels = ['1367986446232719484']; // #battlefield
-
-  // Channel restriction
-  if (!checkChannel(interaction, allowedChannels)) return;
-
-  // Optional admin-only restriction
-  const adminRoles = ['1173049392371085392']; // Admin role
-  const trialAdminRoles = ['1184921037830373468']; // Trial Admin role
-
+  const adminRoles = ['1173049392371085392', '1184921037830373468'];
   const memberRoles = interaction.member.roles.cache.map(role => role.id);
-  const hasAccess = [...adminRoles, ...trialAdminRoles].some(roleId =>
-    memberRoles.includes(roleId)
-  );
+  const isAdmin = adminRoles.some(role => memberRoles.includes(roleId));
 
-  if (!hasAccess) {
+  if (!isAdmin) {
     return interaction.reply({
       content: 'Only admins can start a practice duel.',
       ephemeral: true
     });
   }
 
-  // Trigger duel backend logic (already wired for practice mode)
   try {
     await interaction.reply('Launching practice duel...');
 
-    // You may trigger your backend or practice duel logic here
-    // Example: call a webhook or internal function to launch duel
+    const res = await fetch('http://localhost:3000/duel/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        player1Id: interaction.user.id,
+        player2Id: 'bot'
+      })
+    });
 
+    const result = await res.json();
+    if (res.ok) {
+      await interaction.editReply('Practice duel started successfully!');
+    } else {
+      await interaction.editReply(`Failed to start practice duel: ${result.error}`);
+    }
   } catch (err) {
-    console.error('Error starting practice duel:', err);
-    interaction.editReply('An error occurred while launching the practice duel.');
+    console.error('Practice duel error:', err);
+    await interaction.editReply('An error occurred while starting the practice duel.');
   }
 }
