@@ -39,6 +39,9 @@ const commands = [
   takeCardCommand
 ];
 
+// Debug output to verify what's actually loading
+console.log('Commands loaded:', commands.map(c => c?.data?.name || c.name));
+
 const formatted = commands.map(cmd => cmd.data?.toJSON());
 
 (async () => {
