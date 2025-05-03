@@ -1,1 +1,7 @@
-run = "node server.js"
+run = "npm start"
+
+[nix]
+channel = "stable-24_05"
+
+[env]
+PORT = "3000"
