@@ -1,12 +1,14 @@
+// registerCommands.js
+
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config();
+config(); // Load DISCORD_TOKEN and CLIENT_ID from Replit secrets or .env
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = '1166441420643639348';
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-// Import all commands
+// Import all your commands
 import practiceCommand from './commands/practice.js';
 import linkDeckCommand from './commands/linkdeck.js';
 import challengeCommand from './commands/challenge.js';
@@ -39,34 +41,13 @@ const commands = [
   takeCardCommand
 ];
 
-// DEBUG: Show imported command names
-console.log('Imported commands:', commands.map(c => c?.data?.name || '[no data]'));
-
-// Format commands and log formatting issues
-const formatted = commands
-  .map((cmd, i) => {
-    if (!cmd || !cmd.data) {
-      console.warn(`⚠️ Command at index ${i} is missing 'data':`, cmd);
-      return null;
-    }
-    try {
-      return cmd.data.toJSON();
-    } catch (e) {
-      console.error(`❌ Error converting command to JSON at index ${i}:`, e);
-      return null;
-    }
-  })
-  .filter(Boolean);
-
-console.log('Commands to register:', formatted.map(c => c.name));
+const formatted = commands.map(cmd => cmd.data?.toJSON());
 
 (async () => {
   try {
-    console.log('Wiping ALL commands...');
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
-    console.log('✅ All commands wiped successfully.');
-
     console.log('Registering new commands...');
+    formatted.forEach(cmd => console.log(`- /${cmd.name}`));
+
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: formatted
     });
