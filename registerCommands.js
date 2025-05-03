@@ -1,10 +1,8 @@
-// registerCommands.js
-
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 config(); // Load BOT_TOKEN and CLIENT_ID from Railway or local .env
 
-// Your Discord Server ID (for SV13)
+// SV13 Server ID
 const GUILD_ID = '1166441420643639348';
 
 // Import all command modules
@@ -21,11 +19,13 @@ import discardCommand from './commands/discard.js';
 import coinCommand from './commands/coin.js';
 import viewLogCommand from './commands/viewlog.js';
 
-// Optional admin or utility commands
+// Optional admin commands
 // import buildCommand from './commands/build.js';
 // import saveCommand from './commands/save.js';
 // import clearCommand from './commands/clear.js';
 // import takeCardCommand from './commands/takecard.js';
+
+const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 
 const commands = [
   practiceCommand.data.toJSON(),
@@ -46,11 +46,16 @@ const commands = [
   // takeCardCommand.data.toJSON()
 ];
 
-const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
-
 (async () => {
   try {
-    console.log('Registering slash commands for GUILD...');
+    console.log('Clearing old guild commands...');
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
+      { body: [] }
+    );
+    console.log('Old commands cleared.');
+
+    console.log('Registering fresh slash commands for GUILD...');
     commands.forEach(cmd => console.log(`- /${cmd.name}`));
 
     await rest.put(
@@ -58,8 +63,8 @@ const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
       { body: commands }
     );
 
-    console.log('✅ All slash commands registered to SV13 immediately.');
+    console.log('✅ All commands registered cleanly to SV13.');
   } catch (error) {
-    console.error('❌ Failed to register commands:', error);
+    console.error('❌ Command registration failed:', error);
   }
 })();
