@@ -1,32 +1,27 @@
+// commands/deny.js
+
 import { SlashCommandBuilder } from 'discord.js';
-import { getTrade, removeTrade } from '../utils/tradeQueue.js';
+import { removeTradeOffer, getTradeOffer } from '../utils/tradeQueue.js';
 
-export default {
-  data: new SlashCommandBuilder()
-    .setName('deny')
-    .setDescription('Deny a pending trade offer')
-    .addStringOption(option =>
-      option.setName('trade_id')
-        .setDescription('ID of the trade offer to deny')
-        .setRequired(true)
-    ),
+export const data = new SlashCommandBuilder()
+  .setName('deny')
+  .setDescription('Deny a pending trade request.');
 
-  async execute(interaction) {
-    const tradeId = interaction.options.getString('trade_id');
-    const trade = getTrade(tradeId);
+export async function execute(interaction) {
+  const userId = interaction.user.id;
+  const trade = getTradeOffer(userId);
 
-    if (!trade) {
-      return interaction.reply({ content: 'Trade not found or already processed.', ephemeral: true });
-    }
-
-    if (trade.receiverId !== interaction.user.id) {
-      return interaction.reply({ content: 'You are not authorized to deny this trade.', ephemeral: true });
-    }
-
-    removeTrade(tradeId);
-
+  if (!trade) {
     return interaction.reply({
-      content: `❌ Trade denied and removed from the queue.`,
+      content: 'You have no pending trade offers to deny.',
+      ephemeral: true,
     });
   }
-};
+
+  removeTradeOffer(userId);
+
+  return interaction.reply({
+    content: `Trade denied. Offer from <@${trade.senderId}> has been removed.`,
+    ephemeral: false,
+  });
+}
