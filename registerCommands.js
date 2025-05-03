@@ -46,6 +46,12 @@ const commands = [
   // takeCardCommand
 ];
 
+// Normalize structure in case .data exists
+const formatted = commands.map(cmd => cmd.data ? cmd.data.toJSON() : {
+  name: cmd.name,
+  description: cmd.description
+});
+
 (async () => {
   try {
     console.log('Clearing old guild commands...');
@@ -56,11 +62,6 @@ const commands = [
     console.log('Old commands cleared.');
 
     console.log('Registering fresh commands for SV13...');
-    const formatted = commands.map(cmd => ({
-      name: cmd.name,
-      description: cmd.description
-    }));
-
     formatted.forEach(cmd => console.log(`- /${cmd.name}`));
 
     await rest.put(
