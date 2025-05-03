@@ -1,5 +1,3 @@
-// commands/discard.js
-
 import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
@@ -22,6 +20,9 @@ export default {
         .setDescription('Number of cards to discard')
         .setRequired(true)
     ),
+
+  name: 'discard',
+  description: 'Discard cards from your collection to free up space.',
 
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
