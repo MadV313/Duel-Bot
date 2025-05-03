@@ -3,6 +3,8 @@
 import fs from 'fs';
 import path from 'path';
 import { getCardRarity } from '../utils/cardRarity.js';
+import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
@@ -27,6 +29,14 @@ export default {
   ],
 
   async execute(interaction) {
+    // Restrict to #manage-cards
+    if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
+      return interaction.reply({
+        content: 'This command can only be used in #manage-cards.',
+        ephemeral: true
+      });
+    }
+
     const userId = interaction.user.id;
     const cardId = interaction.options.getString('cardid');
     const quantity = interaction.options.getInteger('quantity');
