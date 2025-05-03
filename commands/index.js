@@ -1,5 +1,3 @@
-// commands/index.js
-
 import practice from './practice.js';
 import linkdeck from './linkdeck.js';
 import challenge from './challenge.js';
@@ -12,6 +10,8 @@ import viewdeck from './viewdeck.js';
 import discard from './discard.js';
 import coin from './coin.js';
 import viewlog from './viewlog.js';
+import clear from './clear.js';
+import takecard from './takecard.js';
 
 export default [
   practice,
@@ -25,5 +25,7 @@ export default [
   viewdeck,
   discard,
   coin,
-  viewlog
+  viewlog,
+  clear,
+  takecard
 ];
