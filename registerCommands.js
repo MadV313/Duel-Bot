@@ -18,12 +18,8 @@ import viewDeckCommand from './commands/viewdeck.js';
 import discardCommand from './commands/discard.js';
 import coinCommand from './commands/coin.js';
 import viewLogCommand from './commands/viewlog.js';
-
-// Optional admin commands
-// import buildCommand from './commands/build.js';
-// import saveCommand from './commands/save.js';
-// import clearCommand from './commands/clear.js';
-// import takeCardCommand from './commands/takecard.js';
+import clearCommand from './commands/clear.js';
+import takeCardCommand from './commands/takecard.js';
 
 const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 
@@ -40,17 +36,17 @@ const commands = [
   discardCommand,
   coinCommand,
   viewLogCommand,
-  // buildCommand,
-  // saveCommand,
-  // clearCommand,
-  // takeCardCommand
+  clearCommand,
+  takeCardCommand
 ];
 
 // Normalize structure in case .data exists
-const formatted = commands.map(cmd => cmd.data ? cmd.data.toJSON() : {
-  name: cmd.name,
-  description: cmd.description
-});
+const formatted = commands.map(cmd =>
+  cmd.data ? cmd.data.toJSON() : {
+    name: cmd.name,
+    description: cmd.description
+  }
+);
 
 (async () => {
   try {
