@@ -2,6 +2,8 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import fetch from 'node-fetch';
+import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -14,6 +16,14 @@ export default {
     ),
 
   async execute(interaction) {
+    // Restrict to #battlefield channel
+    if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
+      return interaction.reply({
+        content: 'This command can only be used in #battlefield.',
+        ephemeral: true
+      });
+    }
+
     const challengerId = interaction.user.id;
     const opponent = interaction.options.getUser('opponent');
     const opponentId = opponent.id;
@@ -32,7 +42,6 @@ export default {
         throw new Error(result.error || 'Unknown error');
       }
 
-      // Customize the frontend UI link for loading the duel
       return interaction.reply({
         content: `Duel initialized! [Click here to duel](https://madv313.github.io/Duel-UI/index.html?player1=${challengerId}&player2=${opponentId})`,
         ephemeral: true
