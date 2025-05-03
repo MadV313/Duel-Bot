@@ -1,12 +1,25 @@
+// commands/coin.js
+
 import fs from 'fs';
 import path from 'path';
+import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 const coinBankPath = path.resolve('./data/coin_bank.json');
 
 export default {
   name: 'coin',
   description: 'Check your current coin balance.',
+
   async execute(interaction) {
+    // Restrict to #manage-cards channel
+    if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
+      return interaction.reply({
+        content: 'This command can only be used in #manage-cards.',
+        ephemeral: true
+      });
+    }
+
     const userId = interaction.user.id;
 
     let coinBank = {};
