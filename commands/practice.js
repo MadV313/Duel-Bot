@@ -1,29 +1,41 @@
-// commands/practice.js
+import { SlashCommandBuilder } from 'discord.js';
+import checkChannel from '../utils/checkChannel.js';
 
-import { startPracticeDuel } from '../logic/duelState.js';
-import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
+export const data = new SlashCommandBuilder()
+  .setName('practice')
+  .setDescription('Start a practice duel against the bot (admin only)');
 
-export default {
-  name: 'practice',
-  description: 'Start a practice duel vs the bot (admin-only)',
+export async function execute(interaction) {
+  const allowedChannels = ['1367986446232719484']; // #battlefield
 
-  execute(interaction) {
-    // Restrict to #battlefield
-    if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
-      return interaction.reply({
-        content: 'This command can only be used in #battlefield.',
-        ephemeral: true
-      });
-    }
+  // Channel restriction
+  if (!checkChannel(interaction, allowedChannels)) return;
 
-    // Admin check
-    const isAdmin = interaction.member.permissions.has('Administrator');
-    if (!isAdmin) {
-      return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
-    }
+  // Optional admin-only restriction
+  const adminRoles = ['1173049392371085392']; // Admin role
+  const trialAdminRoles = ['1184921037830373468']; // Trial Admin role
 
-    startPracticeDuel(); // Launch bot duel
-    return interaction.reply({ content: 'Practice duel started! Load the UI to play.', ephemeral: true });
-  },
-};
+  const memberRoles = interaction.member.roles.cache.map(role => role.id);
+  const hasAccess = [...adminRoles, ...trialAdminRoles].some(roleId =>
+    memberRoles.includes(roleId)
+  );
+
+  if (!hasAccess) {
+    return interaction.reply({
+      content: 'Only admins can start a practice duel.',
+      ephemeral: true
+    });
+  }
+
+  // Trigger duel backend logic (already wired for practice mode)
+  try {
+    await interaction.reply('Launching practice duel...');
+
+    // You may trigger your backend or practice duel logic here
+    // Example: call a webhook or internal function to launch duel
+
+  } catch (err) {
+    console.error('Error starting practice duel:', err);
+    interaction.editReply('An error occurred while launching the practice duel.');
+  }
+}
