@@ -2,24 +2,16 @@
 
 import fs from 'fs';
 import path from 'path';
-import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 import config from '../config.json';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
 export default {
-  data: new SlashCommandBuilder()
-    .setName('link')
-    .setDescription('Link your Discord ID to your current deck.')
-    .addStringOption(option =>
-      option.setName('deck')
-        .setDescription('Paste your deck JSON string here')
-        .setRequired(true)
-    ),
+  name: 'link',
+  description: 'Link your Discord ID to your current deck.',
 
   async execute(interaction) {
-    // Restrict to #manage-cards
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
@@ -44,7 +36,6 @@ export default {
       });
     }
 
-    // Load existing decks
     let existing = { players: [] };
     try {
       if (fs.existsSync(linkedDecksPath)) {
@@ -55,7 +46,6 @@ export default {
       console.error("Failed to read linked decks:", err);
     }
 
-    // Update or add new player
     const index = existing.players.findIndex(p => p.discordId === userId);
     if (index >= 0) {
       existing.players[index].deck = deck;
@@ -64,12 +54,11 @@ export default {
       existing.players.push({ discordId: userId, discordName: userName, deck });
     }
 
-    // Save changes
     try {
       fs.writeFileSync(linkedDecksPath, JSON.stringify(existing, null, 2));
 
       return interaction.reply({
-        content: `✅ Deck linked successfully! Please visit the [Hub UI](https://your-frontend-domain.com) to continue.\n\n**To auto-link your account in the UI, this message includes:**\n\`DISCORD_ID:${userId}\``,
+        content: `✅ Deck linked successfully! Please visit the [Hub UI](https://your-frontend-domain.com).\n\n\`DISCORD_ID:${userId}\``,
         ephemeral: true
       });
     } catch (err) {
