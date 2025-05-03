@@ -4,6 +4,8 @@ import { SlashCommandBuilder } from 'discord.js';
 import { duelState } from '../logic/duelState.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -11,6 +13,14 @@ export default {
     .setDescription('Join the current duel as a spectator'),
 
   async execute(interaction) {
+    // Restrict to #battlefield
+    if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
+      return interaction.reply({
+        content: 'This command can only be used in #battlefield.',
+        ephemeral: true
+      });
+    }
+
     const userId = interaction.user.id;
     const username = interaction.user.username;
 
