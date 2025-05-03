@@ -12,13 +12,10 @@ const coinBankPath = path.resolve('./data/coin_bank.json');
 const revealDir = path.resolve('./public/data');
 
 export default {
-  data: {
-    name: 'buycard',
-    description: 'Buy a pack of 3 cards (3 coins required)'
-  },
+  name: 'buycard',
+  description: 'Buy a pack of 3 cards (3 coins required)',
 
   async execute(interaction) {
-    // Enforce correct channel usage
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
@@ -75,7 +72,6 @@ export default {
       return interaction.reply({ content: 'Failed to complete your purchase.', ephemeral: true });
     }
 
-    // Construct reveal payload
     const revealPayload = {
       title: 'New Card Pack Unlocked!',
       cards: newCards.map(cardId => ({
@@ -90,10 +86,16 @@ export default {
       if (!fs.existsSync(revealDir)) {
         fs.mkdirSync(revealDir, { recursive: true });
       }
-      fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
+      fs.writeFileSync(
+        path.join(revealDir, `reveal_${userId}.json`),
+        JSON.stringify(revealPayload, null, 2)
+      );
     } catch (err) {
       console.error('Failed writing reveal file:', err);
-      return interaction.reply({ content: 'Purchase completed, but failed to prepare reveal.', ephemeral: true });
+      return interaction.reply({
+        content: 'Purchase completed, but failed to prepare reveal.',
+        ephemeral: true
+      });
     }
 
     return interaction.reply({
