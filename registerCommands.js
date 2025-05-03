@@ -1,6 +1,6 @@
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config(); // Load BOT_TOKEN and CLIENT_ID from Railway or local .env
+config(); // Load DISCORD_TOKEN and CLIENT_ID from Replit secrets or local .env
 
 // SV13 Server ID
 const GUILD_ID = '1166441420643639348';
@@ -21,7 +21,8 @@ import viewLogCommand from './commands/viewlog.js';
 import clearCommand from './commands/clear.js';
 import takeCardCommand from './commands/takecard.js';
 
-const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+// Use DISCORD_TOKEN now (not BOT_TOKEN)
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 const commands = [
   practiceCommand,
