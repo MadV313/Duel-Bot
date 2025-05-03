@@ -1,11 +1,17 @@
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config(); // Load DISCORD_TOKEN and CLIENT_ID from Replit secrets or local .env
+import fs from 'fs';
+import path from 'path';
 
-// SV13 Server ID
+import { REST, Routes } from 'discord.js';
+import { config } from 'dotenv';
+config(); // Load .env or Replit secrets
+
+const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = '1166441420643639348';
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-// Import all command modules
+// Explicit command imports
 import practiceCommand from './commands/practice.js';
 import linkDeckCommand from './commands/linkdeck.js';
 import challengeCommand from './commands/challenge.js';
@@ -21,10 +27,8 @@ import viewLogCommand from './commands/viewlog.js';
 import clearCommand from './commands/clear.js';
 import takeCardCommand from './commands/takecard.js';
 
-// Use DISCORD_TOKEN now (not BOT_TOKEN)
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
-const commandModules = [
+// Convert to JSON
+const commands = [
   practiceCommand,
   linkDeckCommand,
   challengeCommand,
@@ -41,38 +45,19 @@ const commandModules = [
   takeCardCommand
 ];
 
-// Debug: Log which commands are valid or broken
-commandModules.forEach((cmd, index) => {
-  if (!cmd || !cmd.data || !cmd.data.name) {
-    console.warn(`⚠️ Command at index ${index} is invalid or missing .data:`, cmd);
-  } else {
-    console.log(`✅ Loaded command: /${cmd.data.name}`);
-  }
-});
-
-// Filter and format valid commands
-const formatted = commandModules
-  .filter(cmd => cmd && cmd.data && typeof cmd.data.toJSON === 'function')
-  .map(cmd => cmd.data.toJSON());
+const formatted = commands.map(cmd =>
+  cmd.data ? cmd.data.toJSON() : { name: cmd.name, description: cmd.description }
+);
 
 (async () => {
   try {
     console.log('Wiping ALL commands...');
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
-      { body: [] }
-    );
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     console.log('✅ All commands wiped successfully.');
 
-    console.log('Registering fresh commands for SV13...');
-    formatted.forEach(cmd => console.log(`- /${cmd.name}`));
-
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
-      { body: formatted }
-    );
-
-    console.log('✅ All commands registered cleanly to SV13.');
+    console.log('Registering new commands...');
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: formatted });
+    console.log(`✅ ${formatted.length} commands registered to SV13.`);
   } catch (error) {
     console.error('❌ Command registration failed:', error);
   }
