@@ -1,5 +1,3 @@
-// commands/givecard.js
-
 import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
@@ -21,13 +19,14 @@ export default {
         .setRequired(true)
     ),
 
+  name: 'givecard',
+  description: 'Admin: Give a card pack to a player',
+
   async execute(interaction) {
-    // Check admin role
     if (!interaction.memberPermissions.has('Administrator')) {
       return interaction.reply({ content: 'Only admins can use this command.', ephemeral: true });
     }
 
-    // Restrict to #manage-cards
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
@@ -65,7 +64,6 @@ export default {
       return interaction.reply({ content: 'Could not update the player’s deck.', ephemeral: true });
     }
 
-    // Reveal file generation
     const revealPayload = {
       title: 'New Card Pack Unlocked!',
       cards: newCards.map(cardId => ({
