@@ -1,10 +1,3 @@
-// commands/challenge.js
-
-import { SlashCommandBuilder } from 'discord.js';
-import fetch from 'node-fetch';
-import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
-
 export default {
   data: new SlashCommandBuilder()
     .setName('challenge')
@@ -14,6 +7,9 @@ export default {
         .setDescription('Select the player to challenge')
         .setRequired(true)
     ),
+
+  name: 'challenge',
+  description: 'Challenge another player to a duel',
 
   async execute(interaction) {
     // Restrict to #battlefield channel
@@ -28,7 +24,6 @@ export default {
     const opponent = interaction.options.getUser('opponent');
     const opponentId = opponent.id;
 
-    // POST to backend to initialize duel state
     try {
       const response = await fetch('https://duel-bot-backend-production.up.railway.app/duel/start', {
         method: 'POST',
