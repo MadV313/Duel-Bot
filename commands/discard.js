@@ -2,31 +2,28 @@
 
 import fs from 'fs';
 import path from 'path';
+import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 
 export default {
-  name: 'discard',
-  description: 'Discard cards from your collection to free up space.',
-  options: [
-    {
-      name: 'cardid',
-      type: 3, // STRING
-      description: 'Card ID to discard (e.g. 045)',
-      required: true,
-    },
-    {
-      name: 'quantity',
-      type: 4, // INTEGER
-      description: 'Number of cards to discard',
-      required: true,
-    }
-  ],
+  data: new SlashCommandBuilder()
+    .setName('discard')
+    .setDescription('Discard cards from your collection to free up space.')
+    .addStringOption(option =>
+      option.setName('cardid')
+        .setDescription('Card ID to discard (e.g. 045)')
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option.setName('quantity')
+        .setDescription('Number of cards to discard')
+        .setRequired(true)
+    ),
 
   async execute(interaction) {
-    // Restrict to #manage-cards
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
