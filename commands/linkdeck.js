@@ -2,6 +2,8 @@
 
 import fs from 'fs';
 import path from 'path';
+import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
@@ -18,6 +20,14 @@ export default {
   ],
 
   execute(interaction) {
+    // Restrict to #manage-cards
+    if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
+      return interaction.reply({
+        content: 'This command can only be used in #manage-cards.',
+        ephemeral: true
+      });
+    }
+
     const userId = interaction.user.id;
     const userName = interaction.user.username;
     const deckInput = interaction.options.getString('deck');
