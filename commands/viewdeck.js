@@ -10,10 +10,10 @@ export default {
     .setDescription('View your current deck in the Deck Builder UI'),
 
   async execute(interaction) {
-    // Restrict to #manage-cards
-    if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
+    // Restrict to #manage-deck
+    if (!isAllowedChannel(interaction.channelId, ['manageDeck'])) {
       return interaction.reply({
-        content: 'This command can only be used in #manage-cards.',
+        content: 'This command can only be used in #manage-deck.',
         ephemeral: true
       });
     }
