@@ -28,22 +28,22 @@ import viewLogCommand from './commands/viewlog.js';
 const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 
 const commands = [
-  practiceCommand.data.toJSON(),
-  linkDeckCommand.data.toJSON(),
-  challengeCommand.data.toJSON(),
-  watchCommand.data.toJSON(),
-  leaveCommand.data.toJSON(),
-  buyCardCommand.data.toJSON(),
-  sellCardCommand.data.toJSON(),
-  giveCardCommand.data.toJSON(),
-  viewDeckCommand.data.toJSON(),
-  discardCommand.data.toJSON(),
-  coinCommand.data.toJSON(),
-  viewLogCommand.data.toJSON(),
-  // buildCommand.data.toJSON(),
-  // saveCommand.data.toJSON(),
-  // clearCommand.data.toJSON(),
-  // takeCardCommand.data.toJSON()
+  practiceCommand,
+  linkDeckCommand,
+  challengeCommand,
+  watchCommand,
+  leaveCommand,
+  buyCardCommand,
+  sellCardCommand,
+  giveCardCommand,
+  viewDeckCommand,
+  discardCommand,
+  coinCommand,
+  viewLogCommand,
+  // buildCommand,
+  // saveCommand,
+  // clearCommand,
+  // takeCardCommand
 ];
 
 (async () => {
@@ -55,12 +55,17 @@ const commands = [
     );
     console.log('Old commands cleared.');
 
-    console.log('Registering fresh slash commands for GUILD...');
-    commands.forEach(cmd => console.log(`- /${cmd.name}`));
+    console.log('Registering fresh commands for SV13...');
+    const formatted = commands.map(cmd => ({
+      name: cmd.name,
+      description: cmd.description
+    }));
+
+    formatted.forEach(cmd => console.log(`- /${cmd.name}`));
 
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
-      { body: commands }
+      { body: formatted }
     );
 
     console.log('✅ All commands registered cleanly to SV13.');
