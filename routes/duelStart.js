@@ -13,7 +13,6 @@ router.post('/start', async (req, res) => {
     const raw = await fs.readFile(dataPath, 'utf-8');
     const deckMap = JSON.parse(raw);
 
-    // Convert to fast lookup
     const deckById = {};
     for (const entry of deckMap.players) {
       deckById[entry.discordId] = entry.deck.map(id => ({
@@ -32,7 +31,9 @@ router.post('/start', async (req, res) => {
     // Launch duel
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck);
 
-    return res.status(200).json({ message: 'Duel started.' });
+    const uiUrl = `https://your-frontend.com/duel.html?player=${player1Id}`;
+    return res.status(200).json({ message: 'Duel started.', url: uiUrl });
+
   } catch (err) {
     console.error("Failed to load duel:", err);
     return res.status(500).json({ error: 'Duel start failed.', details: err.message });
