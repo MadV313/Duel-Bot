@@ -5,6 +5,8 @@ import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
+import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const revealDir = path.resolve('./public/data');
@@ -20,8 +22,17 @@ export default {
     ),
 
   async execute(interaction) {
+    // Check admin role
     if (!interaction.memberPermissions.has('Administrator')) {
       return interaction.reply({ content: 'Only admins can use this command.', ephemeral: true });
+    }
+
+    // Restrict to #manage-cards
+    if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
+      return interaction.reply({
+        content: 'This command can only be used in #manage-cards.',
+        ephemeral: true
+      });
     }
 
     const user = interaction.options.getUser('user');
