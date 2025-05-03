@@ -1,13 +1,12 @@
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config();
+config(); // Load .env secrets
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = '1166441420643639348';
-
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-// Import all command modules
+// Import all commands
 import practiceCommand from './commands/practice.js';
 import linkDeckCommand from './commands/linkdeck.js';
 import challengeCommand from './commands/challenge.js';
@@ -40,7 +39,8 @@ const commands = [
   takeCardCommand
 ];
 
-// Normalize .data and validate
+console.log('Loaded command modules:', commands.length);
+
 const formatted = commands
   .map((cmd, index) => {
     if (!cmd || !cmd.data || typeof cmd.data.toJSON !== 'function') {
@@ -57,13 +57,10 @@ const formatted = commands
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
     console.log('✅ All commands wiped successfully.');
 
-    console.log(`Registering ${formatted.length} commands to SV13...`);
-    formatted.forEach((cmd, i) => console.log(`  #${i + 1} /${cmd.name}`));
+    console.log('Registering commands...');
+    formatted.forEach((cmd, i) => console.log(`  #${i + 1}: /${cmd.name}`));
 
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-      body: formatted
-    });
-
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: formatted });
     console.log('✅ All commands registered to SV13.');
   } catch (err) {
     console.error('❌ Command registration failed:', err);
