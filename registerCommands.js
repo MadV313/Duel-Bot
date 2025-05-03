@@ -23,6 +23,8 @@ import coinCommand from './commands/coin.js';
 import viewLogCommand from './commands/viewlog.js';
 import clearCommand from './commands/clear.js';
 import takeCardCommand from './commands/takecard.js';
+import acceptCommand from './commands/accept.js';
+import denyCommand from './commands/deny.js';
 
 const commands = [
   practiceCommand,
@@ -38,7 +40,9 @@ const commands = [
   coinCommand,
   viewLogCommand,
   clearCommand,
-  takeCardCommand
+  takeCardCommand,
+  acceptCommand,
+  denyCommand
 ];
 
 const formatted = commands.map(cmd => cmd.data?.toJSON());
