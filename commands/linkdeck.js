@@ -2,24 +2,23 @@
 
 import fs from 'fs';
 import path from 'path';
+import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 import config from '../config.json';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
 export default {
-  name: 'link',
-  description: 'Link your Discord ID to your current deck.',
-  options: [
-    {
-      name: 'deck',
-      type: 3, // STRING
-      description: 'Paste your deck JSON string here',
-      required: true,
-    },
-  ],
+  data: new SlashCommandBuilder()
+    .setName('link')
+    .setDescription('Link your Discord ID to your current deck.')
+    .addStringOption(option =>
+      option.setName('deck')
+        .setDescription('Paste your deck JSON string here')
+        .setRequired(true)
+    ),
 
-  execute(interaction) {
+  async execute(interaction) {
     // Restrict to #manage-cards
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
