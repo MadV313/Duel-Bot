@@ -2,7 +2,7 @@
 
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config(); // Load DISCORD_TOKEN and CLIENT_ID from .env
+config(); // Load BOT_TOKEN and CLIENT_ID from Railway or local .env
 
 // Your Discord Server ID (for SV13)
 const GUILD_ID = '1166441420643639348';
@@ -21,7 +21,7 @@ import discardCommand from './commands/discard.js';
 import coinCommand from './commands/coin.js';
 import viewLogCommand from './commands/viewlog.js';
 
-// Optional commands (commented out until used)
+// Optional admin or utility commands
 // import buildCommand from './commands/build.js';
 // import saveCommand from './commands/save.js';
 // import clearCommand from './commands/clear.js';
@@ -46,7 +46,7 @@ const commands = [
   // takeCardCommand.data.toJSON()
 ];
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
 
 (async () => {
   try {
