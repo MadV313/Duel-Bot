@@ -51,12 +51,12 @@ const formatted = commands.map(cmd =>
 
 (async () => {
   try {
-    console.log('Clearing old guild commands...');
+    console.log('Wiping ALL commands...');
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID),
       { body: [] }
     );
-    console.log('Old commands cleared.');
+    console.log('✅ All commands wiped successfully.');
 
     console.log('Registering fresh commands for SV13...');
     formatted.forEach(cmd => console.log(`- /${cmd.name}`));
