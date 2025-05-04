@@ -1,5 +1,6 @@
 // commands/index.js
 
+import fs from 'fs';
 import accept from './accept.js';
 import buycard from './buycard.js';
 import challenge from './challenge.js';
@@ -20,6 +21,13 @@ import victory from './victory.js';
 import viewdeck from './viewdeck.js';
 import viewlog from './viewlog.js';
 import watch from './watch.js';
+
+// Register slash commands once on boot if not already done
+const flagPath = './.commands_registered';
+if (!fs.existsSync(flagPath)) {
+  const register = await import('../registerCommands.js');
+  fs.writeFileSync(flagPath, 'done');
+}
 
 export default [
   accept,
