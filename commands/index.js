@@ -12,6 +12,11 @@ import coin from './coin.js';
 import viewlog from './viewlog.js';
 import clear from './clear.js';
 import takecard from './takecard.js';
+import accept from './accept.js';
+import deny from './deny.js';
+import save from './save.js';
+import forfeit from './forfeit.js';
+import victory from './victory.js';
 
 export default [
   practice,
@@ -27,5 +32,10 @@ export default [
   coin,
   viewlog,
   clear,
-  takecard
+  takecard,
+  accept,
+  deny,
+  save,
+  forfeit,
+  victory
 ];
