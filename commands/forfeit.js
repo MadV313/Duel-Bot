@@ -14,7 +14,6 @@ export default {
     .setDescription('Forfeit the current duel'),
 
   async execute(interaction) {
-    // Only allowed in #battlefield
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in #battlefield.',
@@ -23,17 +22,20 @@ export default {
     }
 
     const userId = interaction.user.id;
-    const opponentId = duelState.player1Id === userId ? duelState.player2Id : duelState.player1Id;
+    const player1Id = duelState.players?.player1?.discordId;
+    const player2Id = duelState.players?.player2?.discordId;
 
-    if (!duelState.player1Id || !duelState.player2Id) {
+    if (!player1Id || !player2Id) {
       return interaction.reply({ content: 'There is no active duel to forfeit.', ephemeral: true });
     }
 
-    if (![duelState.player1Id, duelState.player2Id].includes(userId)) {
+    if (![player1Id, player2Id].includes(userId)) {
       return interaction.reply({ content: 'You are not currently in a duel.', ephemeral: true });
     }
 
-    // Update stats
+    const opponentId = userId === player1Id ? player2Id : player1Id;
+
+    // Update win/loss stats
     try {
       const raw = await fs.readFile(playerStatsPath, 'utf-8');
       const stats = JSON.parse(raw);
@@ -49,8 +51,8 @@ export default {
       console.error('Failed to update player stats:', err);
     }
 
-    // End duel and transition to summary
-    endLiveDuel(userId === duelState.player1Id ? duelState.player2Id : duelState.player1Id);
+    // End duel
+    await endLiveDuel(opponentId);
 
     return interaction.reply({
       content: `❌ <@${userId}> has forfeited the duel. <@${opponentId}> is the winner!`,
