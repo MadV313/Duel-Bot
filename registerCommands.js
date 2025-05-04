@@ -2,7 +2,7 @@
 
 import { REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
-config(); // Load DISCORD_TOKEN and CLIENT_ID from .env or Replit secrets
+config(); // Load DISCORD_TOKEN and CLIENT_ID from .env
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = '1166441420643639348';
@@ -55,7 +55,7 @@ const commands = [
 
 const formatted = commands.map(cmd => cmd.data?.toJSON());
 
-(async () => {
+export default async function registerCommands() {
   try {
     console.log('Registering new commands...');
     formatted.forEach(cmd => console.log(`- /${cmd.name}`));
@@ -68,4 +68,4 @@ const formatted = commands.map(cmd => cmd.data?.toJSON());
   } catch (err) {
     console.error('❌ Command registration failed:', err);
   }
-})();
+}
