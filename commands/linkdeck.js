@@ -53,10 +53,9 @@ export default {
       console.error("Failed to read linked decks:", err);
     }
 
-    const index = existing.players.findIndex(p => p.discordId === userId);
-    if (index >= 0) {
-      existing.players[index].deck = deck;
-      existing.players[index].discordName = userName;
+    const existingIndex = existing.players.findIndex(p => p.discordId === userId);
+    if (existingIndex >= 0) {
+      existing.players[existingIndex] = { discordId: userId, discordName: userName, deck };
     } else {
       existing.players.push({ discordId: userId, discordName: userName, deck });
     }
@@ -65,7 +64,7 @@ export default {
       fs.writeFileSync(linkedDecksPath, JSON.stringify(existing, null, 2));
 
       return interaction.reply({
-        content: `✅ Deck linked successfully! Please visit the [Hub UI](https://your-frontend-domain.com).\n\n\`DISCORD_ID:${userId}\``,
+        content: `✅ Deck linked successfully!\nVisit the [Hub UI](https://your-frontend-domain.com) to begin.`,
         ephemeral: true
       });
     } catch (err) {
@@ -75,5 +74,5 @@ export default {
         ephemeral: true
       });
     }
-  },
+  }
 };
