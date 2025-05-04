@@ -1,6 +1,9 @@
+// commands/practice.js
+
 import { SlashCommandBuilder } from 'discord.js';
 import fetch from 'node-fetch';
 import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -15,7 +18,7 @@ export default {
       });
     }
 
-    // Optional: restrict to admin users only
+    // Admin-only usage check
     const adminRoles = ['Admin', 'Trial Admin'];
     const memberRoles = interaction.member.roles.cache.map(role => role.name);
     if (!memberRoles.some(r => adminRoles.includes(r))) {
@@ -28,24 +31,27 @@ export default {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const result = await fetch('http://localhost:3000/start', {
+      const response = await fetch(`${config.backendUrl}/duel/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           player1Id: interaction.user.id,
           player2Id: 'bot'
         })
-      }).then(res => res.json());
+      });
 
-      if (result.error) {
-        throw new Error(result.error);
+      const result = await response.json();
+
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Unknown backend error');
       }
 
-      return interaction.editReply(`Practice duel started: [Click to open Duel UI](${result.url})`);
+      const duelUrl = `${config.frontendUrl}/duel.html?player=${interaction.user.id}`;
+      return interaction.editReply(`Practice duel started: [Click to open Duel UI](${duelUrl})`);
     } catch (err) {
       console.error('Failed to start practice duel:', err);
       return interaction.editReply({
-        content: 'Error starting practice duel. Try again later.',
+        content: 'Error starting practice duel. Please try again later.',
         ephemeral: true
       });
     }
