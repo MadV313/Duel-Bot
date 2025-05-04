@@ -1,6 +1,10 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import fetch from 'node-fetch';
-import config from '../config.json';
+import {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 
 export default {
@@ -22,40 +26,28 @@ export default {
       });
     }
 
-    const challengerId = interaction.user.id;
+    const challenger = interaction.user;
     const opponent = interaction.options.getUser('opponent');
-    const opponentId = opponent.id;
 
-    if (challengerId === opponentId) {
+    if (challenger.id === opponent.id) {
       return interaction.reply({ content: 'You cannot challenge yourself.', ephemeral: true });
     }
 
-    try {
-      const response = await fetch(`${config.backendUrl}/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          player1Id: challengerId,
-          player2Id: opponentId
-        })
-      });
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`accept_${challenger.id}`)
+        .setLabel('Accept')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`deny_${challenger.id}`)
+        .setLabel('Deny')
+        .setStyle(ButtonStyle.Danger)
+    );
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        console.error('Duel start error:', result.error || result);
-        return interaction.reply({ content: `Failed to start duel: ${result.error}`, ephemeral: true });
-      }
-
-      const duelUrl = `${config.frontendUrl}/duel.html?player=${challengerId}`;
-      return interaction.reply({
-        content: `⚔️ <@${challengerId}> has challenged <@${opponentId}> to a duel!\n[Click here to join the duel](${duelUrl})`,
-        allowedMentions: { users: [challengerId, opponentId] }
-      });
-
-    } catch (error) {
-      console.error('Challenge command failed:', error);
-      return interaction.reply({ content: 'Internal error starting duel.', ephemeral: true });
-    }
+    return interaction.reply({
+      content: `⚔️ <@${challenger.id}> has challenged <@${opponent.id}> to a duel!`,
+      components: [row],
+      allowedMentions: { users: [challenger.id, opponent.id] }
+    });
   }
 };
