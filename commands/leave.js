@@ -5,7 +5,6 @@ import { duelState } from '../logic/duelState.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -13,7 +12,7 @@ export default {
     .setDescription('Leave the duel spectator view'),
 
   async execute(interaction) {
-    // Restrict to #battlefield
+    // Enforce channel restriction
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in #battlefield.',
@@ -24,12 +23,11 @@ export default {
     const userId = interaction.user.id;
     const username = interaction.user.username;
 
-    const before = duelState.spectators.length;
+    const wasSpectating = duelState.spectators.includes(userId);
     duelState.spectators = duelState.spectators.filter(id => id !== userId);
-    const removed = before > duelState.spectators.length;
 
-    if (removed) {
-      // Log spectator leave
+    if (wasSpectating) {
+      const logPath = path.resolve('./data/logs/current_duel_log.json');
       const logEntry = {
         timestamp: new Date().toISOString(),
         action: 'left',
@@ -37,28 +35,27 @@ export default {
         username
       };
 
-      const logPath = path.join(process.cwd(), 'data', 'logs', 'current_duel_log.json');
-
       try {
+        await fs.mkdir(path.dirname(logPath), { recursive: true });
+
         let existing = [];
         try {
           const raw = await fs.readFile(logPath, 'utf-8');
           existing = JSON.parse(raw);
-        } catch (readErr) {
-          // Safe if file doesn't exist yet
+        } catch {
+          // No log yet — skip silently
         }
 
         existing.push(logEntry);
-        await fs.mkdir(path.dirname(logPath), { recursive: true });
         await fs.writeFile(logPath, JSON.stringify(existing, null, 2));
-      } catch (writeErr) {
-        console.error('Failed to write spectator log:', writeErr);
+      } catch (err) {
+        console.error('Spectator leave log failed:', err);
       }
     }
 
     return interaction.reply({
-      content: removed
-        ? 'You have left the spectator view.'
+      content: wasSpectating
+        ? '✅ You have left the duel spectator view.'
         : 'You were not watching the duel.',
       ephemeral: true
     });
