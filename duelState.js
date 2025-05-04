@@ -69,6 +69,31 @@ export async function startLiveDuel(player1Id, player2Id, player1Deck, player2De
   duelState.spectators = [];
 }
 
+// END DUEL CLEANUP
+export async function endLiveDuel(winnerId) {
+  const summary = {
+    winner: winnerId,
+    timestamp: new Date().toISOString(),
+    player1: duelState.players?.player1?.discordId || null,
+    player2: duelState.players?.player2?.discordId || null
+  };
+
+  try {
+    const summaryPath = path.join(process.cwd(), 'public', 'data', 'duel_summary.json');
+    await fs.mkdir(path.dirname(summaryPath), { recursive: true });
+    await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2));
+    console.log('Duel summary saved.');
+  } catch (err) {
+    console.error('Failed to write duel summary:', err);
+  }
+
+  // Reset duelState
+  duelState.players = {};
+  duelState.currentPlayer = null;
+  duelState.winner = winnerId;
+  duelState.spectators = [];
+}
+
 // ARCHIVE PREVIOUS SPECTATORS
 async function archiveSpectators() {
   if (!duelState.spectators || duelState.spectators.length === 0) return;
