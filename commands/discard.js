@@ -21,9 +21,6 @@ export default {
         .setRequired(true)
     ),
 
-  name: 'discard',
-  description: 'Discard cards from your collection to free up space.',
-
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
@@ -55,6 +52,10 @@ export default {
 
     if (owned < quantity) {
       return interaction.reply({ content: `You only have ${owned} copies of that card.`, ephemeral: true });
+    }
+
+    if (!decks[userId]) {
+      return interaction.reply({ content: 'You do not have a linked collection to discard from.', ephemeral: true });
     }
 
     let removed = 0;
