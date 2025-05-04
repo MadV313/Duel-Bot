@@ -10,7 +10,6 @@ export default {
     .setDescription('View your current deck in the Deck Builder UI'),
 
   async execute(interaction) {
-    // Restrict to #manage-deck
     if (!isAllowedChannel(interaction.channelId, ['manageDeck'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-deck.',
@@ -19,7 +18,7 @@ export default {
     }
 
     const userId = interaction.user.id;
-    const url = `https://your-username.github.io/Deck-Builder-UI/?user=${userId}`;
+    const url = `${config.frontendUrl}/Deck-Builder-UI/?user=${userId}`;
 
     return interaction.reply({
       content: `Here’s your current deck: [Open Deck Builder](${url})`,
