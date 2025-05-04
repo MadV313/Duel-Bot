@@ -1,5 +1,3 @@
-// commands/buycard.js
-
 import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
@@ -88,14 +86,17 @@ export default {
       if (!fs.existsSync(revealDir)) {
         fs.mkdirSync(revealDir, { recursive: true });
       }
-      fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
+      const revealPath = path.join(revealDir, `reveal_${userId}.json`);
+      fs.writeFileSync(revealPath, JSON.stringify(revealPayload, null, 2));
     } catch (err) {
       console.error('Failed writing reveal file:', err);
       return interaction.reply({ content: 'Purchase completed, but failed to prepare reveal.', ephemeral: true });
     }
 
+    const revealLink = `${config.frontendUrl}/packReveal.html?user=${userId}`;
+
     return interaction.reply({
-      content: `✅ Pack purchased! [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
+      content: `✅ Pack purchased! [Click to reveal](${revealLink})`,
       ephemeral: true
     });
   }
