@@ -25,6 +25,9 @@ import clearCommand from './commands/clear.js';
 import takeCardCommand from './commands/takecard.js';
 import acceptCommand from './commands/accept.js';
 import denyCommand from './commands/deny.js';
+import saveCommand from './commands/save.js';
+import forfeitCommand from './commands/forfeit.js';
+import victoryCommand from './commands/victory.js'; // Optional but ready
 
 const commands = [
   practiceCommand,
@@ -42,7 +45,10 @@ const commands = [
   clearCommand,
   takeCardCommand,
   acceptCommand,
-  denyCommand
+  denyCommand,
+  saveCommand,
+  forfeitCommand,
+  victoryCommand
 ];
 
 const formatted = commands.map(cmd => cmd.data?.toJSON());
