@@ -19,7 +19,7 @@ export default {
     return interaction.reply({
       content: `**SV13 RuleBook**  
 Access the complete guide, commands, and synergy combos here:  
-**[Open RuleBook](https://your-github-username.github.io/duel-bot-hub/sv13_rulebook_final_gritty.html)**  
+**[Open RuleBook](https://madv313.github.io/Duel-Bot/sv13_rulebook_final_gritty.html)**  
   
 **Contents Include:**  
 • Deck Linking (start here)  
