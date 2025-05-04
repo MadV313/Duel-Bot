@@ -1,0 +1,148 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SV13 TCG RULEBOOK</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 40px;
+      font-family: 'Courier New', monospace;
+      color: #f2f2f2;
+      background: #1a1a1a url('https://i.imgur.com/nD1wr6T.jpeg') no-repeat center center fixed;
+      background-size: cover;
+      overflow-y: scroll;
+    }
+
+    h1 {
+      font-family: 'Impact', 'Arial Black', sans-serif;
+      color: #e0e0e0;
+      background: rgba(0,0,0,0.4);
+      padding: 10px;
+      border: 2px solid #444;
+      border-radius: 8px;
+    
+      text-align: center;
+      font-size: 3em;
+      margin-bottom: 30px;
+      color: #d0d0d0;
+      text-shadow: 2px 2px 5px #000;
+    }
+
+    h2 {
+      font-family: 'Impact', 'Arial Black', sans-serif;
+      color: #ffcc00;
+      text-shadow: 1px 1px 3px #000;
+    
+      border-bottom: 2px solid #555;
+      padding-bottom: 5px;
+      margin-top: 40px;
+      color: #ffffff;
+    }
+
+    p, li {
+      line-height: 1.6;
+      font-size: 1.05em;
+    }
+
+    ul {
+      margin-left: 20px;
+    }
+
+    .section {
+      background: rgba(0, 0, 0, 0.65);
+      padding: 20px;
+      margin-bottom: 30px;
+      border-radius: 6px;
+    }
+
+    code {
+      background: #333;
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>SV13 TCG RULEBOOK</h1>
+
+  <div class="section">
+    <h2>1. Linking Your Deck</h2>
+    <p>Before doing anything else, you must link your saved deck to your Discord account. Use:</p>
+    <code>/link deck [your JSON array]</code>
+    <p>This enables your deck for duels, card collection tracking, and trading.</p>
+  </div>
+
+  <div class="section">
+    <h2>2. Card Collection</h2>
+    <p>All players start with 0 cards. You can earn cards by purchasing packs or receiving admin rewards.</p>
+    <ul>
+      <li><code>/buycard</code> — Purchase a 3-card pack for 3 coins</li>
+      <li><code>/givecard</code> — Admin-only card distribution</li>
+      <li><code>/sellcard</code> — Sell up to 5 cards per day</li>
+      <li><code>/discard</code> — Destroy cards to manage your collection (max: 250 cards)</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>3. Deck Building</h2>
+    <p>Use the Deck Builder UI to create your active duel deck (20–40 cards). Once finalized:</p>
+    <ul>
+      <li><code>/save</code> — Save your deck for PvP use</li>
+      <li><code>/viewdeck</code> — View your deck via the builder</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>4. Trading</h2>
+    <ul>
+      <li><code>/trade @user</code> — Propose a trade of up to 3 cards</li>
+      <li><code>/accept</code> — Accept a pending trade</li>
+      <li><code>/deny</code> — Deny a trade offer</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>5. Dueling</h2>
+    <ul>
+      <li><code>/challenge @player</code> — Initiate a duel (must both have linked decks)</li>
+      <li><code>/practice</code> — Start a bot duel (Admins only)</li>
+      <li><code>/forfeit</code> — End a duel early</li>
+      <li><code>/victory</code> — Admin-only manual win declaration</li>
+    </ul>
+    <p>Duels are turn-based and use animated card visuals and effects. Each player starts at 200 HP.</p>
+  </div>
+
+  <div class="section">
+    <h2>6. Spectator System</h2>
+    <ul>
+      <li><code>/watch</code> — View an ongoing duel</li>
+      <li><code>/leave</code> — Leave spectator view</li>
+      <li><code>/viewlog</code> — View who’s currently spectating</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>7. Commands Overview</h2>
+    <p>General:</p>
+    <ul>
+      <li><code>/coin</code> — View your coin balance</li>
+      <li><code>/clear</code> — Admin-only message clear</li>
+      <li><code>/takecard</code> — Admin-only card removal</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>8. Card Synergy Examples</h2>
+    <ul>
+      <li><strong>Rangefinder + Longhorn:</strong> View opponent’s hand, then follow up with a precision sniper attack.</li>
+      <li><strong>Pox Vial + Infected Howler:</strong> Poison synergy combo that triggers draw + area debuff.</li>
+      <li><strong>Bear Trap + Combat Boots:</strong> Nullifies trap damage based on gear tag mechanics.</li>
+    </ul>
+  </div>
+
+</body>
+</html>
