@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
@@ -17,16 +17,10 @@ export default {
       option.setName('user')
         .setDescription('User to receive card pack')
         .setRequired(true)
-    ),
-
-  name: 'givecard',
-  description: 'Admin: Give a card pack to a player',
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator), // Proper admin check
 
   async execute(interaction) {
-    if (!interaction.memberPermissions.has('Administrator')) {
-      return interaction.reply({ content: 'Only admins can use this command.', ephemeral: true });
-    }
-
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
@@ -36,6 +30,7 @@ export default {
 
     const user = interaction.options.getUser('user');
     const userId = user.id;
+    const username = user.username;
 
     let decks = {};
     try {
@@ -48,12 +43,20 @@ export default {
     }
 
     const userDeck = decks[userId]?.deck || [];
+
+    if (userDeck.length >= 250) {
+      return interaction.reply({
+        content: 'Player must have fewer than 248 cards to receive a pack.',
+        ephemeral: true
+      });
+    }
+
     const previous = new Set(userDeck);
     const newCards = weightedRandomCards(3);
     newCards.forEach(card => userDeck.push(card));
 
     decks[userId] = {
-      discordName: user.username,
+      discordName: username,
       deck: userDeck
     };
 
@@ -81,12 +84,13 @@ export default {
       fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
     } catch (err) {
       console.error('Failed to write reveal file:', err);
-      return interaction.reply({ content: 'Failed to prepare pack reveal file.', ephemeral: true });
+      return interaction.reply({ content: 'Failed to prepare pack reveal.', ephemeral: true });
     }
 
     return interaction.reply({
-      content: `✅ Cards given to ${user.username}. [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
-      ephemeral: true
+      content: `✅ Cards given to <@${userId}>! [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
+      ephemeral: false,
+      allowedMentions: { users: [userId] }
     });
   }
 };
