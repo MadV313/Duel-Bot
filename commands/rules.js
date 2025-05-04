@@ -6,7 +6,7 @@ import { isAllowedChannel } from '../utils/checkChannel.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('rules')
-    .setDescription('View the full SV13 CCG rulebook and combo reference'),
+    .setDescription('View the SV13 RuleBook and combo reference'),
 
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards', 'manageDeck', 'battlefield'])) {
@@ -17,16 +17,17 @@ export default {
     }
 
     return interaction.reply({
-      content: `**SV13 CCG Rulebook & Guide**\n
-View the complete rulebook, commands, and combo list below:
-**[Open Rulebook](https://your-github-pages-url.com/rulebook.html)**\n
-Includes:
-• Game Setup & Deck Rules  
-• All Bot Commands  
+      content: `**SV13 RuleBook**  
+Access the complete guide, commands, and synergy combos here:  
+**[Open RuleBook](https://your-github-username.github.io/duel-bot-hub/sv13_rulebook_final_gritty.html)**  
+  
+**Contents Include:**  
+• Deck Linking (start here)  
+• Game Setup & Rules  
+• Full Bot Command List  
 • Card Types & Effects  
-• Duel Mechanics  
-• All 10 Synergy Combos  
-• Admin Tools  
+• Duel Mechanics & Turn Flow  
+• 10 Verified Synergy Combos  
 • Practice Rules & Spectator Mode`,
       ephemeral: true
     });
