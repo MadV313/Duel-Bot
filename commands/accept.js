@@ -1,15 +1,50 @@
-// commands/accept.js
-
 import { SlashCommandBuilder } from 'discord.js';
 import { getTradeOffer, removeTradeOffer } from '../utils/tradeQueue.js';
 import { updatePlayerDeck } from '../utils/deckUtils.js';
 import fs from 'fs';
+import fetch from 'node-fetch';
+import config from '../config.json';
 
 export const data = new SlashCommandBuilder()
   .setName('accept')
-  .setDescription('Accept a pending trade request.');
+  .setDescription('Accept a pending trade request or duel challenge.');
 
 export async function execute(interaction) {
+  // Handle duel button interaction
+  if (interaction.isButton() && interaction.customId.startsWith('accept_')) {
+    const challengerId = interaction.customId.split('_')[1];
+    const opponentId = interaction.user.id;
+
+    try {
+      const response = await fetch(`${config.backendUrl}/duel/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          player1Id: challengerId,
+          player2Id: opponentId
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Duel start failed:', result);
+        return interaction.reply({ content: `Failed to start duel: ${result.error}`, ephemeral: true });
+      }
+
+      const duelUrl = `${config.frontendUrl}/duel.html?player=${opponentId}`;
+      return interaction.update({
+        content: `✅ <@${opponentId}> has accepted the duel!\n[Click here to join the battle](${duelUrl})`,
+        components: []
+      });
+
+    } catch (err) {
+      console.error('Error starting duel:', err);
+      return interaction.reply({ content: 'An error occurred starting the duel.', ephemeral: true });
+    }
+  }
+
+  // Fallback: trade logic
   const userId = interaction.user.id;
   const trade = getTradeOffer(userId);
 
@@ -22,23 +57,18 @@ export async function execute(interaction) {
   const senderDeck = playerDecks[trade.senderId]?.deck || [];
   const receiverDeck = playerDecks[userId]?.deck || [];
 
-  // Validate sender still owns the cards
   for (const card of trade.cardsFromSender) {
-    const index = senderDeck.indexOf(card);
-    if (index === -1) {
+    if (!senderDeck.includes(card)) {
       return interaction.reply({ content: 'Trade failed: sender no longer owns the offered cards.', ephemeral: true });
     }
   }
 
-  // Validate receiver still owns the requested cards
   for (const card of trade.cardsFromReceiver) {
-    const index = receiverDeck.indexOf(card);
-    if (index === -1) {
+    if (!receiverDeck.includes(card)) {
       return interaction.reply({ content: 'Trade failed: you no longer own the requested cards.', ephemeral: true });
     }
   }
 
-  // Execute trade
   trade.cardsFromSender.forEach(card => {
     senderDeck.splice(senderDeck.indexOf(card), 1);
     receiverDeck.push(card);
@@ -49,11 +79,8 @@ export async function execute(interaction) {
     senderDeck.push(card);
   });
 
-  // Save updated decks
   updatePlayerDeck(trade.senderId, senderDeck);
   updatePlayerDeck(userId, receiverDeck);
-
-  // Remove trade offer
   removeTradeOffer(userId);
 
   return interaction.reply({
