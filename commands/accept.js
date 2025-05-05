@@ -3,7 +3,6 @@ import { getTradeOffer, removeTradeOffer } from '../utils/tradeQueue.js';
 import { updatePlayerDeck } from '../utils/deckUtils.js';
 import fs from 'fs';
 import fetch from 'node-fetch';
-import config from '../config.json';
 
 export const data = new SlashCommandBuilder()
   .setName('accept')
@@ -16,7 +15,7 @@ export async function execute(interaction) {
     const opponentId = interaction.user.id;
 
     try {
-      const response = await fetch(`${config.backendUrl}/duel/start`, {
+      const response = await fetch(`${process.env.BACKEND_URL}/duel/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -32,7 +31,7 @@ export async function execute(interaction) {
         return interaction.reply({ content: `Failed to start duel: ${result.error}`, ephemeral: true });
       }
 
-      const duelUrl = `${config.frontendUrl}/duel.html?player=${opponentId}`;
+      const duelUrl = `${process.env.FRONTEND_URL}/duel.html?player=${opponentId}`;
       return interaction.update({
         content: `✅ <@${opponentId}> has accepted the duel!\n[Click here to join the battle](${duelUrl})`,
         components: []
