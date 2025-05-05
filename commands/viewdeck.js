@@ -2,7 +2,6 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -18,7 +17,7 @@ export default {
     }
 
     const userId = interaction.user.id;
-    const url = `${config.frontendUrl}/Deck-Builder-UI/?user=${userId}`;
+    const url = `${process.env.FRONTEND_URL}/Deck-Builder-UI/?user=${userId}`;
 
     return interaction.reply({
       content: `Here’s your current deck: [Open Deck Builder](${url})`,
