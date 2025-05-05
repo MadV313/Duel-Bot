@@ -1,11 +1,9 @@
 // registerCommands.js
 
 import { REST, Routes } from 'discord.js';
-import { config } from 'dotenv';
-config(); // Load DISCORD_TOKEN and CLIENT_ID from .env
 
 const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = '1166441420643639348';
+const GUILD_ID = process.env.GUILD_ID;
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 // Alphabetically import all commands
