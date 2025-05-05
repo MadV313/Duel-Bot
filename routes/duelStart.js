@@ -31,7 +31,7 @@ router.post('/start', async (req, res) => {
     // Launch duel
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck);
 
-    const uiUrl = `https://your-frontend.com/duel.html?player=${player1Id}`;
+    const uiUrl = `${process.env.FRONTEND_URL}/duel.html?player=${player1Id}`;
     return res.status(200).json({ message: 'Duel started.', url: uiUrl });
 
   } catch (err) {
