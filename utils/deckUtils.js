@@ -6,24 +6,30 @@ import path from 'path';
 const decksPath = path.join(process.cwd(), 'data', 'linked_decks.json');
 
 /**
- * Updates a player's deck data in linked_decks.json
+ * Updates a player's deck or metadata in linked_decks.json
  * @param {string} userId - The Discord user ID
- * @param {object} update - An object with fields to update (e.g., deck, collection, coins)
+ * @param {object} update - Fields to update (e.g., deck, coins, collection)
  */
 export function updatePlayerDeck(userId, update) {
   try {
-    const data = JSON.parse(fs.readFileSync(decksPath, 'utf8'));
+    let data = { players: [] };
 
-    if (!data[userId]) {
-      data[userId] = {
-        deck: [],
-        collection: [],
-        coins: 0
-      };
+    if (fs.existsSync(decksPath)) {
+      data = JSON.parse(fs.readFileSync(decksPath, 'utf8'));
     }
 
-    // Merge updates into player object
-    Object.assign(data[userId], update);
+    const playerIndex = data.players.findIndex(p => p.discordId === userId);
+
+    if (playerIndex !== -1) {
+      // Merge updates into existing player
+      data.players[playerIndex] = {
+        ...data.players[playerIndex],
+        ...update
+      };
+    } else {
+      // Add new player
+      data.players.push({ discordId: userId, ...update });
+    }
 
     fs.writeFileSync(decksPath, JSON.stringify(data, null, 2));
     console.log(`Updated deck data for user ${userId}`);
