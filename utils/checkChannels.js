@@ -1,10 +1,22 @@
-export default function checkChannel(interaction, allowedChannelIds) {
-  if (!allowedChannelIds.includes(interaction.channelId)) {
-    interaction.reply({
-      content: `You can only use this command in designated channels.`,
-      ephemeral: true
-    });
-    return false;
+// utils/checkChannel.js
+
+const allowedChannels = {
+  manageCards: ['1367977677658656868'],   // #manage-cards
+  manageDeck: ['1368023905964658760'],    // #manage-deck
+  battlefield: ['1367986446232719484'],   // #battlefield
+  adminTools: ['1368023977519222895']     // #admin-tools
+};
+
+/**
+ * Check if the interaction is in an allowed channel group
+ * @param {string} channelId - Discord channel ID
+ * @param {string[]} groups - Names like ['manageCards', 'battlefield']
+ * @returns {boolean}
+ */
+export function isAllowedChannel(channelId, groups) {
+  for (const group of groups) {
+    const allowed = allowedChannels[group];
+    if (allowed?.includes(channelId)) return true;
   }
-  return true;
+  return false;
 }
