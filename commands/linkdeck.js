@@ -4,7 +4,6 @@ import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
@@ -64,7 +63,7 @@ export default {
       fs.writeFileSync(linkedDecksPath, JSON.stringify(existing, null, 2));
 
       return interaction.reply({
-        content: `✅ Deck linked successfully!\nVisit the [Hub UI](https://your-frontend-domain.com) to begin.`,
+        content: `✅ Deck linked successfully!\nVisit the [Hub UI](${process.env.FRONTEND_URL}) to begin.`,
         ephemeral: true
       });
     } catch (err) {
