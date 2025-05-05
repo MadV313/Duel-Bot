@@ -1,0 +1,48 @@
+{
+  "bot_token": "MTM2Njk2Njc5MzQzNjAwNDQzMg.GZaLLx.GpSrUX-B2ZYp8E473KEZkh78jSMd9eTGDSJu7g",
+  "founder_id": "1173052585830264832",
+  "admin_role_ids": [
+    "1173049392371085392",
+    "1184921037830373468"
+  ],
+  "channel_ids": {
+    "economy": "1173028001085145198",
+    "admin": "1368023977519222895",
+    "manage_cards": "1367977677658656868",
+    "manage_deck": "1368023905964658760",
+    "battlefield": "1367986446232719484"
+  },
+  "ui_urls": {
+    "hub": "https://madv313.github.io/HUB-UI/",
+    "card_collection": "https://madv313.github.io/Card-Collection-UI/",
+    "pack_reveal": "https://madv313.github.io/Pack-Reveal-UI/",
+    "deck_builder": "https://madv313.github.io/Deck-Builder-UI/",
+    "stats_leaderboard": "https://madv313.github.io/Stats-Leaderboard-UI/",
+    "duel_summary": "https://madv313.github.io/Duel-Summary-UI/",
+    "spectator_view": "https://madv313.github.io/Spectator-View-UI/",
+    "duel_ui": "https://madv313.github.io/Duel-UI/"
+  },
+  "economy_rules": {
+    "card_pack_cost": 3,
+    "daily_buy_limit": 5,
+    "daily_sell_limit": 5,
+    "card_sell_values": {
+      "Common": 0.5,
+      "Uncommon": 0.5,
+      "Rare": 0.5,
+      "Legendary": 1
+    },
+    "rarity_weights": {
+      "Common": 5,
+      "Uncommon": 3,
+      "Rare": 2,
+      "Legendary": 1
+    },
+    "collection_max": 250,
+    "collection_warning_threshold": 247,
+    "collection_warning_message": "You must have a maximum of 247 cards in your collection to buy more or make room."
+  },
+  "pack_reveal": {
+    "dm_message": "Your new card pack is ready! View it here: https://madv313.github.io/Pack-Reveal-UI/"
+  }
+}
