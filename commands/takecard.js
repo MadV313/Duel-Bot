@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 
