@@ -4,7 +4,6 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const revealDir = path.resolve('./public/data');
@@ -88,7 +87,7 @@ export default {
     }
 
     return interaction.reply({
-      content: `✅ Cards given to <@${userId}>! [Click to reveal](https://your-frontend-domain.com/packReveal.html?user=${userId})`,
+      content: `✅ Cards given to <@${userId}>! [Click to reveal](${process.env.FRONTEND_URL}/packReveal.html?user=${userId})`,
       ephemeral: false,
       allowedMentions: { users: [userId] }
     });
