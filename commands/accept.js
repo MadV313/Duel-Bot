@@ -5,46 +5,77 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import config from '../config.json';
 
+const coinBankPath = './data/coin_bank.json';
+
 export const data = new SlashCommandBuilder()
   .setName('accept')
   .setDescription('Accept a pending trade request or duel challenge.');
 
 export async function execute(interaction) {
-  // Handle duel button interaction
+  // Handle duel acceptance via button
   if (interaction.isButton() && interaction.customId.startsWith('accept_')) {
-    const challengerId = interaction.customId.split('_')[1];
+    const parts = interaction.customId.split('_');
+    const challengerId = parts[1];
+    const wager = parseInt(parts[2]) || 0;
     const opponentId = interaction.user.id;
 
+    // Load coin bank
+    let coinBank = {};
     try {
-      const response = await fetch(`${config.ui_urls.duel_ui}/duel/start`, {
+      if (fs.existsSync(coinBankPath)) {
+        coinBank = JSON.parse(fs.readFileSync(coinBankPath));
+      }
+    } catch (err) {
+      console.error('Failed to read coin bank:', err);
+      return interaction.reply({ content: 'Could not verify coin balances.', ephemeral: true });
+    }
+
+    const challengerCoins = coinBank[challengerId] || 0;
+    const opponentCoins = coinBank[opponentId] || 0;
+
+    if (challengerCoins < wager || opponentCoins < wager) {
+      return interaction.update({
+        content: `❌ One or both players lack the ${wager} coins needed for this wager.`,
+        components: []
+      });
+    }
+
+    // Deduct wager temporarily (will refund or reward after duel)
+    coinBank[challengerId] -= wager;
+    coinBank[opponentId] -= wager;
+    fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
+
+    // Start the duel
+    try {
+      const response = await fetch(`${config.backend_urls.duel_start}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           player1Id: challengerId,
-          player2Id: opponentId
+          player2Id: opponentId,
+          wager
         })
       });
 
       const result = await response.json();
 
-      if (!response.ok) {
-        console.error('Duel start failed:', result);
-        return interaction.reply({ content: `Failed to start duel: ${result.error}`, ephemeral: true });
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Backend failed to start duel.');
       }
 
       const duelUrl = `${config.ui_urls.duel_ui}/duel.html?player=${opponentId}`;
       return interaction.update({
-        content: `✅ <@${opponentId}> has accepted the duel!\n[Click here to join the battle](${duelUrl})`,
+        content: `✅ <@${opponentId}> has accepted the duel! Wager: ${wager} coins each.\n[Click to join the battle](${duelUrl})`,
         components: []
       });
 
     } catch (err) {
-      console.error('Error starting duel:', err);
-      return interaction.reply({ content: 'An error occurred starting the duel.', ephemeral: true });
+      console.error('Duel start error:', err);
+      return interaction.reply({ content: 'Failed to initiate duel. Try again later.', ephemeral: true });
     }
   }
 
-  // Fallback: trade logic
+  // Fallback: Trade logic
   const userId = interaction.user.id;
   const trade = getTradeOffer(userId);
 
@@ -53,7 +84,6 @@ export async function execute(interaction) {
   }
 
   const playerDecks = JSON.parse(fs.readFileSync('./data/linked_decks.json'));
-
   const senderDeck = playerDecks[trade.senderId]?.deck || [];
   const receiverDeck = playerDecks[userId]?.deck || [];
 
