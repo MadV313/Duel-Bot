@@ -5,8 +5,15 @@ export function rotateDuelLog() {
   const logsDir = path.resolve('./data/logs');
   const currentLogPath = path.join(logsDir, 'current_duel_log.json');
 
+  // Ensure logs directory exists
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true }); // Create the logs directory if it doesn't exist
+  }
+
+  // If no current log exists, we return early
   if (!fs.existsSync(currentLogPath)) {
-    return; // No log yet to rotate
+    console.log('No current duel log to rotate.');
+    return;
   }
 
   try {
@@ -21,6 +28,7 @@ export function rotateDuelLog() {
     fs.writeFileSync(currentLogPath, '[]');
     console.log(`✅ Duel log rotated: ${archiveName}`);
   } catch (err) {
-    console.error('❌ Failed to rotate duel log:', err);
+    console.error('❌ Failed to rotate duel log:', err.message);
+    console.error(err.stack); // More detailed error trace for debugging
   }
 }
