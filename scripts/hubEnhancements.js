@@ -1,3 +1,5 @@
+import { config } from './config.js';
+
 function showToast(message) {
   const toast = document.createElement('div');
   toast.textContent = message;
@@ -60,11 +62,11 @@ async function loadPlayerStats() {
   }
 
   try {
-    const res = await fetch(`https://duel-bot-backend-production.up.railway.app/user/${userId}`);
+    const res = await fetch(`${config.backend_url}/user/${userId}`);
     if (!res.ok) throw new Error('Player not found');
 
     const data = await res.json();
-    document.getElementById('cardCount').textContent = `${data.cardsOwned} / 127`;
+    document.getElementById('cardCount').textContent = `${data.cardsOwned} / ${config.max_cards}`;
     document.getElementById('coinCount').textContent = data.coins;
   } catch (err) {
     console.error('Failed to load user stats:', err);
