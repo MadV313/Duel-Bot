@@ -1,3 +1,5 @@
+// commands/takecard.js
+
 import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
@@ -27,7 +29,6 @@ export default {
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
-    // Restrict to #manage-cards
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
         content: 'This command can only be used in #manage-cards.',
@@ -41,30 +42,36 @@ export default {
     const quantity = interaction.options.getInteger('quantity');
 
     if (quantity < 1) {
-      return interaction.reply({ content: 'You must remove at least 1 card.', ephemeral: true });
+      return interaction.reply({
+        content: 'You must remove at least 1 card.',
+        ephemeral: true
+      });
     }
 
     let decks = {};
     try {
       if (fs.existsSync(decksPath)) {
-        decks = JSON.parse(fs.readFileSync(decksPath));
+        decks = JSON.parse(fs.readFileSync(decksPath, 'utf-8'));
       }
     } catch (err) {
       console.error('Error loading decks:', err);
-      return interaction.reply({ content: 'Failed to load deck data.', ephemeral: true });
-    }
-
-    const userDeck = decks[userId]?.deck || [];
-    const owned = userDeck.filter(c => c === cardId).length;
-
-    if (owned < quantity) {
       return interaction.reply({
-        content: `Player only owns ${owned} of card #${cardId}.`,
+        content: 'Failed to load player decks.',
         ephemeral: true
       });
     }
 
-    // Remove cards
+    const userDeck = decks[userId]?.deck || [];
+    const ownedCount = userDeck.filter(c => c === cardId).length;
+
+    if (ownedCount < quantity) {
+      return interaction.reply({
+        content: `Player only owns ${ownedCount}x of card #${cardId}.`,
+        ephemeral: true
+      });
+    }
+
+    // Remove specified quantity
     let removed = 0;
     decks[userId].deck = userDeck.filter(c => {
       if (c === cardId && removed < quantity) {
@@ -77,12 +84,15 @@ export default {
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
-      console.error('Failed to update deck:', err);
-      return interaction.reply({ content: 'Could not save updated deck.', ephemeral: true });
+      console.error('Failed to write updated deck:', err);
+      return interaction.reply({
+        content: 'Could not save the updated deck.',
+        ephemeral: true
+      });
     }
 
     return interaction.reply({
-      content: `✅ Removed ${quantity}x card #${cardId} from ${user.username}.`,
+      content: `✅ Removed ${quantity}x card #${cardId} from <@${userId}>.`,
       ephemeral: true
     });
   }
