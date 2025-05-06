@@ -1,20 +1,19 @@
 // bot.js
 
 import { Client, GatewayIntentBits, Events, Collection } from 'discord.js';
-import { config } from 'dotenv';
+import { config as dotenvConfig } from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import config from './config.json' assert { type: 'json' };
 
-config(); // Load DISCORD_TOKEN from .env or Replit secrets
+dotenvConfig(); // Load from .env
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-// Store commands in a Collection
 client.commands = new Collection();
 
-// Dynamically read all command files from the /commands folder
 const commandsPath = path.join(process.cwd(), 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 
@@ -52,4 +51,6 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// Securely pull the token name from config.json, fallback if needed
+const tokenEnvName = config.token_env || 'DISCORD_TOKEN';
+client.login(process.env[tokenEnvName]);
