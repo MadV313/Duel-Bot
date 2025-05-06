@@ -3,7 +3,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { duelState } from '../logic/duelState.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -11,7 +10,6 @@ export default {
     .setDescription('View all users currently spectating the duel'),
 
   async execute(interaction) {
-    // Restrict to #battlefield
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in #battlefield.',
