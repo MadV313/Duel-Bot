@@ -2,6 +2,7 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -19,7 +20,7 @@ export default {
     return interaction.reply({
       content: `**SV13 RuleBook**  
 Access the complete guide, commands, and synergy combos here:  
-**[Open RuleBook](https://madv313.github.io/Duel-Bot/sv13_rulebook_final_gritty.html)**  
+**[Open RuleBook](${config.ui_urls.rulebook_url})**  
   
 **Contents Include:**  
 • Deck Linking (start here)  
