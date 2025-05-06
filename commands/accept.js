@@ -1,3 +1,5 @@
+// commands/accept.js
+
 import { SlashCommandBuilder } from 'discord.js';
 import { getTradeOffer, removeTradeOffer } from '../utils/tradeQueue.js';
 import { updatePlayerDeck } from '../utils/deckUtils.js';
@@ -19,7 +21,6 @@ export async function execute(interaction) {
     const wager = parseInt(parts[2]) || 0;
     const opponentId = interaction.user.id;
 
-    // Load coin bank
     let coinBank = {};
     try {
       if (fs.existsSync(coinBankPath)) {
@@ -35,17 +36,17 @@ export async function execute(interaction) {
 
     if (challengerCoins < wager || opponentCoins < wager) {
       return interaction.update({
-        content: `❌ One or both players lack the ${wager} coins needed for this wager.`,
+        content: `❌ One or both players lack the ${wager} coins required for this wager.`,
         components: []
       });
     }
 
-    // Deduct wager temporarily (will refund or reward after duel)
+    // Deduct coins from both players
     coinBank[challengerId] -= wager;
     coinBank[opponentId] -= wager;
     fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
 
-    // Start the duel
+    // Call backend to start duel
     try {
       const response = await fetch(`${config.backend_urls.duel_start}`, {
         method: 'POST',
@@ -60,25 +61,27 @@ export async function execute(interaction) {
       const result = await response.json();
 
       if (!response.ok || result.error) {
-        throw new Error(result.error || 'Backend failed to start duel.');
+        throw new Error(result.error || 'Failed to initialize duel backend.');
       }
 
       const duelUrl = `${config.ui_urls.duel_ui}/duel.html?player=${opponentId}`;
       return interaction.update({
-        content: `✅ <@${opponentId}> has accepted the duel! Wager: ${wager} coins each.\n[Click to join the battle](${duelUrl})`,
+        content: `✅ <@${opponentId}> accepted the duel! Wager: ${wager} coins each.\n[Click to battle](${duelUrl})`,
         components: []
       });
 
     } catch (err) {
-      console.error('Duel start error:', err);
-      return interaction.reply({ content: 'Failed to initiate duel. Try again later.', ephemeral: true });
+      console.error('Duel init error:', err);
+      return interaction.reply({
+        content: 'Duel could not be started due to a backend error.',
+        ephemeral: true
+      });
     }
   }
 
-  // Fallback: Trade logic
+  // Fallback: Trade system
   const userId = interaction.user.id;
   const trade = getTradeOffer(userId);
-
   if (!trade) {
     return interaction.reply({ content: 'You have no pending trade offers.', ephemeral: true });
   }
@@ -89,13 +92,13 @@ export async function execute(interaction) {
 
   for (const card of trade.cardsFromSender) {
     if (!senderDeck.includes(card)) {
-      return interaction.reply({ content: 'Trade failed: sender no longer owns the offered cards.', ephemeral: true });
+      return interaction.reply({ content: 'Trade failed: sender no longer owns one of the offered cards.', ephemeral: true });
     }
   }
 
   for (const card of trade.cardsFromReceiver) {
     if (!receiverDeck.includes(card)) {
-      return interaction.reply({ content: 'Trade failed: you no longer own the requested cards.', ephemeral: true });
+      return interaction.reply({ content: 'Trade failed: you no longer own one of the requested cards.', ephemeral: true });
     }
   }
 
@@ -114,6 +117,6 @@ export async function execute(interaction) {
   removeTradeOffer(userId);
 
   return interaction.reply({
-    content: `Trade accepted! Cards exchanged successfully between <@${userId}> and <@${trade.senderId}>.`,
+    content: `✅ Trade accepted! Cards exchanged between <@${userId}> and <@${trade.senderId}>.`,
   });
 }
