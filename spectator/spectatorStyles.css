@@ -1,0 +1,130 @@
+/* spectatorStyles.css */
+
+/* Global body styles */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #222;
+    color: white;
+    overflow-x: hidden;
+}
+
+/* Container for the spectator UI */
+.spectator-container {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 15px;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    max-height: 100vh;
+    overflow-y: auto;
+}
+
+/* Title for the spectator view */
+.spectator-title {
+    font-size: 28px;
+    text-align: center;
+    margin-bottom: 20px;
+    text-shadow: 0 0 5px rgba(255, 255, 255, 0.7);
+}
+
+/* General section styling */
+.section {
+    margin-bottom: 30px;
+}
+
+/* Player list section (showing players in the duel) */
+.players-section {
+    margin-bottom: 20px;
+}
+
+.players-list {
+    list-style: none;
+    padding: 0;
+    font-size: 18px;
+}
+
+.players-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid #555;
+}
+
+/* Displaying duel status (live, pause, etc.) */
+.duel-status {
+    font-size: 18px;
+    text-align: center;
+    padding: 10px;
+    background-color: #333;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+/* Event log area (key duel events, actions, etc.) */
+.key-events {
+    margin-top: 30px;
+    font-size: 16px;
+}
+
+.key-events h2 {
+    font-size: 22px;
+    text-decoration: underline;
+    margin-bottom: 10px;
+}
+
+.key-events ul {
+    list-style: none;
+    padding: 0;
+}
+
+.key-events li {
+    margin: 5px 0;
+    padding: 6px;
+    background-color: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+}
+
+/* Wager outcome display */
+.wager-section {
+    margin-top: 20px;
+    display: none;
+}
+
+.coin-container {
+    width: 40px;
+    height: 40px;
+    background: url('path/to/coin-animation.gif') no-repeat center;
+    background-size: contain;
+    animation: spin 1.5s linear infinite;
+    margin-bottom: 10px;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 768px) {
+    .spectator-container {
+        padding: 15px;
+    }
+
+    .spectator-title {
+        font-size: 24px;
+    }
+
+    .players-list li {
+        font-size: 16px;
+    }
+
+    .key-events h2 {
+        font-size: 18px;
+    }
+
+    .key-events li {
+        font-size: 14px;
+    }
+}
+
+/* Animations */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
