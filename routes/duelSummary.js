@@ -26,7 +26,13 @@ router.get('/:duelId', async (req, res) => {
 router.post('/save', async (req, res) => {
   const summary = req.body;
 
-  if (!summary || !summary.duelId || !summary.players || !summary.winner) {
+  if (
+    !summary ||
+    typeof summary.duelId !== 'string' ||
+    typeof summary.winner !== 'string' ||
+    typeof summary.players !== 'object' ||
+    !['player1', 'player2'].includes(summary.winner)
+  ) {
     return res.status(400).json({ error: 'Missing or invalid summary data.' });
   }
 
@@ -35,8 +41,14 @@ router.post('/save', async (req, res) => {
     await fs.mkdir(summaryDir, { recursive: true });
 
     const filePath = path.join(summaryDir, `${summary.duelId}.json`);
-    await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
+    try {
+      await fs.access(filePath);
+      return res.status(409).json({ error: 'Summary already exists.' });
+    } catch {
+      // Continue only if file does not exist
+    }
 
+    await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
     res.status(200).json({ message: 'Summary saved.' });
   } catch (err) {
     console.error('Error saving summary:', err);
