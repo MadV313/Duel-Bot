@@ -1,5 +1,3 @@
-// revealPack.js
-
 document.addEventListener('DOMContentLoaded', async () => {
   const container = document.getElementById('cardContainer');
   const countdownEl = document.getElementById('countdown');
@@ -7,9 +5,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toast = document.getElementById('toast');
 
   try {
-    const res = await fetch('/data/mock_pack_reveal.json');
+    // Fetch the actual card data from the backend route /packReveal
+    const res = await fetch('/packReveal');  // Corrected the path here
     const cards = await res.json();
 
+    // Display the cards
     cards.forEach((card, i) => {
       const wrapper = document.createElement('div');
       wrapper.className = 'card-wrapper';
