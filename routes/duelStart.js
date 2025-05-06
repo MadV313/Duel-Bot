@@ -3,12 +3,22 @@
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import { startLiveDuel } from '../logic/duelState.js';
+import { startLiveDuel, duelState } from '../logic/duelState.js';
+import { v4 as uuidv4 } from 'uuid';
+import coreCards from '../data/CoreMasterReference.json' assert { type: 'json' };
 
 const router = express.Router();
 
 router.post('/start', async (req, res) => {
   const { player1Id, player2Id, wager = 0 } = req.body;
+
+  // Prevent launching if duel already active
+  if (
+    duelState.players?.player1?.deck.length ||
+    duelState.players?.player2?.deck.length
+  ) {
+    return res.status(409).json({ error: 'A duel is already in progress.' });
+  }
 
   try {
     const dataPath = path.join(process.cwd(), 'data', 'linked_decks.json');
@@ -33,11 +43,13 @@ router.post('/start', async (req, res) => {
       });
     }
 
-    // Launch duel with wager
+    // Launch duel
+    const duelId = uuidv4();
+    duelState.duelId = duelId;
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager);
 
     const uiUrl = `${process.env.FRONTEND_URL}/duel.html?player=${player1Id}`;
-    return res.status(200).json({ message: 'Duel started.', url: uiUrl });
+    return res.status(200).json({ message: 'Duel started.', url: uiUrl, duelId });
   } catch (err) {
     console.error('Failed to load duel:', err);
     return res.status(500).json({ error: 'Duel start failed.', details: err.message });
@@ -45,10 +57,17 @@ router.post('/start', async (req, res) => {
 });
 
 function generateBotDeck() {
-  return Array.from({ length: 30 }, (_, i) => ({
-    cardId: String(i + 1).padStart(3, '0'),
-    isFaceDown: false
-  }));
+  const eligible = coreCards.filter(
+    c => ['Common', 'Uncommon'].includes(c.rarity) && c.card_id !== '000'
+  );
+
+  const botDeck = [];
+  while (botDeck.length < 30) {
+    const pick = eligible[Math.floor(Math.random() * eligible.length)];
+    botDeck.push({ cardId: pick.card_id, isFaceDown: false });
+  }
+
+  return botDeck;
 }
 
 export default router;
