@@ -25,7 +25,8 @@ import watch from './watch.js';
 // Register slash commands once on boot if not already done
 const flagPath = './.commands_registered';
 if (!fs.existsSync(flagPath)) {
-  const register = await import('../registerCommands.js');
+  const { default: register } = await import('../registerCommands.js');
+  await register(); // <-- ensure register is actually called
   fs.writeFileSync(flagPath, 'done');
 }
 
