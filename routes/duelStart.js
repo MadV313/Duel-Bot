@@ -1,3 +1,5 @@
+// routes/duelStart.js
+
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
@@ -6,7 +8,7 @@ import { startLiveDuel } from '../logic/duelState.js';
 const router = express.Router();
 
 router.post('/start', async (req, res) => {
-  const { player1Id, player2Id } = req.body;
+  const { player1Id, player2Id, wager = 0 } = req.body;
 
   try {
     const dataPath = path.join(process.cwd(), 'data', 'linked_decks.json');
@@ -22,20 +24,22 @@ router.post('/start', async (req, res) => {
     }
 
     const player1Deck = deckById[player1Id];
-    const player2Deck = player2Id === 'bot' ? generateBotDeck() : deckById[player2Id];
+    const player2Deck =
+      player2Id === 'bot' ? generateBotDeck() : deckById[player2Id];
 
     if (!player1Deck || !player2Deck) {
-      return res.status(400).json({ error: 'One or both decks not found for the given player IDs.' });
+      return res.status(400).json({
+        error: 'One or both decks not found for the given player IDs.'
+      });
     }
 
-    // Launch duel
-    startLiveDuel(player1Id, player2Id, player1Deck, player2Deck);
+    // Launch duel with wager
+    startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager);
 
     const uiUrl = `${process.env.FRONTEND_URL}/duel.html?player=${player1Id}`;
     return res.status(200).json({ message: 'Duel started.', url: uiUrl });
-
   } catch (err) {
-    console.error("Failed to load duel:", err);
+    console.error('Failed to load duel:', err);
     return res.status(500).json({ error: 'Duel start failed.', details: err.message });
   }
 });
