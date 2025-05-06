@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const decksPath = path.join(process.cwd(), 'data', 'linked_decks.json');
+const decksPath = path.resolve('data', 'linked_decks.json');
 
 /**
  * Updates a player's deck or metadata in linked_decks.json
@@ -14,8 +14,10 @@ export function updatePlayerDeck(userId, update) {
   try {
     let data = { players: [] };
 
+    // Read the file and parse the JSON content
     if (fs.existsSync(decksPath)) {
-      data = JSON.parse(fs.readFileSync(decksPath, 'utf8'));
+      const rawData = fs.readFileSync(decksPath, 'utf8');
+      data = JSON.parse(rawData);
     }
 
     const playerIndex = data.players.findIndex(p => p.discordId === userId);
@@ -27,13 +29,16 @@ export function updatePlayerDeck(userId, update) {
         ...update
       };
     } else {
-      // Add new player
+      // Add new player if not found
       data.players.push({ discordId: userId, ...update });
     }
 
+    // Write the updated data back to the file
     fs.writeFileSync(decksPath, JSON.stringify(data, null, 2));
     console.log(`Updated deck data for user ${userId}`);
   } catch (err) {
-    console.error(`Failed to update deck for user ${userId}:`, err);
+    // Enhanced error logging
+    console.error(`Failed to update deck for user ${userId}: ${err.message}`);
+    console.error(err.stack); // Stack trace for debugging
   }
 }
