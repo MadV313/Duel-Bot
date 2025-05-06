@@ -56,6 +56,19 @@ export default {
     }
 
     const today = new Date().toISOString().slice(0, 10);
+
+    // AUTO-WIPE LOGS older than today
+    for (const uid in sellLog) {
+      for (const date in sellLog[uid]) {
+        if (date !== today) {
+          delete sellLog[uid][date];
+        }
+      }
+      if (Object.keys(sellLog[uid]).length === 0) {
+        delete sellLog[uid];
+      }
+    }
+
     const soldToday = (sellLog[userId]?.[today] || 0);
     const remaining = config.coin_system.sell_limit_per_day - soldToday;
 
