@@ -9,6 +9,7 @@ import duelStartRoutes from './routes/duelStart.js';
 import summaryRoutes from './routes/duelSummary.js';
 import liveRoutes from './routes/duelLive.js';
 import userStatsRoutes from './routes/userStats.js'; // <- NEW
+import cardRoutes from './routes/cardReveal.js';  // <- NEW: Card reveal logic
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +33,7 @@ app.use('/duel', duelStartRoutes);
 app.use('/duel/live', liveRoutes);
 app.use('/summary', summaryRoutes);
 app.use('/user', userStatsRoutes); // <- NEW: player coin/card fetch
+app.use('/cards', cardRoutes); // <- NEW: Route for cards fetching
 app.use('/', statusRoutes);
 
 app.get('/', (req, res) => {
