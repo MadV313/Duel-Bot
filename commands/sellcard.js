@@ -40,7 +40,7 @@ export default {
 
     if (quantity < 1 || quantity > 5) {
       return interaction.reply({
-        content: 'You must sell between 1 and 5 cards.',
+        content: 'You must sell between 1 and 5 cards per day.',
         ephemeral: true
       });
     }
@@ -52,12 +52,12 @@ export default {
       if (fs.existsSync(sellLogPath)) sellLog = JSON.parse(fs.readFileSync(sellLogPath));
     } catch (err) {
       console.error("Failed to load player data:", err);
-      return interaction.reply({ content: 'Internal error occurred.', ephemeral: true });
+      return interaction.reply({ content: 'Internal error occurred while loading files.', ephemeral: true });
     }
 
     const today = new Date().toISOString().slice(0, 10);
     const soldToday = (sellLog[userId]?.[today] || 0);
-    const remaining = 5 - soldToday;
+    const remaining = config.coin_system.sell_limit_per_day - soldToday;
 
     if (quantity > remaining) {
       return interaction.reply({
@@ -76,8 +76,8 @@ export default {
       });
     }
 
-    const rarity = getCardRarity(cardId);
-    const valuePerCard = rarity === 'Legendary' ? 1 : 0.5;
+    const rarity = getCardRarity(cardId).toLowerCase();
+    const valuePerCard = config.coin_system.card_sell_values[rarity] || 0.5;
     const payout = quantity * valuePerCard;
 
     // Remove cards
@@ -90,7 +90,7 @@ export default {
       return true;
     });
 
-    // Update logs + bank
+    // Update logs + coin bank
     if (!sellLog[userId]) sellLog[userId] = {};
     sellLog[userId][today] = soldToday + quantity;
     coinBank[userId] = (coinBank[userId] || 0) + payout;
