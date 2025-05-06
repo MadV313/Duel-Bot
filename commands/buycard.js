@@ -8,7 +8,7 @@ import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
-const revealDir = path.resolve('./public/data');
+const revealPath = path.resolve('./public/data/mock_pack_reveal.json');
 
 export default {
   data: new SlashCommandBuilder()
@@ -43,14 +43,14 @@ export default {
     const balance = coinBank[userId] || 0;
     const userDeck = decks[userId]?.deck || [];
 
-    if (userDeck.length >= 250) {
+    if (userDeck.length >= config.coin_system.max_card_collection_size) {
       return interaction.reply({
         content: 'You must have a maximum of 247 cards in your collection to buy more or make room.',
         ephemeral: true
       });
     }
 
-    if (balance < 3) {
+    if (balance < config.coin_system.card_pack_cost) {
       return interaction.reply({ content: 'You need 3 coins to buy a card pack.', ephemeral: true });
     }
 
@@ -62,7 +62,7 @@ export default {
       discordName: username,
       deck: userDeck
     };
-    coinBank[userId] = balance - 3;
+    coinBank[userId] = balance - config.coin_system.card_pack_cost;
 
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
@@ -83,20 +83,14 @@ export default {
     };
 
     try {
-      if (!fs.existsSync(revealDir)) {
-        fs.mkdirSync(revealDir, { recursive: true });
-      }
-      const revealPath = path.join(revealDir, `reveal_${userId}.json`);
       fs.writeFileSync(revealPath, JSON.stringify(revealPayload, null, 2));
     } catch (err) {
       console.error('Failed writing reveal file:', err);
       return interaction.reply({ content: 'Purchase completed, but failed to prepare reveal.', ephemeral: true });
     }
 
-    const revealLink = `${config.frontendUrl}/packReveal.html?user=${userId}`;
-
     return interaction.reply({
-      content: `✅ Pack purchased! [Click to reveal](${revealLink})`,
+      content: `✅ Pack purchased! ${config.coin_system.buycard_message}`,
       ephemeral: true
     });
   }
