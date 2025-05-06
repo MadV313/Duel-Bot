@@ -10,10 +10,11 @@ router.get('/current', (req, res) => {
   }
 
   res.status(200).json({
-    players: duelState.players,
+    players: duelState.players, // Consider filtering hands for spectators
     currentPlayer: duelState.currentPlayer,
     winner: duelState.winner,
-    spectatorCount: duelState.spectators.length
+    spectatorCount: duelState.spectators.length,
+    wager: duelState.wagerAmount || 0
   });
 });
 
