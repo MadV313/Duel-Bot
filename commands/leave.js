@@ -5,6 +5,7 @@ import { duelState } from '../logic/duelState.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
+import config from '../config.json';
 
 export default {
   data: new SlashCommandBuilder()
@@ -43,7 +44,7 @@ export default {
           const raw = await fs.readFile(logPath, 'utf-8');
           existing = JSON.parse(raw);
         } catch {
-          // No log yet — skip silently
+          // No existing log — skip silently
         }
 
         existing.push(logEntry);
