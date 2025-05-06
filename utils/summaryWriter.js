@@ -14,13 +14,12 @@ export async function writeDuelSummary(duelState, winnerId) {
   const player1 = duelState.players.player1;
   const player2 = duelState.players.player2;
 
+  // Create the summary object
   const summary = {
     duelId,
     winner: winnerId === player1.discordId ? 'player1' : 'player2',
     timestamp,
-    wager: duelState.wagerAmount
-      ? { amount: duelState.wagerAmount }
-      : null,
+    wager: duelState.wagerAmount ? { amount: duelState.wagerAmount } : null,
     players: {
       player1: {
         discordId: player1.discordId,
@@ -46,9 +45,18 @@ export async function writeDuelSummary(duelState, winnerId) {
   };
 
   const filePath = path.resolve(`./data/summarys/${duelId}.json`);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
 
-  console.log(`✅ Summary saved: ${filePath}`);
-  return duelId;
+  try {
+    // Ensure the directory exists before writing
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    
+    // Write the summary to the file
+    await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
+
+    console.log(`✅ Summary saved: ${filePath}`);
+    return duelId;
+  } catch (err) {
+    console.error(`❌ Failed to save duel summary: ${err.message}`);
+    throw new Error(`Failed to save duel summary: ${err.message}`);
+  }
 }
