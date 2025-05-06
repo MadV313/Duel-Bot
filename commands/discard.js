@@ -1,3 +1,5 @@
+// commands/discard.js
+
 import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
@@ -43,19 +45,26 @@ export default {
         decks = JSON.parse(fs.readFileSync(decksPath));
       }
     } catch (err) {
-      console.error("Failed to read decks:", err);
+      console.error('Failed to read decks:', err);
       return interaction.reply({ content: 'Error reading your collection.', ephemeral: true });
     }
 
     const userDeck = decks[userId]?.deck || [];
+
+    if (!decks[userId]) {
+      return interaction.reply({
+        content: 'You do not have a linked collection to discard from.',
+        ephemeral: true
+      });
+    }
+
     const owned = userDeck.filter(c => c === cardId).length;
 
     if (owned < quantity) {
-      return interaction.reply({ content: `You only have ${owned} copies of that card.`, ephemeral: true });
-    }
-
-    if (!decks[userId]) {
-      return interaction.reply({ content: 'You do not have a linked collection to discard from.', ephemeral: true });
+      return interaction.reply({
+        content: `You only have ${owned} copies of that card.`,
+        ephemeral: true
+      });
     }
 
     let removed = 0;
@@ -70,10 +79,13 @@ export default {
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
-      console.error("Failed to write decks:", err);
+      console.error('Failed to write decks:', err);
       return interaction.reply({ content: 'Failed to discard cards.', ephemeral: true });
     }
 
-    return interaction.reply({ content: `✅ Discarded ${quantity}x Card ${cardId}.`, ephemeral: true });
+    return interaction.reply({
+      content: `✅ Discarded ${quantity}x Card ${cardId}.`,
+      ephemeral: true
+    });
   }
 };
