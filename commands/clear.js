@@ -33,9 +33,12 @@ export default {
 
     try {
       await interaction.channel.bulkDelete(amount, true);
-      return interaction.reply({ content: `✅ Deleted ${amount} messages.`, ephemeral: true });
+      return interaction.reply({
+        content: `✅ Deleted ${amount} messages.`,
+        ephemeral: true
+      });
     } catch (err) {
-      console.error('Failed to delete messages:', err);
+      console.error('❌ Failed to delete messages:', err);
       return interaction.reply({
         content: '❌ Failed to delete messages.',
         ephemeral: true
