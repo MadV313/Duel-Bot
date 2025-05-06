@@ -4,7 +4,6 @@ import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
 
 const coinBankPath = path.resolve('./data/coin_bank.json');
 
@@ -31,9 +30,13 @@ export default {
       }
     } catch (err) {
       console.error('Failed to read coin bank:', err);
+      return interaction.reply({ content: 'Error retrieving balance.', ephemeral: true });
     }
 
     const balance = coinBank[userId] || 0;
-    return interaction.reply({ content: `You have ${balance} coins.`, ephemeral: true });
-  },
+    return interaction.reply({
+      content: `You have ${balance} coins.`,
+      ephemeral: true
+    });
+  }
 };
