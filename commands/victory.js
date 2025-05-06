@@ -1,8 +1,7 @@
-// commands/victory.js
-
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { duelState, endLiveDuel } from '../logic/duelState.js';
 import { rewardDuelWinner } from '../logic/rewardHandler.js';
+import { writeDuelSummary } from '../logic/summaryWriter.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
@@ -66,12 +65,32 @@ export default {
       console.error('Failed to update duel stats:', err);
     }
 
-    // Payout wager if applicable
+    // Reward wager coins if applicable
     if (duelState.wagerAmount) {
-      rewardDuelWinner(winnerId, duelState.wagerAmount);
+      rewardDuelWinner(winnerId, loserId, duelState.wagerAmount);
     }
 
-    // Clean up duel state
+    // Write duel summary for UI
+    try {
+      const duelId = Date.now().toString();
+      writeDuelSummary(
+        duelId,
+        winnerId,
+        {
+          discordId: player1Id,
+          cardsPlayed: duelState.players.player1.cardsPlayed || 0,
+          damageDealt: duelState.players.player1.damageDealt || 0
+        },
+        {
+          discordId: player2Id,
+          cardsPlayed: duelState.players.player2.cardsPlayed || 0,
+          damageDealt: duelState.players.player2.damageDealt || 0
+        }
+      );
+    } catch (err) {
+      console.error('Failed to save duel summary:', err);
+    }
+
     await endLiveDuel(winnerId);
 
     return interaction.reply({
