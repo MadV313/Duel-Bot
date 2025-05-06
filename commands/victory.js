@@ -33,8 +33,18 @@ export default {
     const player1Id = duelState.players?.player1?.discordId;
     const player2Id = duelState.players?.player2?.discordId;
 
+    if (!player1Id || !player2Id) {
+      return interaction.reply({
+        content: 'No active duel to resolve.',
+        ephemeral: true
+      });
+    }
+
     if (![player1Id, player2Id].includes(winnerId)) {
-      return interaction.reply({ content: 'Selected user is not in the current duel.', ephemeral: true });
+      return interaction.reply({
+        content: 'The selected user is not a participant in the current duel.',
+        ephemeral: true
+      });
     }
 
     const loserId = winnerId === player1Id ? player2Id : player1Id;
@@ -51,7 +61,7 @@ export default {
 
       await fs.writeFile(playerStatsPath, JSON.stringify(stats, null, 2));
     } catch (err) {
-      console.error('Failed to update player stats:', err);
+      console.error('Failed to update duel stats:', err);
     }
 
     await endLiveDuel(winnerId);
