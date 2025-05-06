@@ -1,3 +1,5 @@
+// commands/deny.js
+
 import { SlashCommandBuilder } from 'discord.js';
 import { removeTradeOffer, getTradeOffer } from '../utils/tradeQueue.js';
 
@@ -24,7 +26,7 @@ export async function execute(interaction) {
   if (!trade) {
     return interaction.reply({
       content: 'You have no pending trade offers to deny.',
-      ephemeral: true,
+      ephemeral: true
     });
   }
 
@@ -32,6 +34,6 @@ export async function execute(interaction) {
 
   return interaction.reply({
     content: `Trade denied. Offer from <@${trade.senderId}> has been removed.`,
-    ephemeral: false,
+    ephemeral: false
   });
 }
