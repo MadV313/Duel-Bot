@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2025-05-05T14:00:00Z",
+    "action": "joined",
+    "userId": "123456789012345678",
+    "username": "PlayerOne"
+  },
+  {
+    "timestamp": "2025-05-05T14:01:30Z",
+    "action": "joined",
+    "userId": "987654321098765432",
+    "username": "PlayerTwo"
+  },
+  {
+    "timestamp": "2025-05-05T14:03:00Z",
+    "action": "left",
+    "userId": "123456789012345678",
+    "username": "PlayerOne"
+  }
+]
