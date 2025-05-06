@@ -8,7 +8,8 @@ export const duelState = {
   },
   currentPlayer: 'player1',
   winner: null,
-  spectators: [] // Optional: for watch/leave/viewlog tracking
+  wagerAmount: null,
+  spectators: [] // Used by watch/leave/viewlog
 };
 
 // Admin-only function to start a practice duel
@@ -41,11 +42,12 @@ export function startPracticeDuel(cardList) {
 
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
+  duelState.wagerAmount = null;
   duelState.spectators = [];
 }
 
 // Function to start a live PvP duel
-export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck) {
+export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager = 0) {
   duelState.players = {
     player1: {
       discordId: player1Id,
@@ -67,6 +69,7 @@ export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck) {
 
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
+  duelState.wagerAmount = wager;
   duelState.spectators = [];
 }
 
@@ -78,5 +81,6 @@ export function endLiveDuel(winnerId = null) {
   };
   duelState.currentPlayer = 'player1';
   duelState.winner = winnerId || null;
+  duelState.wagerAmount = null;
   duelState.spectators = [];
 }
