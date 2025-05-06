@@ -50,7 +50,7 @@ export default {
 
     const loserId = winnerId === player1Id ? player2Id : player1Id;
 
-    // Update stats
+    // Update win/loss stats
     try {
       const raw = await fs.readFile(playerStatsPath, 'utf-8');
       const stats = JSON.parse(raw);
@@ -66,12 +66,12 @@ export default {
       console.error('Failed to update duel stats:', err);
     }
 
-    // Transfer wager if applicable
+    // Payout wager if applicable
     if (duelState.wagerAmount) {
-      rewardDuelWinner(winnerId, loserId, duelState.wagerAmount);
+      rewardDuelWinner(winnerId, duelState.wagerAmount);
     }
 
-    // End duel
+    // Clean up duel state
     await endLiveDuel(winnerId);
 
     return interaction.reply({
