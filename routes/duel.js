@@ -1,10 +1,12 @@
 import express from 'express';
+import fs from 'fs/promises';
+import path from 'path';
 import { applyBotMove } from '../logic/botHandler.js';
 import { startPracticeDuel, duelState } from '../logic/duelState.js';
 
 const router = express.Router();
 
-// Existing route — apply bot move
+// POST: Bot turn
 router.post('/turn', async (req, res) => {
   const clientState = req.body;
 
@@ -16,11 +18,15 @@ router.post('/turn', async (req, res) => {
   }
 });
 
-// NEW: Route to start a practice duel
+// GET: Start a practice duel (admin only)
 router.get('/practice', async (req, res) => {
   try {
-    await startPracticeDuel(); // Resets duelState and builds random decks
-    res.json(duelState);       // Return the full new duel state
+    const cardFile = path.resolve('./data/CoreMasterReference.json');
+    const raw = await fs.readFile(cardFile, 'utf-8');
+    const cardList = JSON.parse(raw);
+
+    await startPracticeDuel(cardList); // Pass full list to logic
+    res.json(duelState);
   } catch (err) {
     console.error('Practice duel init failed:', err);
     res.status(500).json({ error: 'Failed to start practice duel' });
