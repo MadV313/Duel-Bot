@@ -8,9 +8,10 @@ export const duelState = {
   },
   currentPlayer: 'player1',
   winner: null,
+  spectators: [] // Optional: for watch/leave/viewlog tracking
 };
 
-// Function to start a new practice duel (admin-only)
+// Admin-only function to start a practice duel
 export function startPracticeDuel(cardList) {
   const getRandomDeck = () => {
     const deck = [];
@@ -25,16 +26,22 @@ export function startPracticeDuel(cardList) {
 
   duelState.players.player1.deck = getRandomDeck();
   duelState.players.bot.deck = getRandomDeck();
+
   duelState.players.player1.hp = 200;
   duelState.players.bot.hp = 200;
+
   duelState.players.player1.hand = [];
   duelState.players.bot.hand = [];
+
   duelState.players.player1.field = [];
   duelState.players.bot.field = [];
+
   duelState.players.player1.discardPile = [];
   duelState.players.bot.discardPile = [];
+
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
+  duelState.spectators = [];
 }
 
 // Function to start a live PvP duel
@@ -57,6 +64,19 @@ export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck) {
       discardPile: [],
     },
   };
+
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
+  duelState.spectators = [];
+}
+
+// Function to end/reset the duel
+export function endLiveDuel(winnerId = null) {
+  duelState.players = {
+    player1: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
+    bot: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
+  };
+  duelState.currentPlayer = 'player1';
+  duelState.winner = winnerId || null;
+  duelState.spectators = [];
 }
