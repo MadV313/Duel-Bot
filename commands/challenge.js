@@ -1,3 +1,5 @@
+// commands/challenge.js
+
 import {
   SlashCommandBuilder,
   ActionRowBuilder,
@@ -48,7 +50,7 @@ export default {
       });
     }
 
-    // Check if challenger has enough coins
+    // Read coin balances
     let coinBank = {};
     try {
       if (fs.existsSync(coinBankPath)) {
