@@ -2,6 +2,7 @@
 
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { duelState, endLiveDuel } from '../logic/duelState.js';
+import { rewardDuelWinner } from '../logic/rewardHandler.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
@@ -49,6 +50,7 @@ export default {
 
     const loserId = winnerId === player1Id ? player2Id : player1Id;
 
+    // Update stats
     try {
       const raw = await fs.readFile(playerStatsPath, 'utf-8');
       const stats = JSON.parse(raw);
@@ -64,6 +66,12 @@ export default {
       console.error('Failed to update duel stats:', err);
     }
 
+    // Transfer wager if applicable
+    if (duelState.wagerAmount) {
+      rewardDuelWinner(winnerId, loserId, duelState.wagerAmount);
+    }
+
+    // End duel
     await endLiveDuel(winnerId);
 
     return interaction.reply({
