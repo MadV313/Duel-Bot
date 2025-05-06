@@ -12,6 +12,17 @@ npm-debug.log*
 # OS-specific files
 .DS_Store
 
+# Ignore config (contains sensitive information)
+config.json
+
 # Optional: ignore build output
 dist/
 build/
+
+# Lock files (if desired)
+package-lock.json
+yarn.lock
+
+# IDE specific files (if desired)
+.idea/
+.vscode/
