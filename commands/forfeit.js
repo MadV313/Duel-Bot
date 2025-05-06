@@ -1,8 +1,7 @@
-// commands/forfeit.js
-
 import { SlashCommandBuilder } from 'discord.js';
 import { duelState, endLiveDuel } from '../logic/duelState.js';
 import { rewardDuelWinner } from '../logic/rewardHandler.js';
+import { writeDuelSummary } from '../logic/summaryWriter.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
@@ -42,7 +41,6 @@ export default {
 
     const opponentId = userId === player1Id ? player2Id : player1Id;
 
-    // Update stats
     try {
       const statsRaw = await fs.readFile(playerStatsPath, 'utf-8');
       const stats = JSON.parse(statsRaw);
@@ -58,12 +56,32 @@ export default {
       console.error('Failed to update duel stats:', err);
     }
 
-    // Transfer wager if applicable
+    // Reward wager coins if set
     if (duelState.wagerAmount) {
-      rewardDuelWinner(opponentId, duelState.wagerAmount);
+      rewardDuelWinner(opponentId, userId, duelState.wagerAmount);
     }
 
-    // Clean up duel state
+    // Write summary file
+    try {
+      const duelId = Date.now().toString();
+      writeDuelSummary(
+        duelId,
+        opponentId,
+        {
+          discordId: player1Id,
+          cardsPlayed: duelState.players.player1.cardsPlayed || 0,
+          damageDealt: duelState.players.player1.damageDealt || 0
+        },
+        {
+          discordId: player2Id,
+          cardsPlayed: duelState.players.player2.cardsPlayed || 0,
+          damageDealt: duelState.players.player2.damageDealt || 0
+        }
+      );
+    } catch (err) {
+      console.error('Failed to write duel summary:', err);
+    }
+
     await endLiveDuel(opponentId);
 
     return interaction.reply({
