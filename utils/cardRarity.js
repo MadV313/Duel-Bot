@@ -1,11 +1,11 @@
-// utils/cardRarity.js
-
 import fs from 'fs';
 import path from 'path';
+import { config } from './config.json'; // Assuming we have a config.json for dynamic values
 
-const filePath = path.resolve('CoreMasterReference.json');
+const filePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
 let cardData = {};
+
 try {
   const raw = fs.readFileSync(filePath, 'utf-8');
   const parsed = JSON.parse(raw);
@@ -14,6 +14,7 @@ try {
   });
 } catch (err) {
   console.error('Failed to load card rarity data:', err);
+  cardData = {}; // Default to empty if error occurs
 }
 
 /**
