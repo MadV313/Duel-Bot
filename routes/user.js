@@ -15,21 +15,21 @@ router.get('/:id', (req, res) => {
 
   try {
     const decksRaw = fs.existsSync(decksPath)
-      ? JSON.parse(fs.readFileSync(decksPath))
+      ? JSON.parse(fs.readFileSync(decksPath, 'utf-8'))
       : { players: [] };
 
     const coinsRaw = fs.existsSync(coinsPath)
-      ? JSON.parse(fs.readFileSync(coinsPath))
+      ? JSON.parse(fs.readFileSync(coinsPath, 'utf-8'))
       : {};
 
     const playerEntry = decksRaw.players.find(p => p.discordId === userId);
-    const coinBalance = coinsRaw[userId] || 0;
-    const cardsOwned = playerEntry?.deck?.length || 0;
+    const coinBalance = coinsRaw[userId] ?? 0;
+    const cardsOwned = Array.isArray(playerEntry?.deck) ? playerEntry.deck.length : 0;
 
-    res.status(200).json({ cardsOwned, coins: coinBalance });
+    res.status(200).json({ userId, cardsOwned, coins: coinBalance });
   } catch (err) {
-    console.error("Failed to fetch user data:", err);
-    res.status(500).json({ error: 'Internal error fetching user data.' });
+    console.error(`❌ Error fetching user data for ${userId}:`, err.message);
+    res.status(500).json({ error: 'Failed to retrieve user data.' });
   }
 });
 
