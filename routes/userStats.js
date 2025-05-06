@@ -6,32 +6,34 @@ import path from 'path';
 
 const router = express.Router();
 
+const decksPath = path.resolve('./data/linked_decks.json');
+const coinsPath = path.resolve('./data/coin_bank.json');
+
 router.get('/:id', async (req, res) => {
   const userId = req.params.id;
 
   try {
-    const decksPath = path.resolve('./data/linked_decks.json');
-    const coinsPath = path.resolve('./data/coin_bank.json');
-
-    const [deckDataRaw, coinDataRaw] = await Promise.all([
+    const [deckRaw, coinRaw] = await Promise.all([
       fs.readFile(decksPath, 'utf-8'),
       fs.readFile(coinsPath, 'utf-8'),
     ]);
 
-    const deckData = JSON.parse(deckDataRaw);
-    const coinData = JSON.parse(coinDataRaw);
+    const decks = JSON.parse(deckRaw);
+    const coins = JSON.parse(coinRaw);
 
-    const userEntry = deckData.players.find(p => p.discordId === userId);
-    const cardCount = userEntry?.deck?.length || 0;
-    const coinCount = coinData[userId] || 0;
+    const playerEntry = decks.players.find(p => p.discordId === userId);
+    const cardsOwned = Array.isArray(playerEntry?.deck) ? playerEntry.deck.length : 0;
+    const coinBalance = coins[userId] ?? 0;
 
-    return res.json({
-      cardsOwned: cardCount,
-      coins: coinCount
+    return res.status(200).json({
+      userId,
+      cardsOwned,
+      coins: coinBalance
     });
+
   } catch (err) {
-    console.error("User stats fetch failed:", err);
-    return res.status(500).json({ error: 'Failed to fetch user stats.' });
+    console.error(`❌ Error fetching stats for user ${userId}:`, err.message);
+    return res.status(500).json({ error: 'Unable to retrieve user statistics.' });
   }
 });
 
