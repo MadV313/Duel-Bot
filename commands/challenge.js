@@ -1,6 +1,5 @@
 import {
   SlashCommandBuilder,
-  PermissionFlagsBits,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle
@@ -18,8 +17,7 @@ export default {
     ),
 
   async execute(interaction) {
-    const allowed = isAllowedChannel(interaction.channelId, ['battlefield']);
-    if (!allowed) {
+    if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in #battlefield.',
         ephemeral: true
