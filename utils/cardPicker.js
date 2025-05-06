@@ -22,14 +22,14 @@ try {
   allCards = [];  // Default to empty if error occurs
 }
 
-// Helper: Returns one weighted random card
+// Helper: Returns one weighted random card (full card object)
 function pickOneWeighted() {
   const weightedPool = [];
 
   for (const card of allCards) {
     const weight = rarityWeights[card.rarity] || 1;
     for (let i = 0; i < weight; i++) {
-      weightedPool.push(card.card_id);
+      weightedPool.push(card);  // Push full card object instead of just card_id
     }
   }
 
@@ -43,12 +43,12 @@ function pickOneWeighted() {
   return weightedPool[randomIndex];
 }
 
-// Exported: Picks N random cards by weight
+// Exported: Picks N random cards by weight (full card objects)
 export function weightedRandomCards(count = 3) {
   const result = [];
   while (result.length < count) {
     const pick = pickOneWeighted();
     result.push(pick);
   }
-  return result;
+  return result;  // Returns an array of full card objects
 }
