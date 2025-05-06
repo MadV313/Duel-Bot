@@ -1,3 +1,5 @@
+Heres the current server.js
+
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -9,7 +11,6 @@ import duelStartRoutes from './routes/duelStart.js';
 import summaryRoutes from './routes/duelSummary.js';
 import liveRoutes from './routes/duelLive.js';
 import userStatsRoutes from './routes/userStats.js'; // <- NEW
-import cardRoutes from './routes/packReveal.js';  // <- Updated path for packReveal logic
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,21 +29,17 @@ if (!fs.existsSync(flagPath)) {
 app.use(cors());
 app.use(express.json());
 
-// Defining the routes
 app.use('/bot', duelRoutes);
 app.use('/duel', duelStartRoutes);
 app.use('/duel/live', liveRoutes);
 app.use('/summary', summaryRoutes);
 app.use('/user', userStatsRoutes); // <- NEW: player coin/card fetch
-app.use('/packReveal', cardRoutes); // <- Corrected the path to '/packReveal' for card reveal
 app.use('/', statusRoutes);
 
-// Simple route for server status
 app.get('/', (req, res) => {
   res.send('Duel Bot Backend is live.');
 });
 
-// Starting the server
 app.listen(PORT, () => {
   console.log(`Duel Bot Backend running on port ${PORT}`);
 });
