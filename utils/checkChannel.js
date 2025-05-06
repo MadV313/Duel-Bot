@@ -1,5 +1,3 @@
-// utils/checkChannel.js
-
 const allowedChannels = {
   manageCards: ['1367977677658656868'],   // #manage-cards
   manageDeck: ['1368023905964658760'],    // #manage-deck
@@ -14,7 +12,17 @@ const allowedChannels = {
  * @returns {boolean}
  */
 export function isAllowedChannel(channelId, groups) {
+  if (!Array.isArray(groups) || groups.length === 0) {
+    console.error("Invalid groups input. Expected a non-empty array.");
+    return false;
+  }
+
   for (const group of groups) {
+    if (!allowedChannels.hasOwnProperty(group)) {
+      console.error(`Invalid group name: ${group}`);
+      continue; // Skip invalid group names
+    }
+
     const allowed = allowedChannels[group];
     if (allowed?.includes(channelId)) return true;
   }
