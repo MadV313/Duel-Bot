@@ -1,0 +1,15 @@
+SV13 CCG Bot - Changelog
+========================
+
+v1.0.0 - May 6, 2025
+- Finalized duelState tracking with turn count and duration
+- Integrated Pack Reveal UI with toast and rarity animations
+- Slash commands fully registered via registerCommands.js
+- Admin trading, spectator logging, and payout systems active
+- Server.js secured with rate limiting, helmet, and error guards
+- Practice bot and PvP duels now share a unified backend state
+
+Upcoming:
+- Tournament Mode
+- Card crafting system
+- Third expansion deck: Environmental Event Cards
