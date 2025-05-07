@@ -4,7 +4,14 @@ import { REST, Routes } from 'discord.js';
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const TOKEN = process.env.DISCORD_TOKEN;
+
+if (!CLIENT_ID || !GUILD_ID || !TOKEN) {
+  console.error('❌ Missing required environment variables (CLIENT_ID, GUILD_ID, DISCORD_TOKEN).');
+  process.exit(1);
+}
+
+const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 // Alphabetically import all commands
 import acceptCommand from './commands/accept.js';
@@ -51,16 +58,23 @@ const commands = [
   watchCommand
 ];
 
-const formatted = commands.map(cmd => cmd.data?.toJSON());
+// Format commands safely
+const formatted = commands
+  .filter(cmd => cmd?.data)
+  .map(cmd => cmd.data.toJSON());
 
 export default async function registerCommands() {
   try {
     console.log('Registering new commands...');
     formatted.forEach(cmd => console.log(`- /${cmd.name}`));
 
+    // Register to a specific guild for development/testing
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: formatted
     });
+
+    // For global rollout (takes up to 1 hour to update):
+    // await rest.put(Routes.applicationCommands(CLIENT_ID), { body: formatted });
 
     console.log('✅ All commands registered to SV13.');
   } catch (err) {
