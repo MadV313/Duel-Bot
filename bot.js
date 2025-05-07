@@ -19,9 +19,15 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('
 
 for (const file of commandFiles) {
   const filePath = path.join(commandsPath, file);
-  const command = await import(`./commands/${file}`);
+  const command = await import(`./commands/${file}`); // Already includes .js extension from filter
+
   if (command.default?.data && command.default?.execute) {
+    if (client.commands.has(command.default.data.name)) {
+      console.warn(`⚠️ Duplicate command detected: /${command.default.data.name}`);
+    }
+
     client.commands.set(command.default.data.name, command.default);
+    console.log(`🔁 Loaded command: /${command.default.data.name}`);
   }
 }
 
@@ -54,3 +60,10 @@ client.on(Events.InteractionCreate, async interaction => {
 // Securely pull the token name from config.json, fallback if needed
 const tokenEnvName = config.token_env || 'DISCORD_TOKEN';
 client.login(process.env[tokenEnvName]);
+
+// Graceful shutdown support
+process.on('SIGINT', () => {
+  console.log('🛑 Bot shutting down...');
+  client.destroy();
+  process.exit(0);
+});
