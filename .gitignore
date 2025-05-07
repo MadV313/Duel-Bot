@@ -1,5 +1,8 @@
-# Ignore environment files
+# Environment files
 .env
+
+# Config (contains sensitive info)
+config.json
 
 # Node dependencies
 node_modules/
@@ -9,20 +12,27 @@ logs/
 *.log
 npm-debug.log*
 
-# OS-specific files
-.DS_Store
-
-# Ignore config (contains sensitive information)
-config.json
-
-# Optional: ignore build output
+# Build outputs
 dist/
 build/
 
-# Lock files (if desired)
+# Duel & Pack log data
+/data/*.json
+/public/data/*.json
+.commands_registered
+
+# Lock files (optional)
 package-lock.json
 yarn.lock
 
-# IDE specific files (if desired)
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp/Swap files
+*.swp
+*.swo
+
+# IDE files
 .idea/
 .vscode/
