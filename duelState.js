@@ -7,7 +7,10 @@ export const duelState = {
   players: {},
   currentPlayer: null,
   winner: null,
-  spectators: [] // Track active spectators
+  spectators: [],
+  turnCount: 0,
+  duelMode: 'none',
+  startedAt: null
 };
 
 // PRACTICE DUEL LAUNCHER
@@ -19,6 +22,9 @@ export function startPracticeDuel() {
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
   duelState.spectators = [];
+  duelState.turnCount = 1;
+  duelState.duelMode = 'practice';
+  duelState.startedAt = new Date();
 
   import('./CoreMasterReference.json', { assert: { type: 'json' } })
     .then(module => {
@@ -67,13 +73,22 @@ export async function startLiveDuel(player1Id, player2Id, player1Deck, player2De
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
   duelState.spectators = [];
+  duelState.turnCount = 1;
+  duelState.duelMode = 'pvp';
+  duelState.startedAt = new Date();
 }
 
 // END DUEL CLEANUP
 export async function endLiveDuel(winnerId) {
+  const endedAt = new Date();
+  const durationSeconds = duelState.startedAt
+    ? Math.floor((endedAt - new Date(duelState.startedAt)) / 1000)
+    : null;
+
   const summary = {
     winner: winnerId,
-    timestamp: new Date().toISOString(),
+    timestamp: endedAt.toISOString(),
+    duration: durationSeconds ? `${durationSeconds}s` : 'unknown',
     player1: duelState.players?.player1?.discordId || null,
     player2: duelState.players?.player2?.discordId || null
   };
@@ -92,6 +107,9 @@ export async function endLiveDuel(winnerId) {
   duelState.currentPlayer = null;
   duelState.winner = winnerId;
   duelState.spectators = [];
+  duelState.turnCount = 0;
+  duelState.duelMode = 'none';
+  duelState.startedAt = null;
 }
 
 // ARCHIVE PREVIOUS SPECTATORS
