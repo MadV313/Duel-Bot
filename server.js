@@ -12,6 +12,7 @@ import summaryRoutes from './routes/duelSummary.js';
 import liveRoutes from './routes/duelLive.js';
 import userStatsRoutes from './routes/userStats.js';
 import cardRoutes from './routes/packReveal.js';
+import collectionRoute from './routes/collection.js'; // ✅ NEW
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,6 +54,7 @@ app.use('/duel/live', liveRoutes);
 app.use('/summary', summaryRoutes);
 app.use('/user', userStatsRoutes);
 app.use('/packReveal', cardRoutes);
+app.use('/collection', collectionRoute); // ✅ NEW
 app.use('/', statusRoutes);
 
 // Default route
