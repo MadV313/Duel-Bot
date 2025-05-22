@@ -27,6 +27,27 @@
       pointer-events: none;
     }
 
+    .back-to-hub {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      padding: 10px 18px;
+      background-color: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      border: 2px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: bold;
+      text-decoration: none;
+      z-index: 2;
+      transition: all 0.3s ease;
+    }
+
+    .back-to-hub:hover {
+      border-color: #00ffff;
+      box-shadow: 0 0 10px #00ffff;
+    }
+
     h1, h2, p, ul, li, .section {
       position: relative;
       z-index: 1;
@@ -80,6 +101,9 @@
 </head>
 <body>
   <div class="snow-effect"></div>
+
+  <!-- 🔗 Back to Hub Button -->
+  <a href="https://madv313.github.io/HUB-UI/" class="back-to-hub">← Back to Hub</a>
 
   <h1>SV13 TCG RULEBOOK</h1>
 
