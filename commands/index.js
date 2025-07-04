@@ -22,14 +22,15 @@ import viewdeck from './viewdeck.js';
 import viewlog from './viewlog.js';
 import watch from './watch.js';
 
-// Register slash commands once on boot if not already done
+// ✅ Ensure slash commands are registered once
 const flagPath = './.commands_registered';
 if (!fs.existsSync(flagPath)) {
   const { default: register } = await import('../registerCommands.js');
-  await register(); // <-- ensure register is actually called
+  await register();
   fs.writeFileSync(flagPath, 'done');
 }
 
+// ✅ Export all commands
 export default [
   accept,
   buycard,
