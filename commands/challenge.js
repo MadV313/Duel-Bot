@@ -57,7 +57,7 @@ export default {
         coinBank = JSON.parse(fs.readFileSync(coinBankPath));
       }
     } catch (err) {
-      console.error('Failed to read coin bank:', err);
+      console.error('❌ Failed to read coin bank:', err);
     }
 
     const challengerCoins = coinBank[challenger.id] || 0;
