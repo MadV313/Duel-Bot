@@ -39,7 +39,7 @@ export default {
       }
     } catch (err) {
       return interaction.reply({
-        content: `Invalid deck format: ${err.message}`,
+        content: `❌ Invalid deck format: ${err.message}`,
         ephemeral: true
       });
     }
@@ -50,9 +50,9 @@ export default {
         data = JSON.parse(fs.readFileSync(linkedDecksPath, 'utf-8'));
       }
     } catch (err) {
-      console.error('Failed to read deck file:', err);
+      console.error('🔴 Failed to read deck file:', err);
       return interaction.reply({
-        content: 'Failed to load existing decks.',
+        content: 'Error loading your existing deck data.',
         ephemeral: true
       });
     }
@@ -72,7 +72,7 @@ export default {
         ephemeral: true
       });
     } catch (err) {
-      console.error('Deck save failed:', err);
+      console.error('🔴 Deck save failed:', err);
       return interaction.reply({
         content: '❌ Failed to save your deck. Please try again.',
         ephemeral: true
