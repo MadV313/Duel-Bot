@@ -1,20 +1,36 @@
+// utils/cardRarity.js
+
 import fs from 'fs';
 import path from 'path';
-import { config } from './config.json'; // Assuming we have a config.json for dynamic values
+
+// ✅ Safe config load
+const configPath = path.resolve(process.cwd(), 'config.json');
+let config = {};
+
+try {
+  const rawConfig = fs.readFileSync(configPath, 'utf-8');
+  config = JSON.parse(rawConfig);
+} catch (err) {
+  console.error('❌ Failed to load config.json:', err);
+}
 
 const filePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
-let cardData = {};
+const cardData = {};
 
 try {
   const raw = fs.readFileSync(filePath, 'utf-8');
   const parsed = JSON.parse(raw);
+
   parsed.forEach(card => {
-    cardData[card.cardId] = card.rarity;
+    if (card.card_id && card.rarity) {
+      cardData[card.card_id] = card.rarity;
+    }
   });
+
+  console.log(`✅ Loaded rarity data for ${Object.keys(cardData).length} cards.`);
 } catch (err) {
-  console.error('Failed to load card rarity data:', err);
-  cardData = {}; // Default to empty if error occurs
+  console.error('❌ Failed to load card rarity data:', err);
 }
 
 /**
