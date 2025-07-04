@@ -1,20 +1,21 @@
+// utils/summaryWriter.js
+
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Writes a duel summary to file.
- * @param {Object} duelState - The final duelState
- * @param {string} winnerId - Discord ID of the winner
+ * Writes a summary JSON file for a completed duel.
+ * @param {Object} duelState - Final duel state containing both players and optional wager
+ * @param {string} winnerId - Discord ID of the winning player
+ * @returns {Promise<string>} - The generated duelId used for the summary file
  */
 export async function writeDuelSummary(duelState, winnerId) {
   const duelId = uuidv4();
   const timestamp = new Date().toISOString();
 
-  const player1 = duelState.players.player1;
-  const player2 = duelState.players.player2;
+  const { player1, player2 } = duelState.players;
 
-  // Create the summary object
   const summary = {
     duelId,
     winner: winnerId === player1.discordId ? 'player1' : 'player2',
@@ -44,15 +45,11 @@ export async function writeDuelSummary(duelState, winnerId) {
     ]
   };
 
-  const filePath = path.resolve(`./data/summarys/${duelId}.json`);
+  const filePath = path.resolve('./data/summarys', `${duelId}.json`);
 
   try {
-    // Ensure the directory exists before writing
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    
-    // Write the summary to the file
     await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
-
     console.log(`✅ Summary saved: ${filePath}`);
     return duelId;
   } catch (err) {
