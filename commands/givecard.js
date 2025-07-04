@@ -1,3 +1,5 @@
+// commands/givecard.js
+
 import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
@@ -44,7 +46,7 @@ export default {
 
     const userDeck = decks[userId]?.deck || [];
 
-    if (userDeck.length >= 250) {
+    if (userDeck.length >= config.coin_system.max_card_collection_size) {
       return interaction.reply({
         content: 'Player must have fewer than 248 cards to receive a pack.',
         ephemeral: true
@@ -81,7 +83,8 @@ export default {
       if (!fs.existsSync(revealDir)) {
         fs.mkdirSync(revealDir, { recursive: true });
       }
-      fs.writeFileSync(path.join(revealDir, `reveal_${userId}.json`), JSON.stringify(revealPayload, null, 2));
+      const revealFilePath = path.join(revealDir, `reveal_${userId}.json`);
+      fs.writeFileSync(revealFilePath, JSON.stringify(revealPayload, null, 2));
     } catch (err) {
       console.error('Failed to write reveal file:', err);
       return interaction.reply({ content: 'Failed to prepare pack reveal.', ephemeral: true });
