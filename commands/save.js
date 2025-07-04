@@ -1,12 +1,13 @@
 // commands/save.js
 
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import fs from "fs/promises";
+
 const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
+
 export default {
   data: new SlashCommandBuilder()
     .setName('save')
@@ -16,6 +17,7 @@ export default {
         .setDescription('Your full deck as a JSON array (20–40 cards)')
         .setRequired(true)
     ),
+
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageDeck'])) {
       return interaction.reply({
@@ -23,9 +25,11 @@ export default {
         ephemeral: true
       });
     }
+
     const userId = interaction.user.id;
     const username = interaction.user.username;
     const deckInput = interaction.options.getString('deck');
+
     let deck;
     try {
       deck = JSON.parse(deckInput);
@@ -34,21 +38,49 @@ export default {
         throw new Error('Deck must contain between 20 and 40 cards.');
       }
     } catch (err) {
+      return interaction.reply({
         content: `❌ Invalid deck format: ${err.message}`,
+        ephemeral: true
+      });
+    }
+
     let data = { players: [] };
-      if (fs.existsSync(linkedDecksPath)) {
-        data = JSON.parse(fs.readFileSync(linkedDecksPath, 'utf-8'));
+
+    try {
+      const exists = await fs.access(linkedDecksPath).then(() => true).catch(() => false);
+      if (exists) {
+        const raw = await fs.readFile(linkedDecksPath, 'utf-8');
+        data = JSON.parse(raw);
+      }
+    } catch (err) {
       console.error('🔴 Failed to read deck file:', err);
-        content: 'Error loading your existing deck data.',
+      return interaction.reply({
+        content: '❌ Error loading your existing deck data.',
+        ephemeral: true
+      });
+    }
+
     const existingIndex = data.players.findIndex(p => p.discordId === userId);
+    const playerData = { discordId: userId, discordName: username, deck };
+
     if (existingIndex >= 0) {
-      data.players[existingIndex].deck = deck;
-      data.players[existingIndex].discordName = username;
+      data.players[existingIndex] = playerData;
     } else {
-      data.players.push({ discordId: userId, discordName: username, deck });
-      fs.writeFileSync(linkedDecksPath, JSON.stringify(data, null, 2));
+      data.players.push(playerData);
+    }
+
+    try {
+      await fs.writeFile(linkedDecksPath, JSON.stringify(data, null, 2));
+      return interaction.reply({
         content: '✅ Your deck has been saved and is now eligible for duels!',
+        ephemeral: true
+      });
+    } catch (err) {
       console.error('🔴 Deck save failed:', err);
+      return interaction.reply({
         content: '❌ Failed to save your deck. Please try again.',
+        ephemeral: true
+      });
+    }
   }
 };
