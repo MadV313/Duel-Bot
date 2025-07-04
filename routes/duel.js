@@ -6,7 +6,7 @@ import { startPracticeDuel, duelState } from '../logic/duelState.js';
 
 const router = express.Router();
 
-// POST: Bot turn
+// POST: Bot takes a turn using current duelState (Practice Mode)
 router.post('/turn', async (req, res) => {
   const clientState = req.body;
 
@@ -14,21 +14,22 @@ router.post('/turn', async (req, res) => {
     const updatedState = await applyBotMove(clientState);
     res.json(updatedState);
   } catch (err) {
+    console.error('Bot turn error:', err);
     res.status(500).json({ error: 'Bot move failed', details: err.message });
   }
 });
 
-// GET: Start a practice duel (admin only)
+// GET: Start a new practice duel (Admin-triggered only)
 router.get('/practice', async (req, res) => {
   try {
     const cardFile = path.resolve('./data/CoreMasterReference.json');
-    const raw = await fs.readFile(cardFile, 'utf-8');
-    const cardList = JSON.parse(raw);
+    const rawData = await fs.readFile(cardFile, 'utf-8');
+    const cardList = JSON.parse(rawData);
 
-    await startPracticeDuel(cardList); // Pass full list to logic
+    startPracticeDuel(cardList); // Reinitializes duelState for practice mode
     res.json(duelState);
   } catch (err) {
-    console.error('Practice duel init failed:', err);
+    console.error('Practice duel initialization failed:', err);
     res.status(500).json({ error: 'Failed to start practice duel' });
   }
 });
