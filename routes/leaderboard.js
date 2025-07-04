@@ -9,7 +9,7 @@ const statsPath = path.resolve('./data/player_data.json');
 
 /**
  * GET /leaderboard
- * Returns top duelists ranked by wins, with ties sorted by fewest losses.
+ * Returns top duelists ranked by wins (tiebreaker: fewer losses)
  */
 router.get('/', async (req, res) => {
   try {
@@ -19,18 +19,18 @@ router.get('/', async (req, res) => {
     const leaderboard = Object.entries(stats)
       .map(([userId, record]) => ({
         userId,
-        wins: record.wins || 0,
-        losses: record.losses || 0
+        wins: record.wins ?? 0,
+        losses: record.losses ?? 0
       }))
       .sort((a, b) => {
         if (b.wins !== a.wins) return b.wins - a.wins;
-        return a.losses - b.losses; // tiebreaker: fewer losses
+        return a.losses - b.losses;
       });
 
-    res.status(200).json({ leaderboard });
+    return res.status(200).json({ leaderboard });
   } catch (err) {
-    console.error('Failed to load leaderboard:', err);
-    res.status(500).json({ error: 'Failed to load leaderboard.' });
+    console.error('❌ Failed to load leaderboard:', err);
+    return res.status(500).json({ error: 'Failed to load leaderboard.' });
   }
 });
 
