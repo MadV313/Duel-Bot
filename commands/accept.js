@@ -4,8 +4,18 @@ import { SlashCommandBuilder } from 'discord.js';
 import { getTradeOffer, removeTradeOffer } from '../utils/tradeQueue.js';
 import { updatePlayerDeck } from '../utils/deckUtils.js';
 import fs from 'fs';
+import path from 'path';
 import fetch from 'node-fetch';
-import config from '../config.json';
+
+// ✅ Safely load config.json at runtime
+const configPath = path.join(process.cwd(), 'config.json');
+let config = {};
+try {
+  const raw = fs.readFileSync(configPath, 'utf-8');
+  config = JSON.parse(raw);
+} catch (err) {
+  console.error('❌ Failed to load config.json in accept.js:', err);
+}
 
 const coinBankPath = './data/coin_bank.json';
 
