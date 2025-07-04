@@ -1,3 +1,6 @@
+// utils/checkChannels.js
+
+// Channel group definitions (Discord channel IDs)
 const allowedChannels = {
   manageCards: ['1367977677658656868'],   // #manage-cards
   manageDeck: ['1368023905964658760'],    // #manage-deck
@@ -6,25 +9,28 @@ const allowedChannels = {
 };
 
 /**
- * Check if the interaction is in an allowed channel group
- * @param {string} channelId - Discord channel ID
- * @param {string[]} groups - Names like ['manageCards', 'battlefield']
- * @returns {boolean}
+ * Check if a channel ID is allowed for the provided channel group(s).
+ * 
+ * @param {string} channelId - The Discord channel ID to check.
+ * @param {string[]} groups - An array of allowed group names (e.g. ['manageDeck']).
+ * @returns {boolean} - True if the channel is allowed for any group, false otherwise.
  */
 export function isAllowedChannel(channelId, groups) {
   if (!Array.isArray(groups) || groups.length === 0) {
-    console.error("Invalid groups input. Expected a non-empty array.");
+    console.error('[checkChannels] ❌ Invalid "groups" input. Expected a non-empty array.');
     return false;
   }
 
   for (const group of groups) {
-    if (!allowedChannels.hasOwnProperty(group)) {
-      console.error(`Invalid group name: ${group}`);
-      continue; // Skip invalid group names
+    if (!Object.prototype.hasOwnProperty.call(allowedChannels, group)) {
+      console.warn(`[checkChannels] ⚠️ Unknown group: "${group}"`);
+      continue;
     }
 
-    const allowed = allowedChannels[group];
-    if (allowed?.includes(channelId)) return true;
+    if (allowedChannels[group].includes(channelId)) {
+      return true;
+    }
   }
+
   return false;
 }
