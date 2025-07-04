@@ -1,9 +1,14 @@
+// utils/tradeQueue.js
+
 import fs from 'fs';
 import path from 'path';
 
 const tradeFile = path.resolve('./data/trade_queue.json');
 
-// Load current queue
+/**
+ * Load the current trade queue from file.
+ * @returns {Array} queue - List of trades
+ */
 export function loadQueue() {
   try {
     if (fs.existsSync(tradeFile)) {
@@ -11,30 +16,34 @@ export function loadQueue() {
       return JSON.parse(rawData);
     }
   } catch (err) {
-    console.error('Error loading trade queue:', err);
+    console.error('❌ Error loading trade queue:', err);
   }
-  return []; // Return an empty array if no data exists or an error occurs
+  return [];
 }
 
-// Save queue to file
+/**
+ * Save the trade queue to disk.
+ * @param {Array} queue - The array of trades to store
+ */
 export function saveQueue(queue) {
   try {
-    // Validate queue to ensure it's an array
     if (!Array.isArray(queue)) {
       throw new Error('Queue must be an array.');
     }
-
     fs.writeFileSync(tradeFile, JSON.stringify(queue, null, 2));
     console.log('✅ Trade queue saved successfully.');
   } catch (err) {
-    console.error('Error saving trade queue:', err);
+    console.error('❌ Error saving trade queue:', err);
   }
 }
 
-// Add new trade
+/**
+ * Add a trade to the queue.
+ * @param {Object} trade - Trade object containing at least an `id`
+ */
 export function enqueueTrade(trade) {
   if (!trade || !trade.id) {
-    console.error('Invalid trade object: must contain an id.');
+    console.error('❌ Invalid trade object: must contain an id.');
     return;
   }
 
@@ -44,10 +53,13 @@ export function enqueueTrade(trade) {
   console.log(`✅ Trade with ID ${trade.id} added to the queue.`);
 }
 
-// Remove a trade by ID
+/**
+ * Remove a trade from the queue by ID.
+ * @param {string} tradeId - ID of the trade to remove
+ */
 export function removeTradeById(tradeId) {
   if (!tradeId) {
-    console.error('Trade ID is required to remove a trade.');
+    console.error('❌ Trade ID is required to remove a trade.');
     return;
   }
 
@@ -57,14 +69,17 @@ export function removeTradeById(tradeId) {
   console.log(`✅ Trade with ID ${tradeId} removed from the queue.`);
 }
 
-// Find a trade by ID
+/**
+ * Retrieve a trade from the queue by ID.
+ * @param {string} tradeId - Trade ID to look up
+ * @returns {Object|null} - Found trade or null
+ */
 export function getTradeById(tradeId) {
   if (!tradeId) {
-    console.error('Trade ID is required to find a trade.');
+    console.error('❌ Trade ID is required to find a trade.');
     return null;
   }
 
   const queue = loadQueue();
-  const trade = queue.find(t => t.id === tradeId);
-  return trade || null; // Return null if trade not found
+  return queue.find(t => t.id === tradeId) || null;
 }
