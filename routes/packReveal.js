@@ -1,19 +1,27 @@
+// routes/packreveal.js
+
 import express from 'express';
-import { weightedRandomCards } from '../utils/cardPicker.js';  // This is your existing logic
+import { weightedRandomCards } from '../utils/cardPicker.js';  // Core logic for rarity-weighted pulls
 
 const router = express.Router();
 
-// Route to get a random pack of cards
+/**
+ * GET /revealPack?count=3
+ * Returns a randomized pack of cards (default: 3 cards)
+ */
 router.get('/revealPack', (req, res) => {
   try {
-    // Fetch 3 random cards using your existing weighted random logic from cardPicker.js
-    const cards = weightedRandomCards(3);
+    const count = parseInt(req.query.count, 10) || 3;
 
-    // Return the fetched cards in response
-    res.json(cards);
+    if (count <= 0 || count > 10) {
+      return res.status(400).json({ error: 'Invalid pack size. Choose between 1 and 10.' });
+    }
+
+    const cards = weightedRandomCards(count);
+    res.status(200).json(cards);
   } catch (error) {
-    console.error('Error fetching random cards:', error);
-    res.status(500).send('Failed to fetch cards.');
+    console.error('❌ Error fetching random cards:', error);
+    res.status(500).json({ error: 'Failed to fetch cards.' });
   }
 });
 
