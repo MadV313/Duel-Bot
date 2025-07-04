@@ -8,7 +8,7 @@ export const data = new SlashCommandBuilder()
   .setDescription('Deny a pending trade request or duel challenge.');
 
 export async function execute(interaction) {
-  // Handle duel button interaction
+  // Duel challenge button logic
   if (interaction.isButton() && interaction.customId.startsWith('deny_')) {
     const challengerId = interaction.customId.split('_')[1];
     const opponentId = interaction.user.id;
