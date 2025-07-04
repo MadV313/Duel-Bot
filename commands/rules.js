@@ -4,12 +4,10 @@ import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 import fs from "fs/promises";
 const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
-
 export default {
   data: new SlashCommandBuilder()
     .setName('rules')
     .setDescription('View the SV13 RuleBook and combo reference'),
-
   async execute(interaction) {
     // ✅ Restrict to bot channels only
     if (!isAllowedChannel(interaction.channelId, ['manageCards', 'manageDeck', 'battlefield'])) {
@@ -18,12 +16,10 @@ export default {
         ephemeral: true
       });
     }
-
     return interaction.reply({
       content: `**📘 SV13 RuleBook**  
 Access the complete guide, command list, and synergy combos here:  
 🔗 **[Open RuleBook](${config.ui_urls.rulebook_url})**
-
 __**Contents Include:**__  
 • ✅ How to Link Your Deck  
 • 🧪 Game Setup & Turn Structure  
