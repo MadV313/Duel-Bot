@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
+// ❌ Removed static config import — not used, and causes crashes
 
 export default {
   data: new SlashCommandBuilder()
