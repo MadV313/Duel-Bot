@@ -7,7 +7,8 @@ import { getPlayerCollection } from '../utils/deckUtils.js';
 
 const router = express.Router();
 
-const masterListPath = path.resolve('data', 'dayz_ccg_cards_with_000_all_fixed.json');
+// ✅ Updated path to new logic location
+const masterListPath = path.resolve('logic', 'CoreMasterReference.json');
 const masterList = JSON.parse(fs.readFileSync(masterListPath, 'utf8'));
 
 /**
