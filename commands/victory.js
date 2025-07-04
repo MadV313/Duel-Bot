@@ -1,3 +1,5 @@
+// commands/victory.js
+
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { duelState, endLiveDuel } from '../logic/duelState.js';
 import { rewardDuelWinner } from '../logic/rewardHandler.js';
@@ -22,7 +24,7 @@ export default {
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
-        content: 'This command can only be used in #battlefield.',
+        content: '⚠️ This command can only be used in #battlefield.',
         ephemeral: true
       });
     }
@@ -35,14 +37,14 @@ export default {
 
     if (!player1Id || !player2Id) {
       return interaction.reply({
-        content: 'No active duel to resolve.',
+        content: '❌ No active duel to resolve.',
         ephemeral: true
       });
     }
 
     if (![player1Id, player2Id].includes(winnerId)) {
       return interaction.reply({
-        content: 'The selected user is not a participant in the current duel.',
+        content: '❌ Selected user is not in the current duel.',
         ephemeral: true
       });
     }
@@ -51,8 +53,13 @@ export default {
 
     // Update win/loss stats
     try {
-      const raw = await fs.readFile(playerStatsPath, 'utf-8');
-      const stats = JSON.parse(raw);
+      let stats = {};
+      try {
+        const raw = await fs.readFile(playerStatsPath, 'utf-8');
+        stats = JSON.parse(raw);
+      } catch {
+        // file might not exist yet
+      }
 
       if (!stats[winnerId]) stats[winnerId] = { wins: 0, losses: 0 };
       if (!stats[loserId]) stats[loserId] = { wins: 0, losses: 0 };
@@ -62,27 +69,31 @@ export default {
 
       await fs.writeFile(playerStatsPath, JSON.stringify(stats, null, 2));
     } catch (err) {
-      console.error('Failed to update duel stats:', err);
+      console.error('❌ Failed to update duel stats:', err);
     }
 
-    // Wager reward
+    // Handle wager reward if applicable
     if (duelState.wagerAmount) {
-      rewardDuelWinner(winnerId, loserId, duelState.wagerAmount);
+      try {
+        rewardDuelWinner(winnerId, loserId, duelState.wagerAmount);
+      } catch (err) {
+        console.error('❌ Error rewarding wager:', err);
+      }
     }
 
-    // Write summary before ending the duel
+    // Write summary log
     try {
       const duelId = await writeDuelSummary(duelState, winnerId);
-      console.log(`Duel summary written for ${duelId}`);
+      console.log(`📄 Duel summary written for ${duelId}`);
     } catch (err) {
-      console.error('Failed to write duel summary:', err);
+      console.error('❌ Failed to write duel summary:', err);
     }
 
-    // End duel
+    // End the duel
     await endLiveDuel(winnerId);
 
     return interaction.reply({
-      content: `✅ Victory declared! <@${winnerId}> is the winner of the duel.`,
+      content: `🏆 **Victory declared!** <@${winnerId}> is the winner of the duel.`,
       allowedMentions: { users: [winnerId] }
     });
   }
