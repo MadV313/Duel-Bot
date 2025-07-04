@@ -5,9 +5,18 @@ import fs from 'fs/promises';
 import path from 'path';
 import { startLiveDuel, duelState } from '../logic/duelState.js';
 import { v4 as uuidv4 } from 'uuid';
-import coreCards from '../data/CoreMasterReference.json' assert { type: 'json' };
 
 const router = express.Router();
+
+// Load CoreMasterReference.json at runtime
+let coreCards = [];
+const corePath = path.join(process.cwd(), 'data', 'CoreMasterReference.json');
+try {
+  const raw = await fs.readFile(corePath, 'utf-8');
+  coreCards = JSON.parse(raw);
+} catch (err) {
+  console.error('❌ Failed to load CoreMasterReference.json:', err);
+}
 
 router.post('/start', async (req, res) => {
   const { player1Id, player2Id, wager = 0 } = req.body;
