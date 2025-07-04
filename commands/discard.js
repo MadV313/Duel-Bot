@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
+// ❌ Removed unused: import config from '../config.json';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 
@@ -42,7 +42,8 @@ export default {
     let decks = {};
     try {
       if (fs.existsSync(decksPath)) {
-        decks = JSON.parse(fs.readFileSync(decksPath));
+        const raw = fs.readFileSync(decksPath, 'utf-8');
+        decks = JSON.parse(raw);
       }
     } catch (err) {
       console.error('Failed to read decks:', err);
