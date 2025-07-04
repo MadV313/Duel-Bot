@@ -1,12 +1,22 @@
-// utils/cardpicker.js
+// utils/cardPicker.js
 import fs from 'fs';
 import path from 'path';
 
+// ✅ Safe config.json load without import assertions
 const configPath = path.join(process.cwd(), 'config.json');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+let config = {};
 
+try {
+  const rawConfig = fs.readFileSync(configPath, 'utf-8');
+  config = JSON.parse(rawConfig);
+} catch (err) {
+  console.error('❌ Failed to load config.json:', err);
+}
+
+// ✅ Determine the core card path
 const corePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
+// ✅ Load and filter cards (exclude placeholder #000)
 const rarityWeights = config.rarityWeights || {
   Common: 5,
   Uncommon: 3,
@@ -19,39 +29,38 @@ let allCards = [];
 try {
   const raw = fs.readFileSync(corePath);
   const parsed = JSON.parse(raw);
-  allCards = parsed.filter(c => c.card_id !== '000'); // exclude placeholder
+  allCards = parsed.filter(c => c.card_id !== '000');
 } catch (err) {
-  console.error('Failed to load CoreMasterReference:', err);
-  allCards = [];  // Default to empty if error occurs
+  console.error('❌ Failed to load CoreMasterReference:', err);
+  allCards = [];
 }
 
-// Helper: Returns one weighted random card (full card object)
+// 🎲 Helper: Picks one weighted card based on rarity
 function pickOneWeighted() {
   const weightedPool = [];
 
   for (const card of allCards) {
     const weight = rarityWeights[card.rarity] || 1;
     for (let i = 0; i < weight; i++) {
-      weightedPool.push(card);  // Push full card object instead of just card_id
+      weightedPool.push(card);
     }
   }
 
-  // Shuffle the weighted pool for better randomness
+  // Optional: Shuffle for enhanced randomness
   for (let i = weightedPool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [weightedPool[i], weightedPool[j]] = [weightedPool[j], weightedPool[i]]; // Swap
+    [weightedPool[i], weightedPool[j]] = [weightedPool[j], weightedPool[i]];
   }
 
   const randomIndex = Math.floor(Math.random() * weightedPool.length);
   return weightedPool[randomIndex];
 }
 
-// Exported: Picks N random cards by weight (full card objects)
+// 📦 Exported: Picks N weighted cards
 export function weightedRandomCards(count = 3) {
   const result = [];
   while (result.length < count) {
-    const pick = pickOneWeighted();
-    result.push(pick);
+    result.push(pickOneWeighted());
   }
-  return result;  // Returns an array of full card objects
+  return result;
 }
