@@ -40,7 +40,7 @@ export default {
 
     if (quantity < 1 || quantity > 5) {
       return interaction.reply({
-        content: 'You must sell between 1 and 5 cards per day.',
+        content: '⚠️ You must sell between 1 and 5 cards per day.',
         ephemeral: true
       });
     }
@@ -52,29 +52,25 @@ export default {
       if (fs.existsSync(sellLogPath)) sellLog = JSON.parse(fs.readFileSync(sellLogPath));
     } catch (err) {
       console.error("Failed to load player data:", err);
-      return interaction.reply({ content: 'Internal error occurred while loading files.', ephemeral: true });
+      return interaction.reply({ content: '❌ Internal error occurred while reading files.', ephemeral: true });
     }
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // AUTO-WIPE LOGS older than today
+    // Cleanup stale logs
     for (const uid in sellLog) {
       for (const date in sellLog[uid]) {
-        if (date !== today) {
-          delete sellLog[uid][date];
-        }
+        if (date !== today) delete sellLog[uid][date];
       }
-      if (Object.keys(sellLog[uid]).length === 0) {
-        delete sellLog[uid];
-      }
+      if (Object.keys(sellLog[uid]).length === 0) delete sellLog[uid];
     }
 
-    const soldToday = (sellLog[userId]?.[today] || 0);
+    const soldToday = sellLog[userId]?.[today] || 0;
     const remaining = config.coin_system.sell_limit_per_day - soldToday;
 
     if (quantity > remaining) {
       return interaction.reply({
-        content: `You can only sell ${remaining} more card(s) today.`,
+        content: `⚠️ You can only sell ${remaining} more card(s) today.`,
         ephemeral: true
       });
     }
@@ -84,16 +80,16 @@ export default {
 
     if (ownedCount < quantity) {
       return interaction.reply({
-        content: `You only own ${ownedCount} of card #${cardId}.`,
+        content: `⚠️ You only own ${ownedCount} of card #${cardId}.`,
         ephemeral: true
       });
     }
 
     const rarity = getCardRarity(cardId).toLowerCase();
-    const valuePerCard = config.coin_system.card_sell_values[rarity] || 0.5;
+    const valuePerCard = config.coin_system.card_sell_values[rarity] ?? 0.5;
     const payout = quantity * valuePerCard;
 
-    // Remove cards
+    // Remove specified cards
     let removed = 0;
     decks[userId].deck = playerDeck.filter(c => {
       if (c === cardId && removed < quantity) {
@@ -103,7 +99,7 @@ export default {
       return true;
     });
 
-    // Update logs + coin bank
+    // Update coin bank and sell logs
     if (!sellLog[userId]) sellLog[userId] = {};
     sellLog[userId][today] = soldToday + quantity;
     coinBank[userId] = (coinBank[userId] || 0) + payout;
@@ -114,7 +110,7 @@ export default {
       fs.writeFileSync(sellLogPath, JSON.stringify(sellLog, null, 2));
     } catch (err) {
       console.error("Sell save error:", err);
-      return interaction.reply({ content: 'Failed to finalize sale.', ephemeral: true });
+      return interaction.reply({ content: '❌ Failed to finalize sale.', ephemeral: true });
     }
 
     return interaction.reply({
