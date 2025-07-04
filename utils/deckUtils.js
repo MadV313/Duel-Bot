@@ -44,3 +44,23 @@ export function updatePlayerDeck(userId, update) {
     console.error(err.stack);
   }
 }
+
+/**
+ * Get a player's full card collection from linked_decks.json.
+ *
+ * @param {string} userId - Discord user ID
+ * @returns {Array} The collection array, or empty if not found.
+ */
+export function getPlayerCollection(userId) {
+  try {
+    if (fs.existsSync(decksPath)) {
+      const raw = fs.readFileSync(decksPath, 'utf8');
+      const data = JSON.parse(raw);
+      const player = data.players.find(p => p.discordId === userId);
+      return player?.collection || [];
+    }
+  } catch (err) {
+    console.error(`❌ Failed to get collection for ${userId}: ${err.message}`);
+  }
+  return [];
+}
