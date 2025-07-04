@@ -27,7 +27,7 @@ export function startPracticeDuel() {
   duelState.duelMode = 'practice';
   duelState.startedAt = new Date();
 
-  import('./CoreMasterReference.json', { assert: { type: 'json' } })
+  import('./logic/CoreMasterReference.json', { assert: { type: 'json' } })
     .then(module => {
       const allCards = module.default;
 
