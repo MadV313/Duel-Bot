@@ -26,7 +26,8 @@ export default {
     let coinBank = {};
     try {
       if (fs.existsSync(coinBankPath)) {
-        coinBank = JSON.parse(fs.readFileSync(coinBankPath));
+        const raw = fs.readFileSync(coinBankPath, 'utf-8');
+        coinBank = JSON.parse(raw);
       }
     } catch (err) {
       console.error('Failed to read coin bank:', err);
