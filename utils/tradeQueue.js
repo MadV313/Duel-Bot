@@ -83,3 +83,24 @@ export function getTradeById(tradeId) {
   const queue = loadQueue();
   return queue.find(t => t.id === tradeId) || null;
 }
+
+/**
+ * Retrieve a trade for a specific user ID (used in accept.js).
+ * @param {string} userId - User ID to search
+ * @returns {Object|null} - First trade involving this user
+ */
+export function getTradeOffer(userId) {
+  const queue = loadQueue();
+  return queue.find(t => t.from === userId || t.to === userId) || null;
+}
+
+/**
+ * Remove a trade for a specific user ID (used in deny.js or on success).
+ * @param {string} userId - User ID to remove trade for
+ */
+export function removeTradeOffer(userId) {
+  let queue = loadQueue();
+  queue = queue.filter(t => t.from !== userId && t.to !== userId);
+  saveQueue(queue);
+  console.log(`✅ Trade offer involving user ${userId} removed.`);
+}
