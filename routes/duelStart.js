@@ -8,9 +8,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
 
-// Load CoreMasterReference.json at runtime
+// Load CoreMasterReference.json on startup
 let coreCards = [];
 const corePath = path.join(process.cwd(), 'data', 'CoreMasterReference.json');
+
 try {
   const raw = await fs.readFile(corePath, 'utf-8');
   coreCards = JSON.parse(raw);
@@ -24,7 +25,7 @@ router.post('/start', async (req, res) => {
   // Prevent launching if duel already active
   if (
     duelState.players?.player1?.deck.length ||
-    duelState.players?.player2?.deck.length
+    duelState.players?.player2?.deck?.length
   ) {
     return res.status(409).json({ error: 'A duel is already in progress.' });
   }
@@ -36,8 +37,8 @@ router.post('/start', async (req, res) => {
 
     const deckById = {};
     for (const entry of deckMap.players) {
-      deckById[entry.discordId] = entry.deck.map(id => ({
-        cardId: id,
+      deckById[entry.discordId] = entry.deck.map(cardId => ({
+        cardId,
         isFaceDown: false
       }));
     }
@@ -52,15 +53,19 @@ router.post('/start', async (req, res) => {
       });
     }
 
-    // Launch duel
+    // Launch the duel
     const duelId = uuidv4();
     duelState.duelId = duelId;
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager);
 
     const uiUrl = `${process.env.FRONTEND_URL}/duel.html?player=${player1Id}`;
-    return res.status(200).json({ message: 'Duel started.', url: uiUrl, duelId });
+    return res.status(200).json({
+      message: 'Duel started.',
+      url: uiUrl,
+      duelId
+    });
   } catch (err) {
-    console.error('Failed to load duel:', err);
+    console.error('❌ Failed to launch duel:', err);
     return res.status(500).json({ error: 'Duel start failed.', details: err.message });
   }
 });
@@ -70,13 +75,13 @@ function generateBotDeck() {
     c => ['Common', 'Uncommon'].includes(c.rarity) && c.card_id !== '000'
   );
 
-  const botDeck = [];
-  while (botDeck.length < 30) {
+  const deck = [];
+  while (deck.length < 30) {
     const pick = eligible[Math.floor(Math.random() * eligible.length)];
-    botDeck.push({ cardId: pick.card_id, isFaceDown: false });
+    deck.push({ cardId: pick.card_id, isFaceDown: false });
   }
 
-  return botDeck;
+  return deck;
 }
 
 export default router;
