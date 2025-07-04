@@ -1,43 +1,45 @@
-Here is a complete `animationTrigger.js` file designed to trigger visual effects in your DayZ CCG duel system. It maps animation types to embed updates or frontend UI signals, and works with both Discord and web-based UIs.
-
----
-
-### **`animationTrigger.js`**
-
-```js
 // logic/animationTrigger.js
 
 import { duelState } from './duelState.js';
 
 /**
  * Triggers a named animation effect for a given player.
- * Supported types: fire, poison, heal, trap, bullet, infected, shield, loot, explosion, attack
+ * Supported types: fire, poison, heal, trap, bullet,
+ * infected, shield, loot, explosion, attack
+ * 
+ * @param {string} type - Type of animation to trigger
+ * @param {'player1' | 'player2' | 'bot'} playerKey - Player to assign the animation to
  */
 export function triggerAnimation(type, playerKey) {
-  const supported = [
+  const supportedTypes = [
     'fire', 'poison', 'heal', 'trap', 'bullet',
     'infected', 'shield', 'loot', 'explosion', 'attack'
   ];
 
-  if (!supported.includes(type)) {
-    console.warn(`Unsupported animation type: ${type}`);
+  if (!supportedTypes.includes(type)) {
+    console.warn(`[Animation] Unsupported animation type: ${type}`);
     return;
   }
 
   if (!['player1', 'player2', 'bot'].includes(playerKey)) {
-    console.error(`Invalid player key: ${playerKey}`);
+    console.error(`[Animation] Invalid player key: ${playerKey}`);
     return;
   }
 
-  // Add an animation queue entry for the frontend
-  if (!duelState.players[playerKey].animations) {
-    duelState.players[playerKey].animations = [];
+  const player = duelState.players?.[playerKey];
+  if (!player) {
+    console.error(`[Animation] Player not found in duelState: ${playerKey}`);
+    return;
   }
 
-  duelState.players[playerKey].animations.push({
+  if (!Array.isArray(player.animations)) {
+    player.animations = [];
+  }
+
+  player.animations.push({
     type,
     timestamp: Date.now()
   });
 
-  console.log(`Animation triggered: ${type} for ${playerKey}`);
+  console.log(`[Animation] ✅ Triggered '${type}' animation for ${playerKey}`);
 }
