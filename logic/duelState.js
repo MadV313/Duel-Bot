@@ -1,18 +1,21 @@
 // logic/duelState.js
 
-// Core duel state structure
+// 🔁 Centralized state for active duel
 export const duelState = {
   players: {
     player1: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
-    bot: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
+    bot:     { hp: 200, hand: [], field: [], deck: [], discardPile: [] }
   },
   currentPlayer: 'player1',
   winner: null,
   wagerAmount: null,
-  spectators: [] // Used by watch/leave/viewlog
+  spectators: []
 };
 
-// Admin-only function to start a practice duel
+/**
+ * 🔹 Start a practice duel vs bot using mock random decks
+ * @param {Array} cardList - Full card pool (excluding #000)
+ */
 export function startPracticeDuel(cardList) {
   const getRandomDeck = () => {
     const deck = [];
@@ -25,20 +28,21 @@ export function startPracticeDuel(cardList) {
     return deck;
   };
 
-  duelState.players.player1.deck = getRandomDeck();
-  duelState.players.bot.deck = getRandomDeck();
+  duelState.players.player1 = {
+    hp: 200,
+    hand: [],
+    field: [],
+    deck: getRandomDeck(),
+    discardPile: []
+  };
 
-  duelState.players.player1.hp = 200;
-  duelState.players.bot.hp = 200;
-
-  duelState.players.player1.hand = [];
-  duelState.players.bot.hand = [];
-
-  duelState.players.player1.field = [];
-  duelState.players.bot.field = [];
-
-  duelState.players.player1.discardPile = [];
-  duelState.players.bot.discardPile = [];
+  duelState.players.bot = {
+    hp: 200,
+    hand: [],
+    field: [],
+    deck: getRandomDeck(),
+    discardPile: []
+  };
 
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
@@ -46,7 +50,14 @@ export function startPracticeDuel(cardList) {
   duelState.spectators = [];
 }
 
-// Function to start a live PvP duel
+/**
+ * 🔸 Start a live PvP duel between two real players
+ * @param {string} player1Id - Discord ID of player 1
+ * @param {string} player2Id - Discord ID of player 2
+ * @param {Array} player1Deck - Array of card objects for player 1
+ * @param {Array} player2Deck - Array of card objects for player 2
+ * @param {number} wager - Optional wager amount (coins)
+ */
 export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager = 0) {
   duelState.players = {
     player1: {
@@ -55,7 +66,7 @@ export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wa
       hand: [],
       field: [],
       deck: [...player1Deck],
-      discardPile: [],
+      discardPile: []
     },
     player2: {
       discordId: player2Id,
@@ -63,8 +74,8 @@ export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wa
       hand: [],
       field: [],
       deck: [...player2Deck],
-      discardPile: [],
-    },
+      discardPile: []
+    }
   };
 
   duelState.currentPlayer = 'player1';
@@ -73,12 +84,16 @@ export function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wa
   duelState.spectators = [];
 }
 
-// Function to end/reset the duel
+/**
+ * 🛑 End or reset the current duel
+ * @param {string|null} winnerId - Optional winner’s Discord ID
+ */
 export function endLiveDuel(winnerId = null) {
   duelState.players = {
     player1: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
-    bot: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
+    bot:     { hp: 200, hand: [], field: [], deck: [], discardPile: [] }
   };
+
   duelState.currentPlayer = 'player1';
   duelState.winner = winnerId || null;
   duelState.wagerAmount = null;
