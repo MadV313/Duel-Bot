@@ -1,21 +1,29 @@
+// hubEnhancements.js
+
 import { config } from './config.js';
 
+/**
+ * Display a floating toast notification with the given message.
+ * @param {string} message
+ */
 function showToast(message) {
   const toast = document.createElement('div');
   toast.textContent = message;
-  toast.style.position = 'fixed';
-  toast.style.bottom = '30px';
-  toast.style.left = '50%';
-  toast.style.transform = 'translateX(-50%)';
-  toast.style.background = '#111';
-  toast.style.color = '#fff';
-  toast.style.padding = '10px 20px';
-  toast.style.borderRadius = '6px';
-  toast.style.fontSize = '14px';
-  toast.style.zIndex = '9999';
-  toast.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
-  toast.style.opacity = '0';
-  toast.style.transition = 'opacity 0.5s ease-in-out';
+  Object.assign(toast.style, {
+    position: 'fixed',
+    bottom: '30px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: '#111',
+    color: '#fff',
+    padding: '10px 20px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    zIndex: '9999',
+    boxShadow: '0 0 10px rgba(0,0,0,0.5)',
+    opacity: '0',
+    transition: 'opacity 0.5s ease-in-out',
+  });
 
   document.body.appendChild(toast);
   setTimeout(() => (toast.style.opacity = '1'), 100);
@@ -25,6 +33,9 @@ function showToast(message) {
   }, 3000);
 }
 
+/**
+ * Attempts to detect and store the Discord ID from clipboard or URL.
+ */
 function detectAndStoreDiscordId() {
   const clipboardCheck = async () => {
     try {
@@ -34,8 +45,8 @@ function detectAndStoreDiscordId() {
         localStorage.setItem('discord_id', match[1]);
         showToast(`Discord ID stored: ${match[1]}`);
       }
-    } catch (err) {
-      console.warn('Clipboard read failed or not allowed.');
+    } catch {
+      console.warn('📋 Clipboard read failed or not permitted.');
     }
   };
 
@@ -52,6 +63,9 @@ function detectAndStoreDiscordId() {
   urlCheck();
 }
 
+/**
+ * Loads and renders the current user's card and coin stats into the Hub UI.
+ */
 async function loadPlayerStats() {
   const userId = localStorage.getItem('discord_id');
 
@@ -69,12 +83,13 @@ async function loadPlayerStats() {
     document.getElementById('cardCount').textContent = `${data.cardsOwned} / ${config.max_cards}`;
     document.getElementById('coinCount').textContent = data.coins;
   } catch (err) {
-    console.error('Failed to load user stats:', err);
+    console.error('❌ Failed to load user stats:', err);
     document.getElementById('cardCount').textContent = 'Unavailable';
     document.getElementById('coinCount').textContent = '-';
   }
 }
 
+// Init on page load
 window.addEventListener('DOMContentLoaded', () => {
   detectAndStoreDiscordId();
   loadPlayerStats();
