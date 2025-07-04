@@ -12,7 +12,7 @@ const masterList = JSON.parse(fs.readFileSync(masterListPath, 'utf8'));
 
 /**
  * GET /collection?userId=1234567890
- * Returns the player's full card collection with quantities and metadata
+ * Returns player's card collection including quantity, metadata, and image info
  */
 router.get('/collection', (req, res) => {
   const userId = req.query.userId;
@@ -23,13 +23,16 @@ router.get('/collection', (req, res) => {
 
   const formatted = Object.entries(collection).map(([cardId, qty]) => {
     const card = masterList.find(c => c.cardId === cardId || c.number === cardId);
+
     return {
       cardId,
-      number: cardId,
+      number: card?.number || cardId,
       owned: qty,
       name: card?.name || "Unknown",
       rarity: card?.rarity || "Common",
-      filename: card?.filename || "000_CardBack_Unique.png"
+      type: card?.type || "Unknown",
+      filename: card?.filename || "000_CardBack_Unique.png",
+      isNew: false  // Placeholder in case frontend wants to badge "newly unlocked"
     };
   });
 
