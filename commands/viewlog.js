@@ -10,6 +10,7 @@ export default {
     .setDescription('View all users currently spectating the duel'),
 
   async execute(interaction) {
+    // ✅ Enforce correct channel usage
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in #battlefield.',
@@ -17,14 +18,18 @@ export default {
       });
     }
 
+    // ✅ Check for active spectators
     if (!duelState.spectators || duelState.spectators.length === 0) {
-      return interaction.reply({ content: 'No one is currently spectating.', ephemeral: true });
+      return interaction.reply({
+        content: '👀 No one is currently spectating.',
+        ephemeral: true
+      });
     }
 
     const viewers = duelState.spectators.map(id => `<@${id}>`).join('\n');
 
     return interaction.reply({
-      content: `**Current Spectators:**\n${viewers}`,
+      content: `**📺 Current Spectators:**\n${viewers}`,
       ephemeral: true
     });
   }
