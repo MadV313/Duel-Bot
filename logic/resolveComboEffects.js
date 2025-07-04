@@ -4,6 +4,7 @@ import { duelState } from './duelState.js';
 import { applyCardEffect } from './cardEffectHandler.js';
 import { triggerAnimation } from './animationTrigger.js';
 
+// 🔗 Verified Synergy Combos — Tag-based pair triggers
 const COMBO_PAIRS = [
   {
     tags: ['burn', 'ignite'],
@@ -67,15 +68,20 @@ const COMBO_PAIRS = [
   }
 ];
 
-// Utility to extract tag list from a card object
+// 🔍 Extract tags from card
 function getCardTags(card) {
   return card.tags || [];
 }
 
+/**
+ * 🔄 Check for and resolve any matching combos on field
+ * @param {string} playerKey - 'player1' or 'player2'
+ * @param {Array} fieldCards - Array of card objects on the field
+ * @returns {Array<string>} - Names of triggered combos
+ */
 export function checkAndResolveCombo(playerKey, fieldCards) {
   const combosTriggered = [];
 
-  // Check all pairs of cards on the field
   for (let i = 0; i < fieldCards.length; i++) {
     for (let j = i + 1; j < fieldCards.length; j++) {
       const tags1 = getCardTags(fieldCards[i]);
@@ -87,7 +93,6 @@ export function checkAndResolveCombo(playerKey, fieldCards) {
             tags1.includes(tag) || tags2.includes(tag)
           )
         ) {
-          // Combo matched
           applyCardEffect(playerKey, { logicActions: [combo.bonusEffect] });
           triggerAnimation(combo.animation, playerKey);
           combosTriggered.push(combo.name);
