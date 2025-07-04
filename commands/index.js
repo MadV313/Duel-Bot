@@ -1,6 +1,8 @@
 // commands/index.js
 
-import fs from 'fs';
+import fs from 'fs/promises';
+import path from 'path';
+
 import accept from './accept.js';
 import buycard from './buycard.js';
 import challenge from './challenge.js';
@@ -23,11 +25,14 @@ import viewlog from './viewlog.js';
 import watch from './watch.js';
 
 // ✅ Ensure slash commands are registered once
-const flagPath = './.commands_registered';
-if (!fs.existsSync(flagPath)) {
+const flagPath = path.resolve('./.commands_registered');
+
+try {
+  await fs.access(flagPath);
+} catch {
   const { default: register } = await import('../registerCommands.js');
   await register();
-  fs.writeFileSync(flagPath, 'done');
+  await fs.writeFile(flagPath, 'done');
 }
 
 // ✅ Export all commands
