@@ -3,6 +3,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+// Global Duel State Object
 export const duelState = {
   players: {},
   currentPlayer: null,
@@ -13,11 +14,11 @@ export const duelState = {
   startedAt: null
 };
 
-// PRACTICE DUEL LAUNCHER
+// 🧪 PRACTICE DUEL LAUNCHER
 export function startPracticeDuel() {
   duelState.players = {
     player1: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
-    bot: { hp: 200, hand: [], field: [], deck: [], discardPile: [] },
+    bot: { hp: 200, hand: [], field: [], deck: [], discardPile: [] }
   };
   duelState.currentPlayer = 'player1';
   duelState.winner = null;
@@ -34,7 +35,9 @@ export function startPracticeDuel() {
         const sample = [];
         while (sample.length < count) {
           const pick = allCards[Math.floor(Math.random() * allCards.length)];
-          if (pick.card_id !== '000') sample.push({ cardId: pick.card_id, isFaceDown: false });
+          if (pick.card_id !== '000') {
+            sample.push({ cardId: pick.card_id, isFaceDown: false });
+          }
         }
         return sample;
       };
@@ -45,9 +48,8 @@ export function startPracticeDuel() {
     .catch(err => console.error('Failed to load practice decks:', err));
 }
 
-// LIVE PvP DUEL LAUNCHER
+// ⚔️ LIVE PVP DUEL LAUNCHER
 export async function startLiveDuel(player1Id, player2Id, player1Deck, player2Deck) {
-  // Archive existing spectators if a duel is running
   if (duelState.players?.player1 || duelState.players?.player2) {
     await archiveSpectators();
   }
@@ -78,7 +80,7 @@ export async function startLiveDuel(player1Id, player2Id, player1Deck, player2De
   duelState.startedAt = new Date();
 }
 
-// END DUEL CLEANUP
+// 🧹 END DUEL CLEANUP
 export async function endLiveDuel(winnerId) {
   const endedAt = new Date();
   const durationSeconds = duelState.startedAt
@@ -97,9 +99,9 @@ export async function endLiveDuel(winnerId) {
     const summaryPath = path.join(process.cwd(), 'public', 'data', 'duel_summary.json');
     await fs.mkdir(path.dirname(summaryPath), { recursive: true });
     await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2));
-    console.log('Duel summary saved.');
+    console.log('📝 Duel summary saved.');
   } catch (err) {
-    console.error('Failed to write duel summary:', err);
+    console.error('❌ Failed to write duel summary:', err);
   }
 
   // Reset duelState
@@ -112,7 +114,7 @@ export async function endLiveDuel(winnerId) {
   duelState.startedAt = null;
 }
 
-// ARCHIVE PREVIOUS SPECTATORS
+// 📦 ARCHIVE PREVIOUS SPECTATORS
 async function archiveSpectators() {
   if (!duelState.spectators || duelState.spectators.length === 0) return;
 
@@ -129,8 +131,8 @@ async function archiveSpectators() {
       spectators: duelState.spectators
     }, null, 2));
 
-    console.log(`Archived spectator log: ${filename}`);
+    console.log(`📁 Archived spectator log: ${filename}`);
   } catch (err) {
-    console.error('Error archiving spectators:', err);
+    console.error('❌ Error archiving spectators:', err);
   }
 }
