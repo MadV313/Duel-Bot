@@ -13,6 +13,7 @@
   "duel_summary_file": "./public/data/duel_summary.json",
   "manage_cards_channel_id": "1367977677658656868",
   "manage_deck_channel_id": "1368023905964658760",
+
   "ui_urls": {
     "hub_ui": "https://madv313.github.io/HUB-UI/",
     "card_collection_ui": "https://madv313.github.io/Card-Collection-UI/",
@@ -23,6 +24,7 @@
     "spectator_view_ui": "https://madv313.github.io/Spectator-View-UI/",
     "duel_ui": "https://madv313.github.io/Duel-UI/"
   },
+
   "coin_system": {
     "card_pack_cost": 3,
     "card_sell_values": {
