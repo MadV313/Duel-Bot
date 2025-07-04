@@ -6,10 +6,10 @@ import path from 'path';
 const duelUIPath = path.resolve('./public/data/duel_ui_state.json');
 
 /**
- * Updates the Duel UI with the current duel state.
- * This file is read by the frontend to render current HP, cards, turn, etc.
- * 
- * @param {Object} duelState - The entire duel state object
+ * Writes current duel state to duel_ui_state.json for frontend rendering.
+ * Called after every state change (draw, play, discard, etc.).
+ *
+ * @param {Object} duelState - Global duel state object
  */
 export function updateDuelUI(duelState) {
   const payload = {
@@ -22,16 +22,17 @@ export function updateDuelUI(duelState) {
 
   try {
     fs.writeFileSync(duelUIPath, JSON.stringify(payload, null, 2));
-    console.log('Duel UI updated.');
+    console.log('✅ Duel UI state written to duel_ui_state.json');
   } catch (err) {
-    console.error('Failed to update Duel UI:', err);
+    console.error('❌ Failed to write Duel UI state:', err);
   }
 }
 
 /**
- * Formats a player object for frontend rendering.
- * @param {Object} player 
- * @returns Formatted player payload
+ * Prepares a player's state for Duel UI rendering.
+ *
+ * @param {Object} player - One of the players in duelState.players
+ * @returns {Object} - Cleaned structure for frontend use
  */
 function formatPlayer(player) {
   return {
@@ -45,6 +46,6 @@ function formatPlayer(player) {
       cardId: card.cardId || '000',
       isFaceDown: card.isFaceDown || false
     })),
-    discardPile: player.discardPile.length,
+    discardPile: player.discardPile.length
   };
 }
