@@ -1,3 +1,5 @@
+// revealPack.js
+
 document.addEventListener('DOMContentLoaded', async () => {
   const container = document.getElementById('cardContainer');
   const countdownEl = document.getElementById('countdown');
@@ -5,11 +7,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toast = document.getElementById('toast');
 
   try {
-    // Fetch the actual card data from the backend route /packReveal
-    const res = await fetch('/packReveal');  // Corrected the path here
+    const res = await fetch('/packReveal');
     const cards = await res.json();
 
-    // Display the cards
     cards.forEach((card, i) => {
       const wrapper = document.createElement('div');
       wrapper.className = 'card-wrapper';
@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (card.isNew) {
           showToast(`New card unlocked: ${card.name}`);
         }
-      }, 1000 + i * 1000); // staggered reveal
+      }, 1000 + i * 1000); // Flip delay per card
     });
 
     let countdown = 10;
@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
   } catch (err) {
-    console.error('Pack reveal failed:', err);
+    console.error('❌ Pack reveal failed:', err);
     container.innerHTML = '<p style="color:white;text-align:center;">Failed to load pack data.</p>';
   }
 
