@@ -4,7 +4,16 @@ import { SlashCommandBuilder } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
+
+// ✅ Safely load config.json
+const configPath = path.join(process.cwd(), 'config.json');
+let config = {};
+try {
+  const raw = fs.readFileSync(configPath, 'utf-8');
+  config = JSON.parse(raw);
+} catch (err) {
+  console.error('❌ Failed to load config.json in buycard.js:', err);
+}
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
