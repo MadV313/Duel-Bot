@@ -1,7 +1,9 @@
 // utils/cardpicker.js
 import fs from 'fs';
 import path from 'path';
-import config from '../config.json'; // ✅ Correct path from /utils/
+
+const configPath = path.join(process.cwd(), 'config.json');
+const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
 const corePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
