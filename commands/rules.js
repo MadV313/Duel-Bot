@@ -10,6 +10,7 @@ export default {
     .setDescription('View the SV13 RuleBook and combo reference'),
 
   async execute(interaction) {
+    // ✅ Restrict to bot channels only
     if (!isAllowedChannel(interaction.channelId, ['manageCards', 'manageDeck', 'battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in a duel bot channel.',
@@ -18,18 +19,18 @@ export default {
     }
 
     return interaction.reply({
-      content: `**SV13 RuleBook**  
-Access the complete guide, commands, and synergy combos here:  
-**[Open RuleBook](${config.ui_urls.rulebook_url})**  
-  
-**Contents Include:**  
-• Deck Linking (start here)  
-• Game Setup & Rules  
-• Full Bot Command List  
-• Card Types & Effects  
-• Duel Mechanics & Turn Flow  
-• 10 Verified Synergy Combos  
-• Practice Rules & Spectator Mode`,
+      content: `**📘 SV13 RuleBook**  
+Access the complete guide, command list, and synergy combos here:  
+🔗 **[Open RuleBook](${config.ui_urls.rulebook_url})**
+
+__**Contents Include:**__  
+• ✅ How to Link Your Deck  
+• 🧪 Game Setup & Turn Structure  
+• 📜 Full Command Reference  
+• 🧠 Card Types & Special Effects  
+• 🎯 Combat & Duel Flow  
+• 🔥 10 Verified Synergy Combos  
+• 👁 Practice & Spectator Modes`,
       ephemeral: true
     });
   }
