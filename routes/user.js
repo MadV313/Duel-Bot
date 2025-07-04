@@ -10,7 +10,10 @@ const decksPath = path.resolve('./data/linked_decks.json');
 const coinsPath = path.resolve('./data/coin_bank.json');
 const statsPath = path.resolve('./data/player_data.json');
 
-// GET /user/:id — Return coin, card, and win/loss data for a player
+/**
+ * GET /user/:id
+ * Returns a user's coin balance, card count, and win/loss stats
+ */
 router.get('/:id', (req, res) => {
   const userId = req.params.id;
 
