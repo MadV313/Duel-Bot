@@ -1,3 +1,5 @@
+// routes/userStats.js
+
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
@@ -8,6 +10,10 @@ const decksPath = path.resolve('./data/linked_decks.json');
 const coinsPath = path.resolve('./data/coin_bank.json');
 const statsPath = path.resolve('./data/player_data.json');
 
+/**
+ * GET /userStats/:id
+ * Returns coin balance, owned cards count, and win/loss record for a user
+ */
 router.get('/:id', async (req, res) => {
   const userId = req.params.id;
 
