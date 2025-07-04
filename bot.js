@@ -4,41 +4,56 @@ import { Client, GatewayIntentBits, Events, Collection } from 'discord.js';
 import { config as dotenvConfig } from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import config from './config.json' assert { type: 'json' };
 
-dotenvConfig(); // Load from .env
+dotenvConfig(); // ✅ Load .env variables
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [GatewayIntentBits.Guilds],
 });
 
 client.commands = new Collection();
 
-const commandsPath = path.join(process.cwd(), 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+// 🔁 Load all command files from ./commands
+const commandsDir = path.resolve('./commands');
+const commandFiles = fs.readdirSync(commandsDir).filter(file => file.endsWith('.js'));
 
 for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = await import(`./commands/${file}`); // Already includes .js extension from filter
+  const filePath = path.join(commandsDir, file);
+  const commandUrl = pathToFileURL(filePath).href;
 
-  if (command.default?.data && command.default?.execute) {
-    if (client.commands.has(command.default.data.name)) {
-      console.warn(`⚠️ Duplicate command detected: /${command.default.data.name}`);
+  try {
+    const command = await import(commandUrl);
+
+    if (command.default?.data && command.default?.execute) {
+      const name = command.default.data.name;
+
+      if (client.commands.has(name)) {
+        console.warn(`⚠️ Duplicate command detected: /${name}`);
+      }
+
+      client.commands.set(name, command.default);
+      console.log(`✅ Loaded command: /${name}`);
+    } else {
+      console.warn(`⚠️ Invalid command structure in ${file}`);
     }
-
-    client.commands.set(command.default.data.name, command.default);
-    console.log(`🔁 Loaded command: /${command.default.data.name}`);
+  } catch (err) {
+    console.error(`❌ Failed to load command ${file}:`, err);
   }
 }
 
+// ✅ Ready Event
 client.once(Events.ClientReady, () => {
-  console.log(`✅ Bot is online as ${client.user.tag}`);
+  console.log(`🚀 Bot is online as ${client.user.tag}`);
 });
 
+// ✅ Command Interaction Handler
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
+
   if (!command) {
     return interaction.reply({
       content: '❌ Command not recognized.',
@@ -50,18 +65,32 @@ client.on(Events.InteractionCreate, async interaction => {
     await command.execute(interaction);
   } catch (error) {
     console.error(`❌ Error executing /${interaction.commandName}:`, error);
-    interaction.reply({
-      content: '⚠️ There was an error executing this command.',
-      ephemeral: true
-    });
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp({
+        content: '⚠️ There was an error executing this command.',
+        ephemeral: true
+      });
+    } else {
+      await interaction.reply({
+        content: '⚠️ There was an error executing this command.',
+        ephemeral: true
+      });
+    }
   }
 });
 
-// Securely pull the token name from config.json, fallback if needed
-const tokenEnvName = config.token_env || 'DISCORD_TOKEN';
-client.login(process.env[tokenEnvName]);
+// 🛡️ Secure token loading
+const tokenEnvKey = config.token_env || 'DISCORD_TOKEN';
+const token = process.env[tokenEnvKey];
 
-// Graceful shutdown support
+if (!token) {
+  console.error(`❌ No bot token found in environment variable: ${tokenEnvKey}`);
+  process.exit(1);
+}
+
+await client.login(token);
+
+// 🧼 Graceful shutdown
 process.on('SIGINT', () => {
   console.log('🛑 Bot shutting down...');
   client.destroy();
