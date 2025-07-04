@@ -1,12 +1,16 @@
 // commands/discard.js
 
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-// ❌ Removed unused: import fs from "fs/promises";
-const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
+
+const config = JSON.parse(
+  await fs.readFile(new URL('../config.json', import.meta.url))
+);
+
 const decksPath = path.resolve('./data/linked_decks.json');
+
 export default {
   data: new SlashCommandBuilder()
     .setName('discard')
@@ -20,6 +24,7 @@ export default {
       option.setName('quantity')
         .setDescription('Number of cards to discard')
     ),
+
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
@@ -27,38 +32,70 @@ export default {
         ephemeral: true
       });
     }
+
     const userId = interaction.user.id;
     const cardId = interaction.options.getString('cardid');
-    const quantity = interaction.options.getInteger('quantity');
+    const quantity = interaction.options.getInteger('quantity') || 1;
+
     if (quantity < 1) {
-      return interaction.reply({ content: 'You must discard at least 1 card.', ephemeral: true });
+      return interaction.reply({
+        content: 'You must discard at least 1 card.',
+        ephemeral: true
+      });
+    }
+
     let decks = {};
     try {
-      if (fs.existsSync(decksPath)) {
-        const raw = fs.readFileSync(decksPath, 'utf-8');
-        decks = JSON.parse(raw);
-      }
+      const raw = await fs.readFile(decksPath, 'utf-8');
+      decks = JSON.parse(raw);
     } catch (err) {
       console.error('Failed to read decks:', err);
-      return interaction.reply({ content: 'Error reading your collection.', ephemeral: true });
+      return interaction.reply({
+        content: 'Error reading your collection.',
+        ephemeral: true
+      });
+    }
+
     const userDeck = decks[userId]?.deck || [];
+
     if (!decks[userId]) {
+      return interaction.reply({
         content: 'You do not have a linked collection to discard from.',
+        ephemeral: true
+      });
+    }
+
     const owned = userDeck.filter(c => c === cardId).length;
+
     if (owned < quantity) {
+      return interaction.reply({
         content: `You only have ${owned} copies of that card.`,
+        ephemeral: true
+      });
+    }
+
     let removed = 0;
     decks[userId].deck = userDeck.filter(c => {
       if (c === cardId && removed < quantity) {
         removed++;
         return false;
+      }
       return true;
     });
-      fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
+
+    try {
+      await fs.writeFile(decksPath, JSON.stringify(decks, null, 2));
+    } catch (err) {
       console.error('Failed to write decks:', err);
-      return interaction.reply({ content: 'Failed to discard cards.', ephemeral: true });
+      return interaction.reply({
+        content: 'Failed to discard cards.',
+        ephemeral: true
+      });
+    }
+
     return interaction.reply({
       content: `✅ Discarded ${quantity}x Card ${cardId}.`,
       ephemeral: true
+    });
   }
 };
