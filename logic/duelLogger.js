@@ -4,24 +4,22 @@ import fs from 'fs';
 import path from 'path';
 
 const logsDir = path.resolve('./data/logs');
-
-// Ensure the directory exists
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
-}
-
 const currentLogPath = path.join(logsDir, 'current_duel_log.json');
 
+// 🧱 Ensure logs directory exists
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+  console.log('🗂️ Created logs directory:', logsDir);
+}
+
 /**
- * Logs a duel event to the current duel log file.
- * @param {Object} entry - The event object to log.
- * Fields: { timestamp, action, player, detail }
+ * Logs a duel event to the current duel log.
+ * @param {Object} entry - Event details (action, player, detail)
+ * Example: { action: 'play_card', player: 'player1', detail: '045' }
  */
 export function logDuelEvent(entry) {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    ...entry
-  };
+  const timestamp = new Date().toISOString();
+  const logEntry = { timestamp, ...entry };
 
   let log = [];
 
@@ -31,26 +29,27 @@ export function logDuelEvent(entry) {
       log = JSON.parse(raw);
     }
   } catch (err) {
-    console.error('Failed to read duel log:', err);
+    console.error('❌ Failed to read duel log:', err);
   }
 
   log.push(logEntry);
 
   try {
     fs.writeFileSync(currentLogPath, JSON.stringify(log, null, 2));
+    console.log(`📝 Logged event: ${entry.action} — ${entry.detail || 'no detail'} by ${entry.player}`);
   } catch (err) {
-    console.error('Failed to write duel log:', err);
+    console.error('❌ Failed to write duel log:', err);
   }
 }
 
 /**
- * Clears the current duel log (typically after duel ends).
+ * Clears the duel log file (used after duel ends).
  */
 export function clearDuelLog() {
   try {
     fs.writeFileSync(currentLogPath, JSON.stringify([], null, 2));
-    console.log('Duel log cleared.');
+    console.log('🧹 Duel log cleared.');
   } catch (err) {
-    console.error('Failed to clear duel log:', err);
+    console.error('❌ Failed to clear duel log:', err);
   }
 }
