@@ -1,3 +1,5 @@
+// commands/forfeit.js
+
 import { SlashCommandBuilder } from 'discord.js';
 import { duelState, endLiveDuel } from '../logic/duelState.js';
 import { rewardDuelWinner } from '../logic/rewardHandler.js';
