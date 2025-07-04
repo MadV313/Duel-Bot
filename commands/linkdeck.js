@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json assert { type: "json" }';
+import config from "../config.json" assert { type: "json" };
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
