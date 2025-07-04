@@ -1,7 +1,7 @@
 // utils/cardpicker.js
 import fs from 'fs';
 import path from 'path';
-import { config } from './config.json';  // Assuming we have a config.json for dynamic values
+import config from '../config.json'; // ✅ Correct path from /utils/
 
 const corePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
