@@ -1,4 +1,4 @@
-imimport express from 'express';
+import express from 'express';
 import { weightedRandomCards } from '../utils/cardPicker.js';  // This is your existing logic
 
 const router = express.Router();
