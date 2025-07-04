@@ -6,7 +6,7 @@ import path from 'path';
 
 const router = express.Router();
 
-// GET summary by duelId
+// GET /duelSummary/:duelId — Fetch summary by duelId
 router.get('/:duelId', async (req, res) => {
   const { duelId } = req.params;
 
@@ -15,14 +15,14 @@ router.get('/:duelId', async (req, res) => {
     const raw = await fs.readFile(summaryPath, 'utf-8');
     const summary = JSON.parse(raw);
 
-    res.status(200).json(summary);
+    return res.status(200).json(summary);
   } catch (err) {
-    console.error("Summary fetch error:", err);
-    res.status(404).json({ error: 'Summary not found.' });
+    console.error("❌ Summary fetch error:", err);
+    return res.status(404).json({ error: 'Summary not found.' });
   }
 });
 
-// POST new summary after duel ends
+// POST /duelSummary/save — Save new summary after duel ends
 router.post('/save', async (req, res) => {
   const summary = req.body;
 
@@ -36,23 +36,25 @@ router.post('/save', async (req, res) => {
     return res.status(400).json({ error: 'Missing or invalid summary data.' });
   }
 
+  const summaryDir = path.join(process.cwd(), 'data', 'summaries');
+  const filePath = path.join(summaryDir, `${summary.duelId}.json`);
+
   try {
-    const summaryDir = path.join(process.cwd(), 'data', 'summaries');
     await fs.mkdir(summaryDir, { recursive: true });
 
-    const filePath = path.join(summaryDir, `${summary.duelId}.json`);
+    // Check for duplicate
     try {
       await fs.access(filePath);
       return res.status(409).json({ error: 'Summary already exists.' });
     } catch {
-      // Continue only if file does not exist
+      // File does not exist, proceed to write
     }
 
     await fs.writeFile(filePath, JSON.stringify(summary, null, 2));
-    res.status(200).json({ message: 'Summary saved.' });
+    return res.status(200).json({ message: '✅ Summary saved.' });
   } catch (err) {
-    console.error('Error saving summary:', err);
-    res.status(500).json({ error: 'Failed to save summary.' });
+    console.error('❌ Error saving summary:', err);
+    return res.status(500).json({ error: 'Failed to save summary.' });
   }
 });
 
