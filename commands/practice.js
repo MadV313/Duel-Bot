@@ -11,6 +11,7 @@ export default {
     .setDescription('Start a duel against the bot (admin only)'),
 
   async execute(interaction) {
+    // ✅ Channel restriction
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
         content: 'This command can only be used in #battlefield.',
@@ -18,9 +19,9 @@ export default {
       });
     }
 
-    // Admin-only usage check by role ID
+    // ✅ Admin role check
     const memberRoles = interaction.member.roles.cache.map(role => role.id);
-    const isAdmin = config.admin_role_ids.some(adminRoleId => memberRoles.includes(adminRoleId));
+    const isAdmin = config.admin_role_ids.some(roleId => memberRoles.includes(roleId));
     if (!isAdmin) {
       return interaction.reply({
         content: 'Only Admins can initiate practice duels.',
@@ -49,9 +50,9 @@ export default {
       const duelUrl = `${config.ui_urls.duel_ui}?player=${interaction.user.id}`;
       return interaction.editReply(`🧪 Practice duel started: [Click to open Duel UI](${duelUrl})`);
     } catch (err) {
-      console.error('Failed to start practice duel:', err);
+      console.error('❌ Failed to start practice duel:', err);
       return interaction.editReply({
-        content: 'Error starting practice duel. Please try again later.',
+        content: '❌ Error starting practice duel. Please try again later.',
         ephemeral: true
       });
     }
