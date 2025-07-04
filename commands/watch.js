@@ -5,7 +5,7 @@ import { duelState } from '../logic/duelState.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
+import config from '../config.json assert { type: "json" }';
 
 export default {
   data: new SlashCommandBuilder()

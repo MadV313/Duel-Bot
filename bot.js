@@ -5,7 +5,7 @@ import { config as dotenvConfig } from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import config from './config.json' assert { type: 'json' };
+import config from './config.json assert { type: "json" }' assert { type: 'json' };
 
 dotenvConfig(); // ✅ Load .env variables
 

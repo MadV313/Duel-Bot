@@ -2,7 +2,7 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from '../config.json';
+import config from '../config.json assert { type: "json" }';
 
 export default {
   data: new SlashCommandBuilder()
