@@ -2,18 +2,21 @@
 
 import { REST, Routes } from 'discord.js';
 
+// Environment Variables
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const TOKEN = process.env.DISCORD_TOKEN;
 
+// Validation
 if (!CLIENT_ID || !GUILD_ID || !TOKEN) {
   console.error('❌ Missing required environment variables (CLIENT_ID, GUILD_ID, DISCORD_TOKEN).');
   process.exit(1);
 }
 
+// REST client
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-// Alphabetically import all commands
+// ✅ Alphabetically import all commands (add new ones here)
 import acceptCommand from './commands/accept.js';
 import buyCardCommand from './commands/buycard.js';
 import challengeCommand from './commands/challenge.js';
@@ -34,6 +37,10 @@ import victoryCommand from './commands/victory.js';
 import viewDeckCommand from './commands/viewdeck.js';
 import viewLogCommand from './commands/viewlog.js';
 import watchCommand from './commands/watch.js';
+
+// 🧩 Add future imports here (e.g., tradeCommand, leaderboardCommand)
+// import tradeCommand from './commands/trade.js';
+// import leaderboardCommand from './commands/leaderboard.js';
 
 const commands = [
   acceptCommand,
@@ -56,24 +63,26 @@ const commands = [
   viewDeckCommand,
   viewLogCommand,
   watchCommand
+  // Add additional commands here when imported
 ];
 
-// Format commands safely
+// Format commands before registration
 const formatted = commands
   .filter(cmd => cmd?.data)
   .map(cmd => cmd.data.toJSON());
 
+// Command Registration Function
 export default async function registerCommands() {
   try {
-    console.log('Registering new commands...');
+    console.log('📤 Registering new commands...');
     formatted.forEach(cmd => console.log(`- /${cmd.name}`));
 
-    // Register to a specific guild for development/testing
+    // For development/test servers (instant sync)
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: formatted
     });
 
-    // For global rollout (takes up to 1 hour to update):
+    // 🌐 Global rollout (takes ~1 hour to propagate)
     // await rest.put(Routes.applicationCommands(CLIENT_ID), { body: formatted });
 
     console.log('✅ All commands registered to SV13.');
