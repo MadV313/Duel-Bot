@@ -4,7 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-// ❌ Removed unused: import config from "../config.json" assert { type: "json" };
+// ❌ Removed unused: import fs from "fs/promises";
+const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
 
 const decksPath = path.resolve('./data/linked_decks.json');
 

@@ -6,7 +6,8 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import config from "../config.json" assert { type: "json" };
+import fs from "fs/promises";
+const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const revealDir = path.resolve('./public/data');

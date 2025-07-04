@@ -5,7 +5,8 @@ import { config as dotenvConfig } from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import config from "./config.json" assert { type: "json" };
+import fs from "fs/promises";
+const config = JSON.parse(await fs.readFile(new URL("./config.json", import.meta.url)));
 
 dotenvConfig(); // ✅ Load .env variables
 
