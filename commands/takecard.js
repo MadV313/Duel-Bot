@@ -31,7 +31,7 @@ export default {
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
-        content: 'This command can only be used in #manage-cards.',
+        content: '⚠️ This command can only be used in #manage-cards.',
         ephemeral: true
       });
     }
@@ -43,7 +43,7 @@ export default {
 
     if (quantity < 1) {
       return interaction.reply({
-        content: 'You must remove at least 1 card.',
+        content: '⚠️ You must remove at least 1 card.',
         ephemeral: true
       });
     }
@@ -54,9 +54,9 @@ export default {
         decks = JSON.parse(fs.readFileSync(decksPath, 'utf-8'));
       }
     } catch (err) {
-      console.error('Error loading decks:', err);
+      console.error('❌ Error loading decks:', err);
       return interaction.reply({
-        content: 'Failed to load player decks.',
+        content: '❌ Failed to load player decks.',
         ephemeral: true
       });
     }
@@ -66,12 +66,12 @@ export default {
 
     if (ownedCount < quantity) {
       return interaction.reply({
-        content: `Player only owns ${ownedCount}x of card #${cardId}.`,
+        content: `⚠️ <@${userId}> only owns ${ownedCount}x of card #${cardId}.`,
         ephemeral: true
       });
     }
 
-    // Remove specified quantity
+    // Remove the specified cards
     let removed = 0;
     decks[userId].deck = userDeck.filter(c => {
       if (c === cardId && removed < quantity) {
@@ -84,9 +84,9 @@ export default {
     try {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
-      console.error('Failed to write updated deck:', err);
+      console.error('❌ Failed to write updated deck:', err);
       return interaction.reply({
-        content: 'Could not save the updated deck.',
+        content: '❌ Could not save the updated deck.',
         ephemeral: true
       });
     }
