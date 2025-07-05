@@ -9,7 +9,7 @@ const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
 export default {
   data: new SlashCommandBuilder()
-    .setName('link deck')
+    .setName('link_deck')
     .setDescription('Link your Discord ID to create your card collection profile.'),
 
   async execute(interaction) {
