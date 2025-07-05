@@ -2,20 +2,22 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import fs from "fs/promises";
-const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
+import { config } from '../utils/config.js';
+
 export default {
   data: new SlashCommandBuilder()
     .setName('rules')
     .setDescription('View the SV13 RuleBook and combo reference'),
+
   async execute(interaction) {
     // ✅ Restrict to bot channels only
     if (!isAllowedChannel(interaction.channelId, ['manageCards', 'manageDeck', 'battlefield'])) {
       return interaction.reply({
-        content: 'This command can only be used in a duel bot channel.',
+        content: '⚠️ This command can only be used in a duel bot channel.',
         ephemeral: true
       });
     }
+
     return interaction.reply({
       content: `**📘 SV13 RuleBook**  
 Access the complete guide, command list, and synergy combos here:  
