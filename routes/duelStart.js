@@ -10,7 +10,7 @@ const router = express.Router();
 
 // Load CoreMasterReference.json on startup
 let coreCards = [];
-const corePath = path.join(process.cwd(), 'data', 'CoreMasterReference.json');
+const corePath = path.join(process.cwd(), 'logic', 'CoreMasterReference.json');
 
 try {
   const raw = await fs.readFile(corePath, 'utf-8');
