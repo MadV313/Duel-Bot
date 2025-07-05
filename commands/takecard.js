@@ -1,9 +1,10 @@
 // commands/takecard.js
 
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
+import { config } from '../utils/config.js';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 
@@ -50,9 +51,9 @@ export default {
 
     let decks = {};
     try {
-      if (fs.existsSync(decksPath)) {
-        decks = JSON.parse(fs.readFileSync(decksPath, 'utf-8'));
-      }
+      await fs.access(decksPath);
+      const raw = await fs.readFile(decksPath, 'utf-8');
+      decks = JSON.parse(raw);
     } catch (err) {
       console.error('❌ Error loading decks:', err);
       return interaction.reply({
@@ -82,7 +83,7 @@ export default {
     });
 
     try {
-      fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
+      await fs.writeFile(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
       console.error('❌ Failed to write updated deck:', err);
       return interaction.reply({
