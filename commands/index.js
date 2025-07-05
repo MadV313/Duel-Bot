@@ -3,6 +3,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+// ✅ Import all command modules
 import accept from './accept.js';
 import buycard from './buycard.js';
 import challenge from './challenge.js';
@@ -24,7 +25,7 @@ import viewdeck from './viewdeck.js';
 import viewlog from './viewlog.js';
 import watch from './watch.js';
 
-// ✅ Ensure slash commands are registered once
+// ✅ Ensure slash commands register once per boot
 const flagPath = path.resolve('./.commands_registered');
 
 try {
@@ -35,7 +36,7 @@ try {
   await fs.writeFile(flagPath, 'done');
 }
 
-// ✅ Export all commands
+// ✅ Export all commands as array
 export default [
   accept,
   buycard,
