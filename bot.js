@@ -59,6 +59,11 @@ client.on(Events.InteractionCreate, async interaction => {
     });
   }
 
+  // 🪵 Log who ran which command
+  const user = interaction.user;
+  const channelId = interaction.channelId;
+  console.log(`📥 ${user.username} (${user.id}) ran /${interaction.commandName} in channel (${channelId})`);
+
   try {
     await command.execute(interaction);
   } catch (error) {
