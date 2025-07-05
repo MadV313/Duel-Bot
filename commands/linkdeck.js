@@ -4,8 +4,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
+import { config } from '../utils/config.js';
 
-const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
 export default {
@@ -21,7 +21,7 @@ export default {
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
-        content: 'This command can only be used in #manage-cards.',
+        content: '⚠️ This command can only be used in #manage-cards.',
         ephemeral: true
       });
     }
