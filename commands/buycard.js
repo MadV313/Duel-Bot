@@ -4,16 +4,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-
-// ✅ Safely load config.json
-const configPath = path.join(process.cwd(), 'config.json');
-let config = {};
-try {
-  const raw = fs.readFileSync(configPath, 'utf-8');
-  config = JSON.parse(raw);
-} catch (err) {
-  console.error('❌ Failed to load config.json in buycard.js:', err);
-}
+import { config } from '../utils/config.js';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
@@ -45,8 +36,8 @@ export default {
         decks = JSON.parse(fs.readFileSync(decksPath));
       }
     } catch (err) {
-      console.error('Failed reading files:', err);
-      return interaction.reply({ content: 'Internal error loading data.', ephemeral: true });
+      console.error('❌ Failed reading coin bank or deck files:', err);
+      return interaction.reply({ content: '❌ Internal error loading data.', ephemeral: true });
     }
 
     const balance = coinBank[userId] || 0;
@@ -54,13 +45,13 @@ export default {
 
     if (userDeck.length >= config.coin_system.max_card_collection_size) {
       return interaction.reply({
-        content: 'You must have a maximum of 247 cards in your collection to buy more or make room.',
+        content: '⚠️ You must have a maximum of 247 cards in your collection to buy more or make room.',
         ephemeral: true
       });
     }
 
     if (balance < config.coin_system.card_pack_cost) {
-      return interaction.reply({ content: 'You need 3 coins to buy a card pack.', ephemeral: true });
+      return interaction.reply({ content: '❌ You need 3 coins to buy a card pack.', ephemeral: true });
     }
 
     const previous = new Set(userDeck);
@@ -77,8 +68,8 @@ export default {
       fs.writeFileSync(decksPath, JSON.stringify(decks, null, 2));
       fs.writeFileSync(coinBankPath, JSON.stringify(coinBank, null, 2));
     } catch (err) {
-      console.error('Failed saving decks or coin bank:', err);
-      return interaction.reply({ content: 'Failed to complete your purchase.', ephemeral: true });
+      console.error('❌ Failed saving decks or coin bank:', err);
+      return interaction.reply({ content: '❌ Failed to complete your purchase.', ephemeral: true });
     }
 
     const revealPayload = {
@@ -94,8 +85,8 @@ export default {
     try {
       fs.writeFileSync(revealPath, JSON.stringify(revealPayload, null, 2));
     } catch (err) {
-      console.error('Failed writing reveal file:', err);
-      return interaction.reply({ content: 'Purchase completed, but failed to prepare reveal.', ephemeral: true });
+      console.error('⚠️ Failed writing pack reveal data:', err);
+      return interaction.reply({ content: '✅ Pack purchased, but failed to prepare reveal file.', ephemeral: true });
     }
 
     return interaction.reply({
