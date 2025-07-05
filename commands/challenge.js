@@ -28,9 +28,10 @@ export default {
     ),
 
   async execute(interaction) {
+    // ✅ Channel restriction
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
-        content: 'This command can only be used in #battlefield.',
+        content: '⚠️ This command can only be used in #battlefield.',
         ephemeral: true
       });
     }
@@ -39,22 +40,26 @@ export default {
     const opponent = interaction.options.getUser('opponent');
     const wager = interaction.options.getInteger('wager') || 0;
 
+    // ✅ Validate opponent and wager
     if (challenger.id === opponent.id) {
-      return interaction.reply({ content: 'You cannot challenge yourself.', ephemeral: true });
-    }
-
-    if (wager < 0 || wager > 10) {
       return interaction.reply({
-        content: 'Wager must be between 0 and 10 coins.',
+        content: '⚠️ You cannot challenge yourself.',
         ephemeral: true
       });
     }
 
-    // Read coin balances
+    if (wager < 0 || wager > 10) {
+      return interaction.reply({
+        content: '⚠️ Wager must be between 0 and 10 coins.',
+        ephemeral: true
+      });
+    }
+
+    // ✅ Load coin bank
     let coinBank = {};
     try {
       if (fs.existsSync(coinBankPath)) {
-        coinBank = JSON.parse(fs.readFileSync(coinBankPath));
+        coinBank = JSON.parse(fs.readFileSync(coinBankPath, 'utf-8'));
       }
     } catch (err) {
       console.error('❌ Failed to read coin bank:', err);
@@ -63,11 +68,12 @@ export default {
     const challengerCoins = coinBank[challenger.id] || 0;
     if (wager > challengerCoins) {
       return interaction.reply({
-        content: `You only have ${challengerCoins} coins and cannot wager ${wager}.`,
+        content: `💸 You only have ${challengerCoins} coins and cannot wager ${wager}.`,
         ephemeral: true
       });
     }
 
+    // ✅ Create Accept/Deny buttons
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`accept_${challenger.id}_${wager}`)
