@@ -3,19 +3,9 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { getTradeById, removeTradeById } from '../utils/tradeQueue.js';
 import { updatePlayerDeck } from '../utils/deckUtils.js';
+import { config } from '../utils/config.js';
 import fs from 'fs';
-import path from 'path';
 import fetch from 'node-fetch';
-
-// ✅ Load config.json at runtime
-const configPath = path.join(process.cwd(), 'config.json');
-let config = {};
-try {
-  const raw = fs.readFileSync(configPath, 'utf-8');
-  config = JSON.parse(raw);
-} catch (err) {
-  console.error('❌ Failed to load config.json in accept.js:', err);
-}
 
 const coinBankPath = './data/coin_bank.json';
 
@@ -59,7 +49,7 @@ export default {
 
       // Start duel via backend
       try {
-        const response = await fetch(`${config.backend_urls.duel_start}`, {
+        const response = await fetch(`${config.backend_urls?.duel_start}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -94,7 +84,7 @@ export default {
       return interaction.reply({ content: 'You have no pending trade offers.', ephemeral: true });
     }
 
-    const playerDecks = JSON.parse(fs.readFileSync('./data/linked_decks.json'));
+    const playerDecks = JSON.parse(fs.readFileSync(config.linked_decks_file));
     const senderDeck = playerDecks[trade.senderId]?.deck || [];
     const receiverDeck = playerDecks[userId]?.deck || [];
 
