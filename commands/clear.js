@@ -1,6 +1,8 @@
+// commands/clear.js
+
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-// ❌ Removed static config import — not used, and causes crashes
+// ✅ No config import needed — clean and stable
 
 export default {
   data: new SlashCommandBuilder()
@@ -18,7 +20,7 @@ export default {
 
     if (!allowed) {
       return interaction.reply({
-        content: 'This command can only be used in a duel bot channel.',
+        content: '⚠️ This command can only be used in a duel bot channel.',
         ephemeral: true
       });
     }
@@ -26,7 +28,7 @@ export default {
     const amount = interaction.options.getInteger('amount');
     if (amount < 1 || amount > 100) {
       return interaction.reply({
-        content: 'Please enter a number between 1 and 100.',
+        content: '⚠️ Please enter a number between 1 and 100.',
         ephemeral: true
       });
     }
@@ -40,7 +42,7 @@ export default {
     } catch (err) {
       console.error('❌ Failed to delete messages:', err);
       return interaction.reply({
-        content: '❌ Failed to delete messages.',
+        content: '❌ Failed to delete messages. The bot may lack permission.',
         ephemeral: true
       });
     }
