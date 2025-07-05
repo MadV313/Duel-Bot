@@ -42,7 +42,7 @@ export default {
           const raw = await fs.readFile(logPath, 'utf-8');
           existing = JSON.parse(raw);
         } catch {
-          // No prior log exists; skip
+          // No prior log exists — skip
         }
 
         existing.push(logEntry);
