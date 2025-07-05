@@ -5,10 +5,9 @@ import { config as dotenvConfig } from 'dotenv';
 import fs from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { config } from './utils/config.js'; // ✅ Updated config import
 
 dotenvConfig(); // ✅ Load .env variables
-
-const config = JSON.parse(await fs.readFile(new URL("./config.json", import.meta.url)));
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
