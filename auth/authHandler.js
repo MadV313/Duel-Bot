@@ -1,7 +1,7 @@
 // authHandler.js
 
 import { isValidDiscordId } from './utils.js';
-import { config } from './config.json';
+import { config } from './utils/config.js'; // ✅ Updated config import
 
 /**
  * Check if the user has the required admin permissions
