@@ -6,10 +6,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { weightedRandomCards } from '../utils/cardPicker.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-
-const config = JSON.parse(
-  await fs.readFile(new URL("../config.json", import.meta.url))
-);
+import { config } from '../utils/config.js';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 const revealDir = path.resolve('./public/data');
@@ -28,7 +25,7 @@ export default {
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
-        content: 'This command can only be used in #manage-cards.',
+        content: '⚠️ This command can only be used in #manage-cards.',
         ephemeral: true
       });
     }
@@ -43,13 +40,13 @@ export default {
       decks = JSON.parse(raw);
     } catch (err) {
       console.error('❌ Failed to read decks:', err);
-      return interaction.reply({ content: 'Failed to load player decks.', ephemeral: true });
+      return interaction.reply({ content: '❌ Failed to load player decks.', ephemeral: true });
     }
 
     const userDeck = decks[userId]?.deck || [];
     if (userDeck.length >= config.coin_system.max_card_collection_size) {
       return interaction.reply({
-        content: 'Player must have fewer than 248 cards to receive a pack.',
+        content: '⚠️ Player must have fewer than 248 cards to receive a pack.',
         ephemeral: true
       });
     }
@@ -67,7 +64,7 @@ export default {
       await fs.writeFile(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
       console.error('❌ Failed to save updated deck:', err);
-      return interaction.reply({ content: 'Could not update the player’s deck.', ephemeral: true });
+      return interaction.reply({ content: '❌ Could not update the player’s deck.', ephemeral: true });
     }
 
     const revealPayload = {
@@ -86,7 +83,7 @@ export default {
       await fs.writeFile(revealFilePath, JSON.stringify(revealPayload, null, 2));
     } catch (err) {
       console.error('❌ Failed to write reveal file:', err);
-      return interaction.reply({ content: 'Failed to prepare pack reveal.', ephemeral: true });
+      return interaction.reply({ content: '❌ Failed to prepare pack reveal.', ephemeral: true });
     }
 
     return interaction.reply({
