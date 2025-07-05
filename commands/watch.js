@@ -5,8 +5,7 @@ import { duelState } from '../logic/duelState.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-
-const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
+import { config } from '../utils/config.js'; // ✅ Safe shared import
 
 export default {
   data: new SlashCommandBuilder()
