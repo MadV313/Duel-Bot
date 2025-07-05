@@ -2,17 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
-
-// ✅ Safe config load
-const configPath = path.resolve(process.cwd(), 'config.json');
-let config = {};
-
-try {
-  const rawConfig = fs.readFileSync(configPath, 'utf-8');
-  config = JSON.parse(rawConfig);
-} catch (err) {
-  console.error('❌ Failed to load config.json:', err);
-}
+import { config } from './config.js'; // ✅ Updated to centralized config.js
 
 const filePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
