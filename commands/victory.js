@@ -51,14 +51,14 @@ export default {
 
     const loserId = winnerId === player1Id ? player2Id : player1Id;
 
-    // Update win/loss stats
+    // 📈 Update win/loss stats
     try {
       let stats = {};
       try {
         const raw = await fs.readFile(playerStatsPath, 'utf-8');
         stats = JSON.parse(raw);
       } catch {
-        // file might not exist yet
+        // No stats file yet
       }
 
       if (!stats[winnerId]) stats[winnerId] = { wins: 0, losses: 0 };
@@ -72,7 +72,7 @@ export default {
       console.error('❌ Failed to update duel stats:', err);
     }
 
-    // Handle wager reward if applicable
+    // 💰 Reward coin wager
     if (duelState.wagerAmount) {
       try {
         rewardDuelWinner(winnerId, loserId, duelState.wagerAmount);
@@ -81,7 +81,7 @@ export default {
       }
     }
 
-    // Write summary log
+    // 📝 Write summary
     try {
       const duelId = await writeDuelSummary(duelState, winnerId);
       console.log(`📄 Duel summary written for ${duelId}`);
@@ -89,7 +89,7 @@ export default {
       console.error('❌ Failed to write duel summary:', err);
     }
 
-    // End the duel
+    // ❌ End the duel
     await endLiveDuel(winnerId);
 
     return interaction.reply({
