@@ -5,8 +5,8 @@ import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { getCardRarity } from '../utils/cardRarity.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
+import { config } from '../utils/config.js';
 
-const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
 const decksPath = path.resolve('./data/linked_decks.json');
 const coinBankPath = path.resolve('./data/coin_bank.json');
 const sellLogPath = path.resolve('./data/sell_log.json');
