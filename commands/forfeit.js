@@ -16,9 +16,10 @@ export default {
     .setDescription('Forfeit the current duel'),
 
   async execute(interaction) {
+    // ✅ Enforce channel restrictions
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
-        content: 'This command can only be used in #battlefield.',
+        content: '⚠️ This command can only be used in #battlefield.',
         ephemeral: true
       });
     }
@@ -29,24 +30,29 @@ export default {
 
     if (!player1Id || !player2Id) {
       return interaction.reply({
-        content: 'There is no active duel to forfeit.',
+        content: '⚠️ There is no active duel to forfeit.',
         ephemeral: true
       });
     }
 
-    if (![player1Id, player2Id].includes(userId)) {
+    if (![userId, player1Id, player2Id].includes(userId)) {
       return interaction.reply({
-        content: 'You are not currently in an active duel.',
+        content: '⚠️ You are not currently in an active duel.',
         ephemeral: true
       });
     }
 
     const opponentId = userId === player1Id ? player2Id : player1Id;
 
-    // Update win/loss stats
+    // ✅ Update win/loss stats
     try {
-      const statsRaw = await fs.readFile(playerStatsPath, 'utf-8');
-      const stats = JSON.parse(statsRaw);
+      let stats = {};
+      try {
+        const raw = await fs.readFile(playerStatsPath, 'utf-8');
+        stats = JSON.parse(raw);
+      } catch {
+        // File might not exist yet
+      }
 
       if (!stats[userId]) stats[userId] = { wins: 0, losses: 0 };
       if (!stats[opponentId]) stats[opponentId] = { wins: 0, losses: 0 };
@@ -56,22 +62,26 @@ export default {
 
       await fs.writeFile(playerStatsPath, JSON.stringify(stats, null, 2));
     } catch (err) {
-      console.error('Failed to update duel stats:', err);
+      console.error('❌ Failed to update player stats:', err);
     }
 
-    // Transfer wager if present
+    // ✅ Handle wager reward
     if (duelState.wagerAmount) {
-      rewardDuelWinner(opponentId, userId, duelState.wagerAmount);
+      try {
+        rewardDuelWinner(opponentId, userId, duelState.wagerAmount);
+      } catch (err) {
+        console.error('❌ Failed to reward wager on forfeit:', err);
+      }
     }
 
-    // Save summary before ending duel
+    // ✅ Write duel summary
     try {
       await writeDuelSummary(duelState, opponentId);
     } catch (err) {
-      console.error('Failed to write duel summary:', err);
+      console.error('❌ Failed to write duel summary:', err);
     }
 
-    // End duel
+    // ✅ End the duel
     await endLiveDuel(opponentId);
 
     return interaction.reply({
