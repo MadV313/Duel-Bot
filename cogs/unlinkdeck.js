@@ -5,9 +5,9 @@ import path from 'path';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
-  ComponentType,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  ComponentType
 } from 'discord.js';
 
 const ADMIN_ROLE_ID = '1173049392371085392';
@@ -63,63 +63,55 @@ export default async function registerUnlinkDeck(client) {
         });
       }
 
-      // Display current linked users first
-      const userList = entries
-        .map(([id, data], i) => `\`${i + 1}.\` **${data.discordName}** — \`ID: ${id}\``)
-        .join('\n');
+      // Construct dropdown options
+      const options = entries.map(([id, data]) => ({
+        label: data.discordName,
+        value: id
+      })).slice(0, 25); // Discord max: 25 options
+
+      const row = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('select_unlink_user')
+          .setPlaceholder('🔻 Choose a user to unlink')
+          .addOptions(options)
+      );
 
       await interaction.reply({
-        content: `📋 **Currently Linked Users**:\n\n${userList}`,
+        content: '📋 Select the user you want to unlink:',
+        components: [row],
         ephemeral: true
       });
 
-      // Follow-up prompt
-      const filter = msg =>
-        msg.author.id === interaction.user.id &&
-        msg.channel.id === interaction.channelId;
-
-      interaction.followUp({
-        content: '✏️ Please type **the exact username** of the player you’d like to unlink:',
-        ephemeral: true
+      const collector = interaction.channel.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 30000,
+        max: 1
       });
 
-      try {
-        const collected = await interaction.channel.awaitMessages({
-          filter,
-          max: 1,
-          time: 30000,
-          errors: ['time']
+      collector.on('collect', async selectInteraction => {
+        if (selectInteraction.customId !== 'select_unlink_user') return;
+
+        const selectedId = selectInteraction.values[0];
+        const removedUser = linkedData[selectedId]?.discordName || 'Unknown';
+
+        delete linkedData[selectedId];
+        await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
+        console.log(`🗑️ [unlinkdeck] Unlinked ${removedUser} (${selectedId})`);
+
+        await selectInteraction.update({
+          content: `✅ Successfully unlinked **${removedUser}**.`,
+          components: []
         });
+      });
 
-        const typedName = collected.first().content.trim();
-        const matchEntry = Object.entries(linkedData).find(
-          ([_, data]) => data.discordName === typedName
-        );
-
-        if (!matchEntry) {
-          return interaction.followUp({
-            content: `❌ No linked user found with name: **${typedName}**`,
-            ephemeral: true
+      collector.on('end', collected => {
+        if (collected.size === 0) {
+          interaction.editReply({
+            content: '⏰ No selection made. Command cancelled.',
+            components: []
           });
         }
-
-        const [matchedId, matchedData] = matchEntry;
-        delete linkedData[matchedId];
-
-        await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
-        console.log(`🗑️ [unlinkdeck] Unlinked ${typedName} (${matchedId})`);
-
-        return interaction.followUp({
-          content: `✅ Successfully unlinked **${typedName}**.`,
-          ephemeral: true
-        });
-      } catch (err) {
-        console.warn('⏱️ [unlinkdeck] No admin input received.');
-        return interaction.followUp({
-          content: '⏰ No response received. Command cancelled.',
-          ephemeral: true
-        });
-      }
+      });
     }
   });
 }
