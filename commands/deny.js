@@ -9,7 +9,7 @@ export default {
     .setDescription('Deny a pending trade request or duel challenge.'),
 
   async execute(interaction) {
-    // Duel challenge button logic
+    // ✅ Handle duel challenge denial via button
     if (interaction.isButton() && interaction.customId.startsWith('deny_')) {
       const challengerId = interaction.customId.split('_')[1];
       const opponentId = interaction.user.id;
@@ -20,13 +20,13 @@ export default {
       });
     }
 
-    // Fallback: trade denial
+    // ✅ Fallback: deny a pending trade
     const userId = interaction.user.id;
     const trade = getTradeOffer(userId);
 
     if (!trade) {
       return interaction.reply({
-        content: 'You have no pending trade offers to deny.',
+        content: '⚠️ You have no pending trade offers to deny.',
         ephemeral: true
       });
     }
@@ -34,7 +34,7 @@ export default {
     removeTradeOffer(userId);
 
     return interaction.reply({
-      content: `Trade denied. Offer from <@${trade.senderId}> has been removed.`,
+      content: `❌ Trade denied. Offer from <@${trade.senderId}> has been removed.`,
       ephemeral: false
     });
   }
