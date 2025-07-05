@@ -54,3 +54,6 @@ try {
 } catch (err) {
   console.error('❌ Command registration failed:', err);
 }
+
+// ✅ Export for Railway compatibility
+export default async function () {}
