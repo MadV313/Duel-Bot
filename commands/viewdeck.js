@@ -2,9 +2,7 @@
 
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-import fs from 'fs/promises';
-
-const config = JSON.parse(await fs.readFile(new URL("../config.json", import.meta.url)));
+import { config } from '../utils/config.js'; // ✅ Replaces direct config.json read
 
 export default {
   data: new SlashCommandBuilder()
