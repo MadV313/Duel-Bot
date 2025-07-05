@@ -14,9 +14,10 @@ export default {
     .setDescription('Join the current duel as a spectator'),
 
   async execute(interaction) {
+    // ✅ Channel restriction
     if (!isAllowedChannel(interaction.channelId, ['battlefield'])) {
       return interaction.reply({
-        content: 'This command can only be used in #battlefield.',
+        content: '⚠️ This command can only be used in #battlefield.',
         ephemeral: true
       });
     }
@@ -24,10 +25,12 @@ export default {
     const userId = interaction.user.id;
     const username = interaction.user.username;
 
+    // ✅ Add spectator if not already watching
     if (!duelState.spectators.includes(userId)) {
       duelState.spectators.push(userId);
     }
 
+    // ✅ Log spectator entry
     const logEntry = {
       timestamp: new Date().toISOString(),
       action: 'joined',
@@ -35,15 +38,16 @@ export default {
       username
     };
 
-    const logPath = path.join(process.cwd(), 'data', 'logs', 'current_duel_log.json');
+    const logPath = path.join('data', 'logs', 'current_duel_log.json');
 
     try {
       let existing = [];
+
       try {
         const raw = await fs.readFile(logPath, 'utf-8');
         existing = JSON.parse(raw);
       } catch {
-        // No file yet — will be created
+        // File will be created if not found
       }
 
       existing.push(logEntry);
@@ -53,6 +57,7 @@ export default {
       console.error('❌ Failed to write spectator log:', err);
     }
 
+    // ✅ Send Spectator View link
     return interaction.reply({
       content: `👁️ You are now watching the duel!\n[Open Spectator View](${config.ui_urls.spectator_view_ui}?duelId=current&user=${encodeURIComponent(username)})`,
       ephemeral: true
