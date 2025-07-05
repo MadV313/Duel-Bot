@@ -4,10 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
-
-const config = JSON.parse(
-  await fs.readFile(new URL('../config.json', import.meta.url))
-);
+import { config } from '../utils/config.js';
 
 const decksPath = path.resolve('./data/linked_decks.json');
 
@@ -28,7 +25,7 @@ export default {
   async execute(interaction) {
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
-        content: 'This command can only be used in #manage-cards.',
+        content: '⚠️ This command can only be used in #manage-cards.',
         ephemeral: true
       });
     }
@@ -39,7 +36,7 @@ export default {
 
     if (quantity < 1) {
       return interaction.reply({
-        content: 'You must discard at least 1 card.',
+        content: '❌ You must discard at least 1 card.',
         ephemeral: true
       });
     }
@@ -49,9 +46,9 @@ export default {
       const raw = await fs.readFile(decksPath, 'utf-8');
       decks = JSON.parse(raw);
     } catch (err) {
-      console.error('Failed to read decks:', err);
+      console.error('❌ Failed to read decks:', err);
       return interaction.reply({
-        content: 'Error reading your collection.',
+        content: '❌ Error reading your collection.',
         ephemeral: true
       });
     }
@@ -60,7 +57,7 @@ export default {
 
     if (!decks[userId]) {
       return interaction.reply({
-        content: 'You do not have a linked collection to discard from.',
+        content: '❌ You do not have a linked collection to discard from.',
         ephemeral: true
       });
     }
@@ -69,7 +66,7 @@ export default {
 
     if (owned < quantity) {
       return interaction.reply({
-        content: `You only have ${owned} copies of that card.`,
+        content: `❌ You only have ${owned} copies of Card ${cardId}.`,
         ephemeral: true
       });
     }
@@ -86,9 +83,9 @@ export default {
     try {
       await fs.writeFile(decksPath, JSON.stringify(decks, null, 2));
     } catch (err) {
-      console.error('Failed to write decks:', err);
+      console.error('❌ Failed to write updated deck:', err);
       return interaction.reply({
-        content: 'Failed to discard cards.',
+        content: '❌ Failed to discard cards.',
         ephemeral: true
       });
     }
