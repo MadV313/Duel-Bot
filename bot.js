@@ -46,6 +46,12 @@ for (const file of commandFiles) {
       client.commands.set(name, command.default);
       commandData.push(command.default.data.toJSON());
       console.log(`✅ Loaded command: /${name}`);
+
+      // 🧪 DEBUG: Confirm /linkdeck is registered
+      if (name === 'linkdeck') {
+        console.log('🧷 Confirmed /linkdeck registered with execute =', typeof command.default.execute);
+      }
+
     } else {
       console.warn(`⚠️ Invalid command in ${file}`);
     }
@@ -84,6 +90,11 @@ client.on(Events.InteractionCreate, async interaction => {
   const user = interaction.user;
   const channelId = interaction.channelId;
   console.log(`📥 ${user.username} (${user.id}) ran /${interaction.commandName} in channel ${channelId}`);
+
+  // 🧪 DEBUG: Confirm /linkdeck matched and about to execute
+  if (interaction.commandName === 'linkdeck') {
+    console.log('🧪 /linkdeck command matched and about to execute...');
+  }
 
   try {
     await command.execute(interaction);
