@@ -1,19 +1,10 @@
 // utils/cardPicker.js
+
 import fs from 'fs';
 import path from 'path';
+import { config } from './config.js'; // ✅ Updated to use centralized config
 
-// ✅ Load config.json safely
-const configPath = path.resolve(process.cwd(), 'config.json');
-let config = {};
-
-try {
-  const rawConfig = fs.readFileSync(configPath, 'utf-8');
-  config = JSON.parse(rawConfig);
-} catch (err) {
-  console.error('❌ Failed to load config.json:', err);
-}
-
-// ✅ Core data path
+// ✅ Core data path from config
 const corePath = path.resolve(config.cardDataPath || './logic/CoreMasterReference.json');
 
 // ✅ Rarity weight fallback
