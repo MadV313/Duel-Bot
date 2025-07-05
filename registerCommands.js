@@ -14,10 +14,10 @@ if (!CLIENT_ID || !GUILD_ID || !TOKEN) {
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 // ✅ Imports — Confirm these match your actual command files
-import linkDeckCommand from './cogs/linkdeck.js'
+import linkDeckCommand from './cogs/linkdeck.js';
 
 const commands = [
-  linkdeckCommand
+  linkDeckCommand
 ];
 
 const formatted = commands.filter(cmd => cmd?.data).map(cmd => cmd.data.toJSON());
