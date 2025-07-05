@@ -13,10 +13,10 @@ export default {
     .setDescription('Check your current coin balance.'),
 
   async execute(interaction) {
-    // Restrict to #manage-cards channel
+    // ✅ Enforce correct channel usage
     if (!isAllowedChannel(interaction.channelId, ['manageCards'])) {
       return interaction.reply({
-        content: 'This command can only be used in #manage-cards.',
+        content: '⚠️ This command can only be used in #manage-cards.',
         ephemeral: true
       });
     }
@@ -30,13 +30,17 @@ export default {
         coinBank = JSON.parse(raw);
       }
     } catch (err) {
-      console.error('Failed to read coin bank:', err);
-      return interaction.reply({ content: 'Error retrieving balance.', ephemeral: true });
+      console.error('❌ Failed to read coin bank:', err);
+      return interaction.reply({
+        content: '❌ Error retrieving your balance.',
+        ephemeral: true
+      });
     }
 
     const balance = coinBank[userId] || 0;
+
     return interaction.reply({
-      content: `You have ${balance} coins.`,
+      content: `💰 You currently have **${balance} coin${balance !== 1 ? 's' : ''}**.`,
       ephemeral: true
     });
   }
