@@ -255,4 +255,4 @@ export default async function registerDuelCard(client) {
               }); // closes dropdownCollector
             } // closes execute()
           }); // closes client.commands.set
-        } // closes registerDuelCard
+} // closes registerDuelCard
