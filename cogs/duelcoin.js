@@ -65,7 +65,7 @@ export default async function registerDuelCoin(client) {
 
       const modeRow = new ActionRowBuilder().addComponents(modeMenu);
       await interaction.reply({
-        content: '💰 Select whether to give or take coins:',
+        content: '🪙 Select whether to give or take coins:',
         components: [modeRow],
         ephemeral: true,
         fetchReply: true
@@ -108,7 +108,7 @@ export default async function registerDuelCoin(client) {
         }));
 
         const embed = new EmbedBuilder()
-          .setTitle(`🧾 Select User`)
+          .setTitle(`<:ID:1391239596112613376> Select User`)
           .setDescription(`Page ${page + 1} of ${totalPages} — ${entries.length} total users`);
 
         const buttons = new ActionRowBuilder().addComponents(
@@ -215,7 +215,7 @@ export default async function registerDuelCoin(client) {
         await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
 
         await modalInteraction.reply({
-          content: `✅ **${adminUsername}** ${mode === 'give' ? 'gave' : 'took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: ${newBalance}`,
+          content: `✅ <@${modalInteraction.user.id}> ${mode === 'give' ? 'gave' : 'took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: ${newBalance}`,
           ephemeral: false
         });
       });
