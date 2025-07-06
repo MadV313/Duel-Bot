@@ -85,6 +85,11 @@ export default async function registerDuelStats(client) {
           { name: '⛃ Coins', value: `${coin}`, inline: true },
           { name: '╰── ──╮ Wins / Losses', value: `${wins} / ${losses}`, inline: true }
         )
+        .addFields({
+          name: '🌐 View Full Stats Online',
+          value: '[Click to open your Player Stats UI](https://madv313.github.io/Player-Stats-UI/)',
+          inline: false
+        })
         .setFooter({ text: `Linked to: ${interaction.user.username}` });
 
       await interaction.reply({ embeds: [embed], ephemeral: true });
