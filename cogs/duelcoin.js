@@ -1,3 +1,5 @@
+// cogs/duelcoin.js — Admin-only coin adjuster with paginated user selection
+
 import fs from 'fs/promises';
 import path from 'path';
 import {
@@ -36,14 +38,19 @@ export default async function registerDuelCoin(client) {
       const channelId = interaction.channelId;
 
       if (!isAdmin) {
-        return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
+        return interaction.reply({
+          content: '🚫 You do not have permission to use this command.',
+          ephemeral: true
+        });
       }
 
       if (channelId !== ADMIN_CHANNEL_ID) {
-        return interaction.reply({ content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.', ephemeral: true });
+        return interaction.reply({
+          content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
+          ephemeral: true
+        });
       }
 
-      // Step 1: Ask give or take
       const modeMenu = new StringSelectMenuBuilder()
         .setCustomId('duelcoin_mode')
         .setPlaceholder('🔻 Choose action')
@@ -110,15 +117,15 @@ export default async function registerDuelCoin(client) {
             .addOptions(options)
         );
 
-        return { embed, syncDropdown, buttons };
+        return { embed, buttons };
       };
 
       const updatePagination = async () => {
-        const { embed, syncDropdown, buttons } = generatePage(currentPage);
+        const { embed, buttons } = generatePage(currentPage);
         await paginatedMsg.edit({ embeds: [embed], components: [syncDropdown, buttons] });
       };
 
-      const { embed, syncDropdown, buttons } = generatePage(currentPage);
+      const { embed, buttons } = generatePage(currentPage);
       paginatedMsg = await modeSelect.followUp({
         embeds: [embed],
         components: [syncDropdown, buttons],
@@ -166,10 +173,12 @@ export default async function registerDuelCoin(client) {
 
       client.on('interactionCreate', async modalInteraction => {
         if (!modalInteraction.isModalSubmit()) return;
-        const [_, userId, mode] = modalInteraction.customId.split('_');
+        if (!modalInteraction.customId.startsWith('duelcoin_amount_modal_')) return;
 
+        const [_, userId, mode] = modalInteraction.customId.split('_');
         const amountStr = modalInteraction.fields.getTextInputValue('coin_amount');
         const amount = parseInt(amountStr, 10);
+
         if (isNaN(amount) || amount < 1) {
           return modalInteraction.reply({ content: '⚠️ Invalid amount.', ephemeral: true });
         }
