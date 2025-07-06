@@ -256,4 +256,3 @@ export default async function registerDuelCard(client) {
             } // closes execute()
           }); // closes client.commands.set
         } // closes registerDuelCard
-
