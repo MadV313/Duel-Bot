@@ -81,7 +81,7 @@ export default async function registerDuelStats(client) {
         .addFields(
           { name: '🂠 Deck Size', value: `${profile.deck.length}`, inline: true },
           { name: '🀢🀣🀦🀤 Collection Size', value: `${Object.values(profile.collection).reduce((a, b) => a + b, 0)}`, inline: true },
-          { name: '🀢ᯓ★ Cards Unlocked', value: `${uniqueUnlocked} / 127`, inline: true },
+          { name: '🀢ᯓ★ Cards Unlocked', value: `${unlocked} / 127`, inline: true },
           { name: '⛃ Coins', value: `${coin}`, inline: true },
           { name: '╰── ──╮ Wins / Losses', value: `${wins} / ${losses}`, inline: true }
         )
