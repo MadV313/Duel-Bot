@@ -47,7 +47,6 @@ export default async function registerDuelCard(client) {
         });
       }
 
-      // Step 1: Select give/take
       const modeMenu = new StringSelectMenuBuilder()
         .setCustomId('duelcard_mode')
         .setPlaceholder('🃏 Choose action')
@@ -71,7 +70,6 @@ export default async function registerDuelCard(client) {
       const actionMode = modeSelect.values[0];
       await modeSelect.deferUpdate();
 
-      // Step 2: Load user data
       let linkedData = {};
       try {
         const raw = await fs.readFile(linkedDecksPath, 'utf-8');
@@ -85,7 +83,6 @@ export default async function registerDuelCard(client) {
         return interaction.followUp({ content: '⚠️ No linked profiles found.', ephemeral: true });
       }
 
-      // Paginated user select
       const pageSize = 25;
       let currentPage = 0;
       const totalPages = Math.ceil(entries.length / pageSize);
@@ -146,7 +143,6 @@ export default async function registerDuelCard(client) {
 
         console.log(`[${timestamp}] 🎯 ${executor} selected player: ${targetName} (${targetId})`);
 
-        // Step 3: Load card list
         let cardData = [];
         try {
           const raw = await fs.readFile(cardListPath, 'utf-8');
@@ -155,12 +151,11 @@ export default async function registerDuelCard(client) {
           return selectInteraction.reply({ content: '⚠️ Could not load card data.', ephemeral: true });
         }
 
-        // Paginate card menu
         const cardEntries = cardData
-          .filter(card => card.cardId !== '000')
+          .filter(card => card.card_id !== '000')
           .map(card => ({
-            label: `${card.cardId} ${card.name}`.slice(0, 100),
-            value: card.cardId
+            label: `${card.card_id} ${card.name}`.slice(0, 100),
+            value: String(card.card_id)
           }));
 
         const cardPages = Math.ceil(cardEntries.length / pageSize);
