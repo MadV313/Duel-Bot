@@ -33,8 +33,6 @@ export default async function registerDuelCard(client) {
       const timestamp = new Date().toISOString();
       const executor = `${interaction.user.username} (${interaction.user.id})`;
 
-      console.log(`[${timestamp}] 🔸 /duelcard triggered by ${executor}`);
-
       const isAdmin = interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID);
       if (!isAdmin) {
         return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
@@ -94,28 +92,28 @@ export default async function registerDuelCard(client) {
           value: id
         }));
 
-        const embed = new EmbedBuilder()
+        const userEmbed = new EmbedBuilder()
           .setTitle(`👤 Select Target Player`)
           .setDescription(`Page ${page + 1} of ${totalPages}`);
 
-        const buttons = new ActionRowBuilder().addComponents(
+        const userButtons = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('prev_user_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
           new ButtonBuilder().setCustomId('next_user_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
         );
 
-        const dropdown = new ActionRowBuilder().addComponents(
+        const userDropdown = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId('duelcard_user_select')
             .setPlaceholder('Select a player')
             .addOptions(options)
         );
 
-        return { embed, buttons, dropdown };
+        return { userEmbed, userButtons, userDropdown };
       };
 
       const updatePage = async () => {
-        const { embed, buttons, dropdown } = generateUserPage(currentPage);
-        await interaction.editReply({ embeds: [embed], components: [dropdown, buttons] });
+        const { userEmbed, userButtons, userDropdown } = generateUserPage(currentPage);
+        await interaction.editReply({ embeds: [userEmbed], components: [userDropdown, userButtons] });
       };
 
       await updatePage();
@@ -127,8 +125,8 @@ export default async function registerDuelCard(client) {
 
       collector.on('collect', async i => {
         if (i.user.id !== interaction.user.id) return;
-        if (i.customId === 'prev_user_page') currentPage--;
-        if (i.customId === 'next_user_page') currentPage++;
+        if (i.customId === 'prev_user_page') currentPage -= 1;
+        if (i.customId === 'next_user_page') currentPage += 1;
         await i.deferUpdate();
         await updatePage();
       });
@@ -141,11 +139,10 @@ export default async function registerDuelCard(client) {
       dropdownCollector.on('collect', async selectInteraction => {
         if (selectInteraction.user.id !== interaction.user.id || !selectInteraction.customId.includes('duelcard_user_select')) return;
         await selectInteraction.deferUpdate();
-      
+
         const targetId = selectInteraction.values[0];
         const targetName = linkedData[targetId]?.discordName || 'Unknown';
-        console.log(`[${timestamp}] 🎯 ${executor} selected player: ${targetName} (${targetId})`);
-      
+
         let cardData = [];
         try {
           const raw = await fs.readFile(cardListPath, 'utf-8');
@@ -153,106 +150,106 @@ export default async function registerDuelCard(client) {
         } catch {
           return interaction.editReply({ content: '⚠️ Could not load card data.', ephemeral: true });
         }
-      
+
         const cardEntries = cardData
           .filter(card => card.card_id !== '000')
           .map(card => ({
             label: `${card.card_id} ${card.name}`.slice(0, 100),
             value: String(card.card_id)
           }));
-      
+
         const cardPages = Math.ceil(cardEntries.length / pageSize);
         let cardPage = 0;
         let cardMsg;
-      
+
         const generateCardPage = (page) => {
           const pageCards = cardEntries.slice(page * pageSize, (page + 1) * pageSize);
-          const embed = new EmbedBuilder()
+
+          const cardEmbed = new EmbedBuilder()
             .setTitle(`${actionMode === 'give' ? '🟢 GIVE' : '🔴 TAKE'} a Card`)
             .setDescription(`Select a card for **${targetName}**\nPage ${page + 1} of ${cardPages}`);
-      
-          const buttons = new ActionRowBuilder().addComponents(
+
+          const cardButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('prev_card_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
             new ButtonBuilder().setCustomId('next_card_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === cardPages - 1)
           );
-      
-          const dropdown = new ActionRowBuilder().addComponents(
+
+          const cardDropdown = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
               .setCustomId('duelcard_card_select')
               .setPlaceholder('Select a card')
               .addOptions(pageCards)
           );
-      
-          return { embed, buttons, dropdown };
+
+          return { cardEmbed, cardButtons, cardDropdown };
         };
-      
+
         const sendCardPage = async () => {
-          const { embed, buttons, dropdown } = generateCardPage(cardPage);
-        
-           cardMsg = await interaction.followUp({
+          const { cardEmbed, cardButtons, cardDropdown } = generateCardPage(cardPage);
+          cardMsg = await interaction.followUp({
             content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
-             embeds: [embed],
-            components: [dropdown, buttons],
+            embeds: [cardEmbed],
+            components: [cardDropdown, cardButtons],
             ephemeral: true,
-             fetchReply: true
+            fetchReply: true
           });
-        
+
           const cardCollector = cardMsg.createMessageComponentCollector({
-             componentType: ComponentType.Button,
-             filter: i => i.user.id === interaction.user.id,
-             time: 60_000
+            componentType: ComponentType.Button,
+            filter: i => i.user.id === interaction.user.id,
+            time: 60_000
           });
-        
-           cardCollector.on('collect', async i => {
-             if (i.customId === 'prev_card_page') cardPage--;
-             if (i.customId === 'next_card_page') cardPage++;
-             const { embed, buttons, dropdown } = generateCardPage(cardPage);
-           await i.update({
-               content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
-               embeds: [embed],
-               components: [dropdown, buttons]
-             });
-           });
-        
-           const cardSelectCollector = cardMsg.createMessageComponentCollector({
+
+          cardCollector.on('collect', async i => {
+            if (i.customId === 'prev_card_page') cardPage -= 1;
+            if (i.customId === 'next_card_page') cardPage += 1;
+            const { cardEmbed, cardButtons, cardDropdown } = generateCardPage(cardPage);
+            await i.update({
+              content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
+              embeds: [cardEmbed],
+              components: [cardDropdown, cardButtons]
+            });
+          });
+
+          const cardSelectCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.StringSelect,
             filter: i => i.user.id === interaction.user.id,
             time: 60_000
-           });
-        
-           cardSelectCollector.on('collect', async cardSelect => {
-             if (!cardSelect.customId.includes('duelcard_card_select')) return;
-        
-             const cardId = cardSelect.values[0];
-             const player = linkedData[targetId];
-             const collection = player.collection || {};
-        
+          });
+
+          cardSelectCollector.on('collect', async cardSelect => {
+            if (!cardSelect.customId.includes('duelcard_card_select')) return;
+
+            const cardId = cardSelect.values[0];
+            const player = linkedData[targetId];
+            const collection = player.collection || {};
+
             if (actionMode === 'give') {
-               collection[cardId] = (collection[cardId] || 0) + 1;
+              collection[cardId] = (collection[cardId] || 0) + 1;
             } else {
-               if (!collection[cardId]) {
+              if (!collection[cardId]) {
                 return cardSelect.update({ content: '⚠️ That player doesn’t own this card.', ephemeral: true });
-               }
-               collection[cardId]--;
-               if (collection[cardId] <= 0) delete collection[cardId];
+              }
+              collection[cardId] -= 1;
+              if (collection[cardId] <= 0) delete collection[cardId];
             }
-        
-             linkedData[targetId].collection = collection;
+
+            linkedData[targetId].collection = collection;
             await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
-        
-             console.log(`[${timestamp}] ✅ ${actionMode.toUpperCase()} ${cardId} ${actionMode === 'give' ? 'to' : 'from'} ${targetName}`);
-        
+
             await cardSelect.update({
               content: `✅ Card **${cardId}** ${actionMode === 'give' ? 'given to' : 'taken from'} **${targetName}**.`,
               embeds: [],
               components: [],
-               ephemeral: false
+              ephemeral: false
             });
           });
         };
-        
+
         await sendCardPage();
       });
+
+      return;
     }
   });
-} 
+}
