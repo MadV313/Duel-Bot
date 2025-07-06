@@ -32,6 +32,7 @@ export default async function registerDuelCard(client) {
     async execute(interaction) {
       const timestamp = new Date().toISOString();
       const executor = `${interaction.user.username} (${interaction.user.id})`;
+
       console.log(`[${timestamp}] 🔸 /duelcard triggered by ${executor}`);
 
       const isAdmin = interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID);
@@ -74,23 +75,24 @@ export default async function registerDuelCard(client) {
         const raw = await fs.readFile(linkedDecksPath, 'utf-8');
         linkedData = JSON.parse(raw);
       } catch {
-        return interaction.followUp({ content: '⚠️ Could not load linked users.', ephemeral: true });
+        return interaction.editReply({ content: '⚠️ Could not load linked users.', components: [] });
       }
 
       const entries = Object.entries(linkedData);
       if (entries.length === 0) {
-        return interaction.followUp({ content: '⚠️ No linked profiles found.', ephemeral: true });
+        return interaction.editReply({ content: '⚠️ No linked profiles found.', components: [] });
       }
 
       const pageSize = 25;
       let currentPage = 0;
       const totalPages = Math.ceil(entries.length / pageSize);
-      let syncDropdown;
-      let paginatedMsg, dropdownMsg;
 
       const generateUserPage = (page) => {
         const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
-        const options = pageEntries.map(([id, data]) => ({ label: data.discordName, value: id }));
+        const options = pageEntries.map(([id, data]) => ({
+          label: data.discordName,
+          value: id
+        }));
 
         const embed = new EmbedBuilder()
           .setTitle(`👤 Select Target Player`)
@@ -101,45 +103,47 @@ export default async function registerDuelCard(client) {
           new ButtonBuilder().setCustomId('next_user_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
         );
 
-        syncDropdown = new ActionRowBuilder().addComponents(
+        const dropdown = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(`duelcard_user_select_${page}`)
+            .setCustomId('duelcard_user_select')
             .setPlaceholder('Select a player')
             .addOptions(options)
         );
 
-        return { embed, buttons };
+        return { embed, buttons, dropdown };
       };
 
-      const updateUserPagination = async () => {
-        const { embed, buttons } = generateUserPage(currentPage);
-        try {
-          await paginatedMsg.delete();
-          await dropdownMsg.delete();
-        } catch {}
-        const msg1 = await interaction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
-        const msg2 = await interaction.followUp({ components: [syncDropdown], ephemeral: true, fetchReply: true });
-        paginatedMsg = msg1;
-        dropdownMsg = msg2;
+      const updatePage = async () => {
+        const { embed, buttons, dropdown } = generateUserPage(currentPage);
+        await interaction.editReply({ embeds: [embed], components: [dropdown, buttons] });
       };
 
-      const { embed, buttons } = generateUserPage(currentPage);
-      paginatedMsg = await interaction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
-      dropdownMsg = await interaction.followUp({ components: [syncDropdown], ephemeral: true, fetchReply: true });
+      await updatePage();
 
-      const collector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
-      collector.on('collect', async i => {
-        if (i.customId === 'prev_user_page') currentPage--;
-        if (i.customId === 'next_user_page') currentPage++;
-        await updateUserPagination();
-        await i.deferUpdate();
+      const collector = interaction.channel.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 60_000
       });
 
-      const dropdownCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
+      collector.on('collect', async i => {
+        if (i.user.id !== interaction.user.id) return;
+        if (i.customId === 'prev_user_page') currentPage--;
+        if (i.customId === 'next_user_page') currentPage++;
+        await i.deferUpdate();
+        await updatePage();
+      });
+
+      const dropdownCollector = interaction.channel.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 60_000
+      });
+
       dropdownCollector.on('collect', async selectInteraction => {
+        if (selectInteraction.user.id !== interaction.user.id || !selectInteraction.customId.includes('duelcard_user_select')) return;
+        await selectInteraction.deferUpdate();
+
         const targetId = selectInteraction.values[0];
         const targetName = linkedData[targetId]?.discordName || 'Unknown';
-
         console.log(`[${timestamp}] 🎯 ${executor} selected player: ${targetName} (${targetId})`);
 
         let cardData = [];
@@ -147,12 +151,15 @@ export default async function registerDuelCard(client) {
           const raw = await fs.readFile(cardListPath, 'utf-8');
           cardData = JSON.parse(raw);
         } catch {
-          return selectInteraction.reply({ content: '⚠️ Could not load card data.', ephemeral: true });
+          return interaction.followUp({ content: '⚠️ Could not load card data.', ephemeral: true });
         }
 
         const cardEntries = cardData
           .filter(card => card.card_id !== '000')
-          .map(card => ({ label: `${card.card_id} ${card.name}`.slice(0, 100), value: String(card.card_id) }));
+          .map(card => ({
+            label: `${card.card_id} ${card.name}`.slice(0, 100),
+            value: String(card.card_id)
+          }));
 
         const cardPages = Math.ceil(cardEntries.length / pageSize);
         let cardPage = 0;
@@ -168,37 +175,37 @@ export default async function registerDuelCard(client) {
             new ButtonBuilder().setCustomId('next_card_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === cardPages - 1)
           );
 
-          const cardDropdown = new ActionRowBuilder().addComponents(
+          const dropdown = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(`duelcard_card_select_${page}_${targetId}_${actionMode}`)
+              .setCustomId('duelcard_card_select')
               .setPlaceholder('Select a card')
               .addOptions(pageCards)
           );
 
-          return { embed, buttons, cardDropdown };
+          return { embed, buttons, dropdown };
         };
 
-        let cardMsgEmbed, cardMsgDropdown;
-        const { embed, buttons, cardDropdown } = generateCardPage(cardPage);
-        cardMsgEmbed = await selectInteraction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
-        cardMsgDropdown = await selectInteraction.followUp({ components: [cardDropdown], ephemeral: true, fetchReply: true });
+        const updateCardPage = async () => {
+          const { embed, buttons, dropdown } = generateCardPage(cardPage);
+          await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
+        };
 
-        const cardCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
+        const { embed, buttons, dropdown } = generateCardPage(cardPage);
+        const cardMsg = await interaction.followUp({ embeds: [embed], components: [dropdown, buttons], ephemeral: true, fetchReply: true });
+
+        const cardCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
         cardCollector.on('collect', async i => {
+          if (i.user.id !== interaction.user.id) return;
           if (i.customId === 'prev_card_page') cardPage--;
           if (i.customId === 'next_card_page') cardPage++;
-          const { embed, buttons, cardDropdown } = generateCardPage(cardPage);
-          try {
-            await cardMsgEmbed.delete();
-            await cardMsgDropdown.delete();
-          } catch {}
-          cardMsgEmbed = await interaction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
-          cardMsgDropdown = await interaction.followUp({ components: [cardDropdown], ephemeral: true, fetchReply: true });
           await i.deferUpdate();
+          await updateCardPage();
         });
 
-        const cardSelectCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
+        const cardSelectCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
         cardSelectCollector.on('collect', async cardSelect => {
+          if (cardSelect.user.id !== interaction.user.id || !cardSelect.customId.includes('duelcard_card_select')) return;
+
           const cardId = cardSelect.values[0];
           const player = linkedData[targetId];
           const collection = player.collection || {};
