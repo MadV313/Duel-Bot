@@ -163,7 +163,7 @@ export default async function registerDuelCoin(client) {
         console.log(`[${timestamp}] 🎯 ${executor} selected player: ${targetName} (${targetId})`);
 
         const modal = new ModalBuilder()
-          .setCustomId(`duelcoin_amount_modal_${targetId}_${actionMode}`)
+          .setCustomId(`duelcoin:amount:${targetId}:${actionMode}`)
           .setTitle(`${actionMode === 'give' ? 'Give' : 'Take'} Coins from ${targetName}`);
 
         const input = new TextInputBuilder()
@@ -181,10 +181,11 @@ export default async function registerDuelCoin(client) {
 
       client.on('interactionCreate', async modalInteraction => {
         if (!modalInteraction.isModalSubmit()) return;
-        if (!modalInteraction.customId.startsWith('duelcoin_amount_modal_')) return;
+        if (!modalInteraction.customId.startsWith('duelcoin:amount:')) return;
 
         const modalTimestamp = new Date().toISOString();
-        const [_, userId, mode] = modalInteraction.customId.split('_');
+        const [prefix, formType, userId, mode] = modalInteraction.customId.split(':');
+        if (prefix !== 'duelcoin' || formType !== 'amount') return;
 
         const amountStr = modalInteraction.fields.getTextInputValue('coin_amount');
         const amount = parseInt(amountStr, 10);
@@ -206,8 +207,12 @@ export default async function registerDuelCoin(client) {
         const newBalance = mode === 'give' ? current + amount : Math.max(0, current - amount);
         coinData[userId] = newBalance;
 
+        const adminUsername = modalInteraction.user.username;
+        const targetName = linkedData[userId]?.discordName || 'Unknown';
+
+        console.log(`[${modalTimestamp}] 💼 Admin ${adminUsername} executed: ${mode.toUpperCase()} ${amount} coins ${mode === 'give' ? 'to' : 'from'} ${targetName} (${userId}) — New Balance: ${newBalance}`);
+
         await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
-        console.log(`[${modalTimestamp}] 💰 ${mode === 'give' ? 'GAVE' : 'TOOK'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} ${userId} — New Balance: ${newBalance}`);
 
         await modalInteraction.reply({
           content: `✅ ${mode === 'give' ? 'Gave' : 'Took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: ${newBalance}`,
