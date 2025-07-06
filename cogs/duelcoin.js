@@ -133,7 +133,7 @@ export default async function registerDuelCoin(client) {
       };
 
       const { embed, buttons } = generatePage(currentPage);
-      paginatedMsg = await modeSelect.followUp({
+      paginatedMsg = await modeSelect.reply({
         embeds: [embed],
         components: [syncDropdown, buttons],
         ephemeral: true,
