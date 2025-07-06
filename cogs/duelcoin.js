@@ -215,8 +215,8 @@ export default async function registerDuelCoin(client) {
         await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
 
         await modalInteraction.reply({
-          content: `✅ ${mode === 'give' ? 'Gave' : 'Took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: ${newBalance}`,
-          ephemeral: true
+          content: `✅ **${adminUsername}** ${mode === 'give' ? 'gave' : 'took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: ${newBalance}`,
+          ephemeral: false
         });
       });
     }
