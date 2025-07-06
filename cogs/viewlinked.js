@@ -85,7 +85,7 @@ export default async function registerViewLinked(client) {
           .addOptions(options);
 
         const embed = new EmbedBuilder()
-          .setTitle(`📋 Linked Users`)
+          .setTitle(`<:tech_phantoms:1391237241418023075> Linked Users`)
           .setDescription(`Page ${page + 1} of ${totalPages} (Showing ${pageEntries.length} of ${entries.length})`);
 
         const buttons = new ActionRowBuilder().addComponents(
