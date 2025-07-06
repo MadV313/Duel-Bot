@@ -1,4 +1,4 @@
-// cogs/unlinkdeck.js
+// cogs/unlinkdeck.js — Paginated version synced with dropdown
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -7,7 +7,10 @@ import {
   PermissionFlagsBits,
   ActionRowBuilder,
   StringSelectMenuBuilder,
-  ComponentType
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+  EmbedBuilder
 } from 'discord.js';
 
 const ADMIN_ROLE_ID = '1173049392371085392';
@@ -63,51 +66,93 @@ export default async function registerUnlinkDeck(client) {
         });
       }
 
-      // Construct dropdown options
-      const options = entries.map(([id, data]) => ({
-        label: data.discordName,
-        value: id
-      })).slice(0, 25); // Discord max: 25 options
+      const pageSize = 25;
+      let currentPage = 0;
+      const totalPages = Math.ceil(entries.length / pageSize);
 
-      const row = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('select_unlink_user')
+      const generatePageData = (page) => {
+        const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+        const options = pageEntries.map(([id, data]) => ({
+          label: data.discordName,
+          value: id
+        }));
+
+        const dropdown = new StringSelectMenuBuilder()
+          .setCustomId(`select_unlink_user_page_${page}`)
           .setPlaceholder('🔻 Choose a user to unlink')
-          .addOptions(options)
-      );
+          .addOptions(options);
 
-      await interaction.reply({
-        content: '📋 Select the user you want to unlink:',
-        components: [row],
-        ephemeral: true
+        const embed = new EmbedBuilder()
+          .setTitle(`📋 Select a user to unlink`)
+          .setDescription(`Page ${page + 1} of ${totalPages} (Showing users ${(page * pageSize) + 1}–${Math.min((page + 1) * pageSize, entries.length)} of ${entries.length})`);
+
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('prev_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+          new ButtonBuilder().setCustomId('next_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
+        );
+
+        const row = new ActionRowBuilder().addComponents(dropdown);
+
+        return { embed, row, buttons, pageEntries };
+      };
+
+      const { embed, row, buttons } = generatePageData(currentPage);
+
+      const mainReply = await interaction.reply({
+        embeds: [embed],
+        components: [row, buttons],
+        ephemeral: true,
+        fetchReply: true
       });
 
-      const collector = interaction.channel.createMessageComponentCollector({
+      const collector = mainReply.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 60000
+      });
+
+      const dropdownCollector = mainReply.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
-        time: 30000,
-        max: 1
+        time: 60000
       });
 
-      collector.on('collect', async selectInteraction => {
-        if (selectInteraction.customId !== 'select_unlink_user') return;
+      collector.on('collect', async i => {
+        if (i.user.id !== interaction.user.id) return i.reply({ content: '⚠️ You cannot interact with this menu.', ephemeral: true });
+
+        if (i.customId === 'prev_page') {
+          currentPage = Math.max(currentPage - 1, 0);
+        } else if (i.customId === 'next_page') {
+          currentPage = Math.min(currentPage + 1, totalPages - 1);
+        }
+
+        const { embed, row, buttons } = generatePageData(currentPage);
+
+        await i.update({ embeds: [embed], components: [row, buttons] });
+      });
+
+      dropdownCollector.on('collect', async selectInteraction => {
+        if (!selectInteraction.customId.startsWith('select_unlink_user_page_')) return;
 
         const selectedId = selectInteraction.values[0];
         const removedUser = linkedData[selectedId]?.discordName || 'Unknown';
 
         delete linkedData[selectedId];
         await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
-        console.log(`🗑️ [unlinkdeck] Unlinked ${removedUser} (${selectedId})`);
 
         await selectInteraction.update({
           content: `✅ Successfully unlinked **${removedUser}**.`,
+          embeds: [],
           components: []
         });
+
+        collector.stop();
+        dropdownCollector.stop();
       });
 
-      collector.on('end', collected => {
+      dropdownCollector.on('end', async collected => {
         if (collected.size === 0) {
-          interaction.editReply({
+          await interaction.editReply({
             content: '⏰ No selection made. Command cancelled.',
+            embeds: [],
             components: []
           });
         }
