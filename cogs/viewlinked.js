@@ -117,7 +117,9 @@ export default async function registerViewLinked(client) {
       });
 
       buttonCollector.on('collect', async i => {
-        if (i.user.id !== interaction.user.id) return i.reply({ content: '⚠️ You can’t interact with this menu.', ephemeral: true });
+        if (i.user.id !== interaction.user.id) {
+          return i.reply({ content: '⚠️ You can’t interact with this menu.', ephemeral: true });
+        }
 
         if (i.customId === 'prev_page') {
           currentPage = Math.max(currentPage - 1, 0);
@@ -130,10 +132,16 @@ export default async function registerViewLinked(client) {
       });
 
       dropdownCollector.on('collect', async selectInteraction => {
+        if (selectInteraction.user.id !== interaction.user.id) {
+          return selectInteraction.reply({
+            content: '⚠️ You can’t interact with this dropdown.',
+            ephemeral: true
+          });
+        }
+
         const selectedId = selectInteraction.values[0];
         const profile = linkedData[selectedId];
 
-        // Load coin and duel stats
         let coin = 0;
         let wins = 0;
         let losses = 0;
@@ -151,7 +159,7 @@ export default async function registerViewLinked(client) {
           }
         } catch {}
 
-        const embed = new EmbedBuilder()
+        const profileEmbed = new EmbedBuilder()
           .setTitle(`👤 Profile: ${profile.discordName}`)
           .addFields(
             { name: '🧩 Deck Size', value: `${profile.deck.length}`, inline: true },
@@ -161,8 +169,8 @@ export default async function registerViewLinked(client) {
           )
           .setFooter({ text: `Discord ID: ${selectedId}` });
 
-        await selectInteraction.followUp({
-          embeds: [embed],
+        await selectInteraction.reply({
+          embeds: [profileEmbed],
           ephemeral: true
         });
       });
