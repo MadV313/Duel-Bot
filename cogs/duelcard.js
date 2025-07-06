@@ -185,13 +185,22 @@ export default async function registerDuelCard(client) {
           return { embed, buttons, dropdown };
         };
 
+        let cardMsg; // Declare early so updateCardPage has access
+
         const updateCardPage = async () => {
           const { embed, buttons, dropdown } = generateCardPage(cardPage);
-          await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
+          if (cardMsg) {
+            await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
+          }
         };
-
+        
         const { embed, buttons, dropdown } = generateCardPage(cardPage);
-        const cardMsg = await interaction.followUp({ embeds: [embed], components: [dropdown, buttons], ephemeral: true, fetchReply: true });
+        cardMsg = await interaction.followUp({
+          embeds: [embed],
+          components: [dropdown, buttons],
+          ephemeral: true,
+          fetchReply: true
+        });
 
         const cardCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
         cardCollector.on('collect', async i => {
