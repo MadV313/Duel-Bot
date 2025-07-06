@@ -188,39 +188,45 @@ export default async function registerDuelCard(client) {
       
         const sendCardPage = async () => {
           const { embed, buttons, dropdown } = generateCardPage(cardPage);
+        
           cardMsg = await interaction.followUp({
+            content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
             embeds: [embed],
             components: [dropdown, buttons],
             ephemeral: true,
             fetchReply: true
           });
-      
+        
           const cardCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.Button,
+            filter: i => i.user.id === interaction.user.id,
             time: 60_000
           });
-      
+        
           cardCollector.on('collect', async i => {
-            if (i.user.id !== interaction.user.id) return;
             if (i.customId === 'prev_card_page') cardPage--;
             if (i.customId === 'next_card_page') cardPage++;
-            await i.deferUpdate();
             const { embed, buttons, dropdown } = generateCardPage(cardPage);
-            await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
+            await i.update({
+              content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
+              embeds: [embed],
+              components: [dropdown, buttons]
+            });
           });
-      
+        
           const cardSelectCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.StringSelect,
+            filter: i => i.user.id === interaction.user.id,
             time: 60_000
           });
-      
+        
           cardSelectCollector.on('collect', async cardSelect => {
-            if (cardSelect.user.id !== interaction.user.id || !cardSelect.customId.includes('duelcard_card_select')) return;
-      
+            if (!cardSelect.customId.includes('duelcard_card_select')) return;
+        
             const cardId = cardSelect.values[0];
             const player = linkedData[targetId];
             const collection = player.collection || {};
-      
+        
             if (actionMode === 'give') {
               collection[cardId] = (collection[cardId] || 0) + 1;
             } else {
@@ -230,22 +236,18 @@ export default async function registerDuelCard(client) {
               collection[cardId]--;
               if (collection[cardId] <= 0) delete collection[cardId];
             }
-      
+        
             linkedData[targetId].collection = collection;
             await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
+        
             console.log(`[${timestamp}] ✅ ${actionMode.toUpperCase()} ${cardId} ${actionMode === 'give' ? 'to' : 'from'} ${targetName}`);
-      
+        
             await cardSelect.update({
               content: `✅ Card **${cardId}** ${actionMode === 'give' ? 'given to' : 'taken from'} **${targetName}**.`,
+              embeds: [],
+              components: [],
               ephemeral: false
             });
-      
-            await cardMsg.edit({ components: [] });
           });
         };
-      
-        await sendCardPage();
-      });
-    }
-  });
-}
+
