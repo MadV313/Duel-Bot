@@ -46,11 +46,18 @@ export default async function registerDuelStats(client) {
       try {
         const data = JSON.parse(await fs.readFile(linkedDecksPath, 'utf-8'));
         profile = data[userId];
-        if (!profile) {
-          return interaction.reply({ content: '⚠️ You have not linked a deck yet.', ephemeral: true });
+
+        if (!profile || !profile.collection || !profile.deck) {
+          return interaction.reply({
+            content: '⚠️ You are not linked yet. Please run `/linkdeck` in the #manage-cards channel to get started.',
+            ephemeral: true
+          });
         }
       } catch {
-        return interaction.reply({ content: '⚠️ Unable to load your profile.', ephemeral: true });
+        return interaction.reply({
+          content: '⚠️ Unable to load your profile. Make sure you’ve used `/linkdeck` in #manage-cards.',
+          ephemeral: true
+        });
       }
 
       let coin = 0;
@@ -87,7 +94,7 @@ export default async function registerDuelStats(client) {
         )
         .addFields({
           name: '🌐 View Full Stats Online',
-          value: '[Click to open your Player Stats UI](https://madv313.github.io/Player-Stats-UI/)',
+          value: `[Click to open your Player Stats UI](https://madv313.github.io/Player-Stats-UI/?id=${userId})`,
           inline: false
         })
         .setFooter({ text: `Linked to: ${interaction.user.username}` });
