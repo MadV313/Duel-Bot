@@ -173,7 +173,7 @@ export default async function registerViewLinked(client) {
             { name: '🀢🀣🀦🀤 Collection Size', value: `${Object.values(profile.collection).reduce((a, b) => a + b, 0)}`, inline: true },
             { name: '🀢ᯓ★ Cards Unlocked', value: `${uniqueUnlocked} / 127`, inline: true },
             { name: '⛃ Coins', value: `${coin}`, inline: true },
-            { name: '⤴︎／⤵ Wins / Losses', value: `${wins} / ${losses}`, inline: true }
+            { name: '╰── ──╮ Wins / Losses', value: `${wins} / ${losses}`, inline: true }
           )
           .setFooter({ text: `Discord ID: ${selectedId}` });
       
