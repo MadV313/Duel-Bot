@@ -30,19 +30,20 @@ export default async function registerDuelCard(client) {
   client.commands.set('duelcard', {
     data: commandData,
     async execute(interaction) {
-      const isAdmin = interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID);
-      if (!isAdmin) {
-        return interaction.reply({
+      if (!interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID)) {
+        await interaction.reply({
           content: '🚫 You do not have permission to use this command.',
           ephemeral: true
         });
+        return null;
       }
 
       if (interaction.channelId !== ADMIN_CHANNEL_ID) {
-        return interaction.reply({
+        await interaction.reply({
           content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
           ephemeral: true
         });
+        return null;
       }
 
       const modeMenu = new StringSelectMenuBuilder()
@@ -65,6 +66,7 @@ export default async function registerDuelCard(client) {
         componentType: ComponentType.StringSelect,
         time: 30_000
       });
+
       const actionMode = modeSelect.values[0];
       await modeSelect.update({ content: '✅ Mode selected. Loading players...', components: [] });
 
@@ -73,12 +75,14 @@ export default async function registerDuelCard(client) {
         const raw = await fs.readFile(linkedDecksPath, 'utf-8');
         linkedData = JSON.parse(raw);
       } catch {
-        return interaction.editReply({ content: '⚠️ Could not load linked users.', components: [] });
+        await interaction.editReply({ content: '⚠️ Could not load linked users.', components: [] });
+        return null;
       }
 
       const entries = Object.entries(linkedData);
       if (entries.length === 0) {
-        return interaction.editReply({ content: '⚠️ No linked profiles found.', components: [] });
+        await interaction.editReply({ content: '⚠️ No linked profiles found.', components: [] });
+        return null;
       }
 
       const pageSize = 25;
@@ -97,16 +101,8 @@ export default async function registerDuelCard(client) {
           .setDescription(`Page ${page + 1} of ${totalPages}`);
 
         const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('prev_user_page')
-            .setLabel('⏮ Prev')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(page === 0),
-          new ButtonBuilder()
-            .setCustomId('next_user_page')
-            .setLabel('Next ⏭')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(page === totalPages - 1)
+          new ButtonBuilder().setCustomId('prev_user_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+          new ButtonBuilder().setCustomId('next_user_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
         );
 
         const dropdown = new ActionRowBuilder().addComponents(
@@ -131,11 +127,11 @@ export default async function registerDuelCard(client) {
         time: 60_000
       });
 
-      collector.on('collect', async (btn) => {
-        if (btn.user.id !== interaction.user.id) return;
-        if (btn.customId === 'prev_user_page') currentPage -= 1;
-        if (btn.customId === 'next_user_page') currentPage += 1;
-        await btn.deferUpdate();
+      collector.on('collect', async i => {
+        if (i.user.id !== interaction.user.id) return;
+        if (i.customId === 'prev_user_page') currentPage--;
+        if (i.customId === 'next_user_page') currentPage++;
+        await i.deferUpdate();
         await updatePage();
       });
 
@@ -144,11 +140,8 @@ export default async function registerDuelCard(client) {
         time: 60_000
       });
 
-      dropdownCollector.on('collect', async (selectInteraction) => {
-        if (
-          selectInteraction.user.id !== interaction.user.id ||
-          !selectInteraction.customId.includes('duelcard_user_select')
-        ) return;
+      dropdownCollector.on('collect', async selectInteraction => {
+        if (selectInteraction.user.id !== interaction.user.id || !selectInteraction.customId.includes('duelcard_user_select')) return;
         await selectInteraction.deferUpdate();
 
         const targetId = selectInteraction.values[0];
@@ -159,7 +152,8 @@ export default async function registerDuelCard(client) {
           const raw = await fs.readFile(cardListPath, 'utf-8');
           cardData = JSON.parse(raw);
         } catch {
-          return interaction.editReply({ content: '⚠️ Could not load card data.', ephemeral: true });
+          await interaction.editReply({ content: '⚠️ Could not load card data.', ephemeral: true });
+          return;
         }
 
         const cardEntries = cardData
@@ -175,70 +169,60 @@ export default async function registerDuelCard(client) {
         const generateCardPage = (page) => {
           const pageCards = cardEntries.slice(page * pageSize, (page + 1) * pageSize);
 
-          const embedC = new EmbedBuilder()
+          const cardEmbed = new EmbedBuilder()
             .setTitle(`${actionMode === 'give' ? '🟢 GIVE' : '🔴 TAKE'} a Card`)
-            .setDescription(
-              `Select a card for **${targetName}**\nPage ${page + 1} of ${cardPages}`
-            );
+            .setDescription(`Select a card for **${targetName}**\nPage ${page + 1} of ${cardPages}`);
 
-          const buttonsC = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId('prev_card_page')
-              .setLabel('⏮ Prev')
-              .setStyle(ButtonStyle.Secondary)
-              .setDisabled(page === 0),
-            new ButtonBuilder()
-              .setCustomId('next_card_page')
-              .setLabel('Next ⏭')
-              .setStyle(ButtonStyle.Secondary)
-              .setDisabled(page === cardPages - 1)
+          const cardButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('prev_card_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+            new ButtonBuilder().setCustomId('next_card_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === cardPages - 1)
           );
 
-          const dropdownC = new ActionRowBuilder().addComponents(
+          const cardDropdown = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
               .setCustomId('duelcard_card_select')
               .setPlaceholder('Select a card')
               .addOptions(pageCards)
           );
 
-          return { embedC, buttonsC, dropdownC };
+          return { cardEmbed, cardButtons, cardDropdown };
         };
 
         const sendCardPage = async () => {
-          const { embedC, buttonsC, dropdownC } = generateCardPage(cardPage);
+          const { cardEmbed, cardButtons, cardDropdown } = generateCardPage(cardPage);
 
           const cardMsg = await interaction.followUp({
             content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
-            embeds: [embedC],
-            components: [dropdownC, buttonsC],
+            embeds: [cardEmbed],
+            components: [cardDropdown, cardButtons],
             ephemeral: true,
             fetchReply: true
           });
 
           const cardCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.Button,
-            filter: (i) => i.user.id === interaction.user.id,
+            filter: i => i.user.id === interaction.user.id,
             time: 60_000
           });
 
-          cardCollector.on('collect', async (btn) => {
-            if (btn.customId === 'prev_card_page') cardPage -= 1;
-            if (btn.customId === 'next_card_page') cardPage += 1;
-            const { embedC, buttonsC, dropdownC } = generateCardPage(cardPage);
-            await btn.update({
+          cardCollector.on('collect', async i => {
+            if (i.customId === 'prev_card_page') cardPage--;
+            if (i.customId === 'next_card_page') cardPage++;
+            const { cardEmbed, cardButtons, cardDropdown } = generateCardPage(cardPage);
+            await i.update({
               content: `🎴 **${actionMode === 'give' ? 'GIVE' : 'TAKE'} a Card**\nSelect a card for ${targetName}\nPage ${cardPage + 1} of ${cardPages}`,
-              embeds: [embedC],
-              components: [dropdownC, buttonsC]
+              embeds: [cardEmbed],
+              components: [cardDropdown, cardButtons]
             });
           });
 
           const cardSelectCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.StringSelect,
-            filter: (i) => i.user.id === interaction.user.id,
+            filter: i => i.user.id === interaction.user.id,
             time: 60_000
           });
 
-          cardSelectCollector.on('collect', async (cardSelect) => {
+          cardSelectCollector.on('collect', async cardSelect => {
             if (!cardSelect.customId.includes('duelcard_card_select')) return;
 
             const cardId = cardSelect.values[0];
@@ -249,10 +233,11 @@ export default async function registerDuelCard(client) {
               collection[cardId] = (collection[cardId] || 0) + 1;
             } else {
               if (!collection[cardId]) {
-                return void cardSelect.update({
+                await cardSelect.update({
                   content: '⚠️ That player doesn’t own this card.',
                   ephemeral: true
                 });
+                return;
               }
               collection[cardId] -= 1;
               if (collection[cardId] <= 0) delete collection[cardId];
@@ -273,7 +258,7 @@ export default async function registerDuelCard(client) {
         await sendCardPage();
       });
 
-      return;
+      return null;
     }
   });
 }
