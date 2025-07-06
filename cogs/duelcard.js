@@ -195,7 +195,7 @@ export default async function registerDuelCard(client) {
         };
         
         const { embed, buttons, dropdown } = generateCardPage(cardPage);
-        cardMsg = await interaction.editReply({
+        cardMsg = await interaction.followUp({
           embeds: [embed],
           components: [dropdown, buttons],
           ephemeral: true,
