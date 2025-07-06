@@ -32,7 +32,6 @@ export default async function registerDuelCard(client) {
     async execute(interaction) {
       const timestamp = new Date().toISOString();
       const executor = `${interaction.user.username} (${interaction.user.id})`;
-
       console.log(`[${timestamp}] 🔸 /duelcard triggered by ${executor}`);
 
       const isAdmin = interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID);
@@ -87,14 +86,11 @@ export default async function registerDuelCard(client) {
       let currentPage = 0;
       const totalPages = Math.ceil(entries.length / pageSize);
       let syncDropdown;
-      let paginatedMsg;
+      let paginatedMsg, dropdownMsg;
 
       const generateUserPage = (page) => {
         const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
-        const options = pageEntries.map(([id, data]) => ({
-          label: data.discordName,
-          value: id
-        }));
+        const options = pageEntries.map(([id, data]) => ({ label: data.discordName, value: id }));
 
         const embed = new EmbedBuilder()
           .setTitle(`👤 Select Target Player`)
@@ -117,18 +113,21 @@ export default async function registerDuelCard(client) {
 
       const updateUserPagination = async () => {
         const { embed, buttons } = generateUserPage(currentPage);
-        await paginatedMsg.edit({ embeds: [embed], components: [syncDropdown, buttons] });
+        try {
+          await paginatedMsg.delete();
+          await dropdownMsg.delete();
+        } catch {}
+        const msg1 = await interaction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
+        const msg2 = await interaction.followUp({ components: [syncDropdown], ephemeral: true, fetchReply: true });
+        paginatedMsg = msg1;
+        dropdownMsg = msg2;
       };
 
       const { embed, buttons } = generateUserPage(currentPage);
-      paginatedMsg = await interaction.followUp({
-        embeds: [embed],
-        components: [syncDropdown, buttons],
-        ephemeral: true,
-        fetchReply: true
-      });
+      paginatedMsg = await interaction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
+      dropdownMsg = await interaction.followUp({ components: [syncDropdown], ephemeral: true, fetchReply: true });
 
-      const collector = paginatedMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
+      const collector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
       collector.on('collect', async i => {
         if (i.customId === 'prev_user_page') currentPage--;
         if (i.customId === 'next_user_page') currentPage++;
@@ -136,7 +135,7 @@ export default async function registerDuelCard(client) {
         await i.deferUpdate();
       });
 
-      const dropdownCollector = paginatedMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
+      const dropdownCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
       dropdownCollector.on('collect', async selectInteraction => {
         const targetId = selectInteraction.values[0];
         const targetName = linkedData[targetId]?.discordName || 'Unknown';
@@ -153,10 +152,7 @@ export default async function registerDuelCard(client) {
 
         const cardEntries = cardData
           .filter(card => card.card_id !== '000')
-          .map(card => ({
-            label: `${card.card_id} ${card.name}`.slice(0, 100),
-            value: String(card.card_id)
-          }));
+          .map(card => ({ label: `${card.card_id} ${card.name}`.slice(0, 100), value: String(card.card_id) }));
 
         const cardPages = Math.ceil(cardEntries.length / pageSize);
         let cardPage = 0;
@@ -182,24 +178,26 @@ export default async function registerDuelCard(client) {
           return { embed, buttons, cardDropdown };
         };
 
+        let cardMsgEmbed, cardMsgDropdown;
         const { embed, buttons, cardDropdown } = generateCardPage(cardPage);
-        const cardMsg = await selectInteraction.reply({
-          embeds: [embed],
-          components: [cardDropdown, buttons],
-          ephemeral: true,
-          fetchReply: true
-        });
+        cardMsgEmbed = await selectInteraction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
+        cardMsgDropdown = await selectInteraction.followUp({ components: [cardDropdown], ephemeral: true, fetchReply: true });
 
-        const cardCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
+        const cardCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
         cardCollector.on('collect', async i => {
           if (i.customId === 'prev_card_page') cardPage--;
           if (i.customId === 'next_card_page') cardPage++;
           const { embed, buttons, cardDropdown } = generateCardPage(cardPage);
-          await cardMsg.edit({ embeds: [embed], components: [cardDropdown, buttons] });
+          try {
+            await cardMsgEmbed.delete();
+            await cardMsgDropdown.delete();
+          } catch {}
+          cardMsgEmbed = await interaction.followUp({ embeds: [embed], components: [buttons], ephemeral: true, fetchReply: true });
+          cardMsgDropdown = await interaction.followUp({ components: [cardDropdown], ephemeral: true, fetchReply: true });
           await i.deferUpdate();
         });
 
-        const cardSelectCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
+        const cardSelectCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
         cardSelectCollector.on('collect', async cardSelect => {
           const cardId = cardSelect.values[0];
           const player = linkedData[targetId];
