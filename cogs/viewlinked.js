@@ -1,17 +1,29 @@
-// cogs/viewlinked.js
+// cogs/viewlinked.js — Paginated with synced dropdown and profile viewer
 
 import fs from 'fs/promises';
 import path from 'path';
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+  EmbedBuilder
+} from 'discord.js';
 
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
+
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const coinBankPath = path.resolve('./data/coin_bank.json');
+const playerDataPath = path.resolve('./data/player_data.json');
 
 export default async function registerViewLinked(client) {
   const commandData = new SlashCommandBuilder()
     .setName('viewlinked')
-    .setDescription('Admin only: View all currently linked users.')
+    .setDescription('Admin only: View all currently linked users and inspect profiles.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
   client.slashData.push(commandData.toJSON());
@@ -37,33 +49,133 @@ export default async function registerViewLinked(client) {
         });
       }
 
+      let linkedData = {};
       try {
         const raw = await fs.readFile(linkedDecksPath, 'utf-8');
-        const linkedData = JSON.parse(raw);
-
-        const entries = Object.entries(linkedData);
-        if (entries.length === 0) {
-          return interaction.reply({
-            content: '⚠️ No users have linked profiles yet.',
-            ephemeral: true
-          });
-        }
-
-        const list = entries.map(([userId, data], index) =>
-          `\`${index + 1}.\` **${data.discordName}** — \`ID: ${userId}\``
-        ).join('\n');
-
+        linkedData = JSON.parse(raw);
+      } catch {
         return interaction.reply({
-          content: `📋 **Linked Users** (${entries.length} total):\n\n${list}`,
-          ephemeral: true
-        });
-      } catch (err) {
-        console.error('❌ [viewlinked] Failed to read linked_decks.json:', err);
-        return interaction.reply({
-          content: '❌ Failed to load linked users. Please check the logs.',
+          content: '⚠️ No linked users found.',
           ephemeral: true
         });
       }
+
+      const entries = Object.entries(linkedData);
+      if (entries.length === 0) {
+        return interaction.reply({
+          content: '⚠️ No linked profiles found.',
+          ephemeral: true
+        });
+      }
+
+      const pageSize = 25;
+      let currentPage = 0;
+      const totalPages = Math.ceil(entries.length / pageSize);
+
+      const generatePageData = (page) => {
+        const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
+        const options = pageEntries.map(([id, data]) => ({
+          label: data.discordName,
+          value: id
+        }));
+
+        const dropdown = new StringSelectMenuBuilder()
+          .setCustomId(`select_view_profile_page_${page}`)
+          .setPlaceholder('🔻 View user profile')
+          .addOptions(options);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`📋 Linked Users`)
+          .setDescription(`Page ${page + 1} of ${totalPages} (Showing ${pageEntries.length} of ${entries.length})`);
+
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('prev_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+          new ButtonBuilder().setCustomId('next_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
+        );
+
+        const row = new ActionRowBuilder().addComponents(dropdown);
+        return { embed, row, buttons };
+      };
+
+      const { embed, row, buttons } = generatePageData(currentPage);
+
+      const reply = await interaction.reply({
+        embeds: [embed],
+        components: [row, buttons],
+        ephemeral: true,
+        fetchReply: true
+      });
+
+      const buttonCollector = reply.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 120_000
+      });
+
+      const dropdownCollector = reply.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 120_000
+      });
+
+      buttonCollector.on('collect', async i => {
+        if (i.user.id !== interaction.user.id) return i.reply({ content: '⚠️ You can’t interact with this menu.', ephemeral: true });
+
+        if (i.customId === 'prev_page') {
+          currentPage = Math.max(currentPage - 1, 0);
+        } else if (i.customId === 'next_page') {
+          currentPage = Math.min(currentPage + 1, totalPages - 1);
+        }
+
+        const { embed, row, buttons } = generatePageData(currentPage);
+        await i.update({ embeds: [embed], components: [row, buttons] });
+      });
+
+      dropdownCollector.on('collect', async selectInteraction => {
+        const selectedId = selectInteraction.values[0];
+        const profile = linkedData[selectedId];
+
+        // Load coin and duel stats
+        let coin = 0;
+        let wins = 0;
+        let losses = 0;
+
+        try {
+          const coinData = JSON.parse(await fs.readFile(coinBankPath, 'utf-8'));
+          coin = coinData[selectedId] ?? 0;
+        } catch {}
+
+        try {
+          const statsData = JSON.parse(await fs.readFile(playerDataPath, 'utf-8'));
+          if (statsData[selectedId]) {
+            wins = statsData[selectedId].wins ?? 0;
+            losses = statsData[selectedId].losses ?? 0;
+          }
+        } catch {}
+
+        const embed = new EmbedBuilder()
+          .setTitle(`👤 Profile: ${profile.discordName}`)
+          .addFields(
+            { name: '🧩 Deck Size', value: `${profile.deck.length}`, inline: true },
+            { name: '📦 Collection Size', value: `${Object.values(profile.collection).reduce((a, b) => a + b, 0)}`, inline: true },
+            { name: '💰 Coins', value: `${coin}`, inline: true },
+            { name: '📊 Wins / Losses', value: `${wins} / ${losses}`, inline: true }
+          )
+          .setFooter({ text: `Discord ID: ${selectedId}` });
+
+        await selectInteraction.followUp({
+          embeds: [embed],
+          ephemeral: true
+        });
+      });
+
+      dropdownCollector.on('end', async collected => {
+        if (collected.size === 0) {
+          await interaction.editReply({
+            content: '⏰ No selection made. Command expired.',
+            embeds: [],
+            components: []
+          });
+        }
+      });
     }
   });
 }
