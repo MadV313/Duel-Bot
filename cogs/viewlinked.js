@@ -181,6 +181,15 @@ export default async function registerViewLinked(client) {
           embeds: [profileEmbed],
           ephemeral: true
         });
+      }); // ✅ properly closes dropdownCollector.on('collect', ...)
+
+      dropdownCollector.on('end', async collected => {
+        if (collected.size === 0) {
+          await interaction.editReply({
+            content: '⏰ No selection made. Command expired.',
+            embeds: [],
+            components: []
+          });
         }
       });
     }
