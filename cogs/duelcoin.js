@@ -1,4 +1,4 @@
-// cogs/duelcoin.js — Admin-only coin adjuster with paginated user selection
+// cogs/duelcoin.js — Admin-only coin adjuster with full debug logging
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -33,18 +33,22 @@ export default async function registerDuelCoin(client) {
   client.commands.set('duelcoin', {
     data: commandData,
     async execute(interaction) {
+      const timestamp = new Date().toISOString();
+      const executor = `${interaction.user.username} (${interaction.user.id})`;
+
+      console.log(`[${timestamp}] 🔸 /duelcoin triggered by ${executor}`);
+
       const userRoles = interaction.member?.roles?.cache;
       const isAdmin = userRoles?.has(ADMIN_ROLE_ID);
       const channelId = interaction.channelId;
 
       if (!isAdmin) {
-        return interaction.reply({
-          content: '🚫 You do not have permission to use this command.',
-          ephemeral: true
-        });
+        console.warn(`[${timestamp}] 🚫 Unauthorized attempt by ${executor}`);
+        return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
       }
 
       if (channelId !== ADMIN_CHANNEL_ID) {
+        console.warn(`[${timestamp}] ❌ Wrong channel usage by ${executor} in ${channelId}`);
         return interaction.reply({
           content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
           ephemeral: true
@@ -73,24 +77,26 @@ export default async function registerDuelCoin(client) {
       });
 
       const actionMode = modeSelect.values[0];
-      let linkedData = {};
+      console.log(`[${timestamp}] ✅ ${executor} selected mode: ${actionMode.toUpperCase()}`);
 
+      let linkedData = {};
       try {
         const raw = await fs.readFile(linkedDecksPath, 'utf-8');
         linkedData = JSON.parse(raw);
       } catch {
+        console.error(`[${timestamp}] ⚠️ Failed to read linked_decks.json`);
         return modeSelect.reply({ content: '⚠️ Could not load linked users.', ephemeral: true });
       }
 
       const entries = Object.entries(linkedData);
       if (entries.length === 0) {
+        console.warn(`[${timestamp}] ⚠️ No linked profiles found.`);
         return modeSelect.reply({ content: '⚠️ No linked profiles found.', ephemeral: true });
       }
 
       const pageSize = 25;
       let currentPage = 0;
       const totalPages = Math.ceil(entries.length / pageSize);
-
       let syncDropdown;
       let paginatedMsg;
 
@@ -122,6 +128,7 @@ export default async function registerDuelCoin(client) {
 
       const updatePagination = async () => {
         const { embed, buttons } = generatePage(currentPage);
+        console.log(`[${timestamp}] 🔁 Page changed to ${currentPage + 1} by ${executor}`);
         await paginatedMsg.edit({ embeds: [embed], components: [syncDropdown, buttons] });
       };
 
@@ -153,6 +160,7 @@ export default async function registerDuelCoin(client) {
       dropdownCollector.on('collect', async selectInteraction => {
         const targetId = selectInteraction.values[0];
         const targetName = linkedData[targetId]?.discordName || 'Unknown';
+        console.log(`[${timestamp}] 🎯 ${executor} selected player: ${targetName} (${targetId})`);
 
         const modal = new ModalBuilder()
           .setCustomId(`duelcoin_amount_modal_${targetId}_${actionMode}`)
@@ -175,11 +183,14 @@ export default async function registerDuelCoin(client) {
         if (!modalInteraction.isModalSubmit()) return;
         if (!modalInteraction.customId.startsWith('duelcoin_amount_modal_')) return;
 
+        const modalTimestamp = new Date().toISOString();
         const [_, userId, mode] = modalInteraction.customId.split('_');
+
         const amountStr = modalInteraction.fields.getTextInputValue('coin_amount');
         const amount = parseInt(amountStr, 10);
 
         if (isNaN(amount) || amount < 1) {
+          console.warn(`[${modalTimestamp}] ⚠️ Invalid amount submitted by ${modalInteraction.user.username}`);
           return modalInteraction.reply({ content: '⚠️ Invalid amount.', ephemeral: true });
         }
 
@@ -187,13 +198,16 @@ export default async function registerDuelCoin(client) {
         try {
           const raw = await fs.readFile(coinBankPath, 'utf-8');
           coinData = JSON.parse(raw);
-        } catch {}
+        } catch {
+          console.warn(`[${modalTimestamp}] ⚠️ Could not read coin bank file.`);
+        }
 
         const current = coinData[userId] ?? 0;
         const newBalance = mode === 'give' ? current + amount : Math.max(0, current - amount);
         coinData[userId] = newBalance;
 
         await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
+        console.log(`[${modalTimestamp}] 💰 ${mode === 'give' ? 'GAVE' : 'TOOK'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} ${userId} — New Balance: ${newBalance}`);
 
         await modalInteraction.reply({
           content: `✅ ${mode === 'give' ? 'Gave' : 'Took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: ${newBalance}`,
