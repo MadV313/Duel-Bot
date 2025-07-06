@@ -167,7 +167,7 @@ export default async function registerViewLinked(client) {
         }).length;
       
         const profileEmbed = new EmbedBuilder()
-          .setTitle(`👤 Profile: ${profile.discordName}`)
+          .setTitle(`<:ID:1391239596112613376> Profile: ${profile.discordName}`)
           .addFields(
             { name: '🂠 Deck Size', value: `${profile.deck.length}`, inline: true },
             { name: '🀢🀣🀦🀤 Collection Size', value: `${Object.values(profile.collection).reduce((a, b) => a + b, 0)}`, inline: true },
