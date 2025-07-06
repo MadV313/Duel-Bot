@@ -12,7 +12,7 @@ const statsPath = path.resolve('./data/player_data.json');
 
 /**
  * GET /userStats/:id
- * Returns coin balance, owned cards count, and win/loss record for a user
+ * Returns player name, coin balance, deck size, unlocked count, and duel stats
  */
 router.get('/:id', async (req, res) => {
   const userId = req.params.id;
@@ -28,21 +28,39 @@ router.get('/:id', async (req, res) => {
     const coins = JSON.parse(coinRaw);
     const stats = JSON.parse(statsRaw);
 
-    const playerEntry = decks.players.find(p => p.discordId === userId);
-    const cardsOwned = Array.isArray(playerEntry?.deck) ? playerEntry.deck.length : 0;
+    const player = decks[userId];
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found.' });
+    }
+
     const coinBalance = coins[userId] ?? 0;
-    const playerStats = stats[userId] || { wins: 0, losses: 0 };
+    const winCount = stats[userId]?.wins ?? 0;
+    const lossCount = stats[userId]?.losses ?? 0;
+
+    const deckSize = Array.isArray(player.deck) ? player.deck.length : 0;
+    const collection = player.collection || {};
+
+    // Total cards owned = sum of all card quantities
+    const cardsOwned = Object.values(collection).reduce((sum, qty) => sum + qty, 0);
+
+    // Unique unlocked = only cards in range 001–127
+    const cardsCollected = Object.keys(collection)
+      .filter(id => {
+        const parsed = parseInt(id, 10);
+        return parsed >= 1 && parsed <= 127;
+      }).length;
 
     return res.status(200).json({
-      userId,
-      cardsOwned,
+      name: player.discordName || 'Survivor',
       coins: coinBalance,
-      wins: playerStats.wins,
-      losses: playerStats.losses
+      cardsCollected,
+      cardsOwned,
+      duelsWon: winCount,
+      duelsLost: lossCount
     });
 
   } catch (err) {
-    console.error(`❌ Error fetching stats for user ${userId}:`, err.message);
+    console.error(`❌ Error fetching stats for user ${userId}:`, err);
     return res.status(500).json({ error: 'Unable to retrieve user statistics.' });
   }
 });
