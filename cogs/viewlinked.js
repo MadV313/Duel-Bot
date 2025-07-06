@@ -138,19 +138,19 @@ export default async function registerViewLinked(client) {
             ephemeral: true
           });
         }
-
+      
         const selectedId = selectInteraction.values[0];
         const profile = linkedData[selectedId];
-
+      
         let coin = 0;
         let wins = 0;
         let losses = 0;
-
+      
         try {
           const coinData = JSON.parse(await fs.readFile(coinBankPath, 'utf-8'));
           coin = coinData[selectedId] ?? 0;
         } catch {}
-
+      
         try {
           const statsData = JSON.parse(await fs.readFile(playerDataPath, 'utf-8'));
           if (statsData[selectedId]) {
@@ -158,30 +158,29 @@ export default async function registerViewLinked(client) {
             losses = statsData[selectedId].losses ?? 0;
           }
         } catch {}
-
+      
+        // 🔢 Count total unlocked card IDs from 001–127
+        const ownedIds = Object.keys(profile.collection || {});
+        const uniqueUnlocked = ownedIds.filter(id => {
+          const parsed = parseInt(id, 10);
+          return parsed >= 1 && parsed <= 127;
+        }).length;
+      
         const profileEmbed = new EmbedBuilder()
           .setTitle(`👤 Profile: ${profile.discordName}`)
           .addFields(
-            { name: '🧩 Deck Size', value: `${profile.deck.length}`, inline: true },
-            { name: '📦 Collection Size', value: `${Object.values(profile.collection).reduce((a, b) => a + b, 0)}`, inline: true },
-            { name: '💰 Coins', value: `${coin}`, inline: true },
-            { name: '📊 Wins / Losses', value: `${wins} / ${losses}`, inline: true }
+            { name: '🂠 Deck Size', value: `${profile.deck.length}`, inline: true },
+            { name: '🀢🀣🀦🀤 Collection Size', value: `${Object.values(profile.collection).reduce((a, b) => a + b, 0)}`, inline: true },
+            { name: '🀢ᯓ★ Cards Unlocked', value: `${uniqueUnlocked} / 127`, inline: true },
+            { name: '⛃ Coins', value: `${coin}`, inline: true },
+            { name: '⤴︎／⤵ Wins / Losses', value: `${wins} / ${losses}`, inline: true }
           )
           .setFooter({ text: `Discord ID: ${selectedId}` });
-
+      
         await selectInteraction.reply({
           embeds: [profileEmbed],
           ephemeral: true
         });
-      });
-
-      dropdownCollector.on('end', async collected => {
-        if (collected.size === 0) {
-          await interaction.editReply({
-            content: '⏰ No selection made. Command expired.',
-            embeds: [],
-            components: []
-          });
         }
       });
     }
