@@ -68,7 +68,7 @@ export default async function registerDuelCard(client) {
         time: 30_000
       });
       const actionMode = modeSelect.values[0];
-      await modeSelect.deferUpdate();
+      await modeSelect.update({ content: '✅ Mode selected. Loading players...', components: [] });
 
       let linkedData = {};
       try {
@@ -151,7 +151,7 @@ export default async function registerDuelCard(client) {
           const raw = await fs.readFile(cardListPath, 'utf-8');
           cardData = JSON.parse(raw);
         } catch {
-          return interaction.followUp({ content: '⚠️ Could not load card data.', ephemeral: true });
+          return interaction.editReply({ content: '⚠️ Could not load card data.', ephemeral: true });
         }
 
         const cardEntries = cardData
@@ -195,7 +195,7 @@ export default async function registerDuelCard(client) {
         };
         
         const { embed, buttons, dropdown } = generateCardPage(cardPage);
-        cardMsg = await interaction.followUp({
+        cardMsg = await interaction.editReply({
           embeds: [embed],
           components: [dropdown, buttons],
           ephemeral: true,
@@ -223,7 +223,7 @@ export default async function registerDuelCard(client) {
             collection[cardId] = (collection[cardId] || 0) + 1;
           } else {
             if (!collection[cardId]) {
-              return cardSelect.reply({ content: '⚠️ That player doesn’t own this card.', ephemeral: true });
+              return cardSelect.update({ content: '⚠️ That player doesn’t own this card.', ephemeral: true });
             }
             collection[cardId]--;
             if (collection[cardId] <= 0) delete collection[cardId];
@@ -233,7 +233,7 @@ export default async function registerDuelCard(client) {
           await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
           console.log(`[${timestamp}] ✅ ${actionMode.toUpperCase()} ${cardId} ${actionMode === 'give' ? 'to' : 'from'} ${targetName}`);
 
-          return cardSelect.reply({
+          return cardSelect.update({
             content: `✅ Card **${cardId}** ${actionMode === 'give' ? 'given to' : 'taken from'} **${targetName}**.`,
             ephemeral: false
           });
