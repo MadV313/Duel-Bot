@@ -17,7 +17,7 @@ const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
-const cardListPath = path.resolve('./data/CoreMasterReference.json');
+const cardListPath = path.resolve('./logic/CoreMasterReference.json');
 
 export default async function registerDuelCard(client) {
   const commandData = new SlashCommandBuilder()
