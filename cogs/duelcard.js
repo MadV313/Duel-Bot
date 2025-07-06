@@ -246,8 +246,6 @@ export default async function registerDuelCard(client) {
       
         await sendCardPage();
       });
-        });
-      });
     }
   });
 }
