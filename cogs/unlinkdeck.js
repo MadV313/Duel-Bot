@@ -15,7 +15,10 @@ import {
 
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
+
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const coinBankPath = path.resolve('./data/coin_bank.json');
+const playerDataPath = path.resolve('./data/player_data.json');
 
 export default async function registerUnlinkDeck(client) {
   const commandData = new SlashCommandBuilder()
@@ -50,7 +53,7 @@ export default async function registerUnlinkDeck(client) {
       try {
         const raw = await fs.readFile(linkedDecksPath, 'utf-8');
         linkedData = JSON.parse(raw);
-      } catch (err) {
+      } catch {
         console.warn('📁 [unlinkdeck] No linked_decks.json found.');
         return interaction.reply({
           content: '⚠️ No profiles found to unlink.',
@@ -125,7 +128,6 @@ export default async function registerUnlinkDeck(client) {
         }
 
         const { embed, row, buttons } = generatePageData(currentPage);
-
         await i.update({ embeds: [embed], components: [row, buttons] });
       });
 
@@ -135,8 +137,31 @@ export default async function registerUnlinkDeck(client) {
         const selectedId = selectInteraction.values[0];
         const removedUser = linkedData[selectedId]?.discordName || 'Unknown';
 
+        // Remove from linked_decks.json
         delete linkedData[selectedId];
         await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
+
+        // Remove from coin_bank.json
+        try {
+          const raw = await fs.readFile(coinBankPath, 'utf-8');
+          const coinData = JSON.parse(raw);
+          delete coinData[selectedId];
+          await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
+          console.log(`💰 [unlinkdeck] Removed coin data for ${selectedId}`);
+        } catch {
+          console.warn('⚠️ [unlinkdeck] Failed to update coin_bank.json (may not exist).');
+        }
+
+        // Remove from player_data.json
+        try {
+          const raw = await fs.readFile(playerDataPath, 'utf-8');
+          const playerData = JSON.parse(raw);
+          delete playerData[selectedId];
+          await fs.writeFile(playerDataPath, JSON.stringify(playerData, null, 2));
+          console.log(`📊 [unlinkdeck] Removed player data for ${selectedId}`);
+        } catch {
+          console.warn('⚠️ [unlinkdeck] Failed to update player_data.json (may not exist).');
+        }
 
         await selectInteraction.update({
           content: `✅ Successfully unlinked **${removedUser}**.`,
