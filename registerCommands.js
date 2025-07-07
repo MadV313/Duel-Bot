@@ -42,10 +42,23 @@ export async function registerWithClient(client) {
     }
   }
 
-  // Register commands to Discord (guild-level only)
-  if (process.env.CLIENT_ID && process.env.GUILD_ID && process.env.DISCORD_TOKEN) {
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    const commands = client.slashData;
+  // ✅ Register commands to Discord
+  const { CLIENT_ID, GUILD_ID, DISCORD_TOKEN } = process.env;
+
+  if (CLIENT_ID && GUILD_ID && DISCORD_TOKEN) {
+    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+    const commands = client.slashData.map((cmd, index) => {
+      try {
+        if (!cmd || typeof cmd !== 'object' || !cmd.name) {
+          console.warn(`⚠️ Skipping malformed command [index ${index}]:`, cmd);
+          return null;
+        }
+        return cmd.toJSON ? cmd.toJSON() : cmd;
+      } catch (err) {
+        console.error(`❌ Error serializing command [index ${index}]:`, err);
+        return null;
+      }
+    }).filter(Boolean); // remove any nulls
 
     try {
       console.log('📤 Registering commands to guild...');
@@ -54,10 +67,12 @@ export async function registerWithClient(client) {
         console.log(`- /${name}`);
       });
 
-      await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: commands }
-      );
+      // Optional: clear old ones first
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
+
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+        body: commands
+      });
 
       console.log(`✅ Registered ${commands.length} command(s) to guild.`);
     } catch (err) {
@@ -65,8 +80,11 @@ export async function registerWithClient(client) {
     }
   } else {
     console.warn('⚠️ Missing ENV vars: CLIENT_ID, GUILD_ID, or DISCORD_TOKEN.');
+    console.log('🔧 CLIENT_ID:', CLIENT_ID);
+    console.log('🔧 GUILD_ID:', GUILD_ID);
+    console.log('🔧 DISCORD_TOKEN length:', DISCORD_TOKEN?.length || 0);
   }
 }
 
-// ✅ Dummy default export for compatibility (e.g. in Railway)
+// ✅ Dummy default export for Railway compatibility
 export default async function () {}
