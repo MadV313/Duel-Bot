@@ -5,90 +5,108 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
-import { Client, GatewayIntentBits, Events, Collection } from 'discord.js';
+import { Client, GatewayIntentBits, Events, Collection, REST, Routes } from 'discord.js';
 import { readdirSync } from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
+import { config as dotenvConfig } from 'dotenv';
+import { config } from './utils/config.js';
+
+dotenvConfig();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Start Discord Bot
+const tokenEnvKey = config.token_env || 'DISCORD_TOKEN';
+const token = process.env[tokenEnvKey];
+const clientId = config.client_id;
+const guildId = process.env.GUILD_ID;
+
+if (!token || !clientId || !guildId) {
+  console.error(`❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID`);
+  process.exit(1);
+}
+
+// ✅ Create and configure bot
 const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
 
+const cogsDir = path.resolve('./cogs');
 const flagPath = './.commands_registered';
 
-// ✅ Load and register commands
+// ✅ Load and register cog commands
 const loadCommands = async () => {
-  const cogPath = path.resolve('./cogs');
-  const files = readdirSync(cogPath).filter(f => f.endsWith('.js'));
+  const cogFiles = await fsPromises.readdir(cogsDir);
+  for (const file of cogFiles) {
+    if (!file.endsWith('.js')) continue;
+    const cogPath = path.join(cogsDir, file);
+    const cogURL = pathToFileURL(cogPath).href;
 
-  for (const file of files) {
     try {
-      const commandModule = await import(`./cogs/${file}`);
-      if (typeof commandModule.default === 'function') {
-        await commandModule.default(bot);
-        console.log(`✅ Cog registered: ${file}`);
+      const { default: cog } = await import(cogURL);
+      if (typeof cog === 'function') {
+        await cog(bot);
+        console.log(`✅ Cog loaded: ${file}`);
       } else {
-        console.warn(`⚠️ Skipped ${file}: No default export.`);
+        console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
     } catch (err) {
-      console.error(`❌ Failed to register cog ${file}:`, err);
+      console.error(`❌ Failed to load cog ${file}:`, err);
     }
   }
 };
 
+// ✅ Start and register commands
 (async () => {
   try {
-    console.log('🟡 Loading cog commands...');
+    console.log('🟡 Loading cogs...');
     await loadCommands();
 
-    const { REST, Routes } = await import('discord.js');
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    const rest = new REST({ version: '10' }).setToken(token);
 
-    if (!fs.existsSync(flagPath)) {
-      console.log('🔁 Registering slash commands...');
-      await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: bot.slashData }
-      );
-      fs.writeFileSync(flagPath, 'done');
-      console.log(`✅ ${bot.slashData.length} commands registered.`);
-    } else {
-      console.log('ℹ️ Commands already registered — skipping.');
-    }
+    console.log(`🔁 Syncing ${bot.slashData.length} slash commands...`);
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] }); // clear old
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: bot.slashData }); // reupload
+    console.log('✅ Slash commands registered.');
 
-    await bot.login(process.env.DISCORD_TOKEN);
-    console.log('🤖 Discord bot logged in.');
-    console.log('📦 Registered commands:', bot.slashData.map(cmd => cmd.name).join(', '));
+    await bot.login(token);
+    console.log(`🤖 Bot is online as ${bot.user.tag}`);
   } catch (err) {
-    console.error('❌ Fatal error during bot startup:', err);
+    console.error('❌ Bot startup failed:', err);
   }
 })();
 
-// ✅ Listen for Interaction Commands
+// ✅ Handle interactions
 bot.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const command = bot.commands.get(interaction.commandName);
-  if (!command) return;
+  if (!command) {
+    console.warn(`⚠️ Unknown command: /${interaction.commandName}`);
+    return interaction.reply({ content: '❌ Unknown command.', ephemeral: true });
+  }
 
   try {
     await command.execute(interaction);
   } catch (err) {
     console.error(`❌ Error executing /${interaction.commandName}:`, err);
-    if (!interaction.replied) {
-      await interaction.reply({
-        content: '⚠️ There was an error executing this command.',
-        ephemeral: true
-      });
-    }
+    const replyMethod = interaction.deferred || interaction.replied ? 'followUp' : 'reply';
+    await interaction[replyMethod]({
+      content: '⚠️ An error occurred while executing the command.',
+      ephemeral: true,
+    });
   }
+});
+
+// 🧼 Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('🛑 Bot shutting down...');
+  bot.destroy();
+  process.exit(0);
 });
 
 // ✅ Middleware
@@ -96,7 +114,7 @@ app.use(cors());
 app.use(helmet());
 app.use(express.json());
 
-// ✅ API Rate Limiting
+// ✅ Rate limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -125,22 +143,21 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/', statusRoutes);
 
-// ✅ Default Route
+// ✅ Default
 app.get('/', (req, res) => {
   res.send('🌐 Duel Bot Backend is live.');
 });
 
-// ✅ Error Handling
-app.use((req, res, next) => {
+// ✅ Error handling
+app.use((req, res) => {
   res.status(404).json({ error: '🚫 Endpoint not found' });
 });
-
 app.use((err, req, res, next) => {
   console.error('🔥 Server Error:', err.stack);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// ✅ Start Express Server
+// ✅ Launch server
 app.listen(PORT, () => {
   console.log(`🚀 Duel Bot Backend running on port ${PORT}`);
 });
