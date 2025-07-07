@@ -1,5 +1,6 @@
 // server.js
 
+// ✅ Load Railway env vars
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -12,7 +13,6 @@ import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
-import { config } from './utils/config.js';
 
 dotenvConfig();
 
@@ -21,10 +21,13 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const tokenEnvKey = config.token_env || 'DISCORD_TOKEN';
-const token = process.env[tokenEnvKey];
-const clientId = config.client_id;
+// ✅ Use Railway-safe env variables directly
+const token = process.env.DISCORD_TOKEN;
+const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
+
+// ✅ Validate required environment variables
+console.log('🔍 Checking ENV:', { token: !!token, clientId, guildId });
 
 if (!token || !clientId || !guildId) {
   console.error(`❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID`);
