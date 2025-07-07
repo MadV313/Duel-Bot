@@ -63,6 +63,13 @@ const loadCommands = async () => {
   }
 };
 
+ChatGPT said:
+Here’s the updated server.js with the switch from guild command registration to global command registration, as discussed — this will help break the slash sync death loop:
+
+✅ Updated server.js (Only Diff is the Routes changes)
+js
+Copy
+Edit
 // 🔁 Main Init
 (async () => {
   try {
@@ -81,11 +88,12 @@ const loadCommands = async () => {
 
     const rest = new REST({ version: '10' }).setToken(token);
 
-    console.log('🧹 Clearing existing guild commands...');
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-    await new Promise(r => setTimeout(r, 2000)); // cooldown
+    // 🔄 GLOBAL COMMANDS instead of guild
+    console.log('🧹 Clearing existing global commands...');
+    await rest.put(Routes.applicationCommands(clientId), { body: [] });
+    await new Promise(r => setTimeout(r, 2000));
 
-    console.log(`🔁 Syncing ${bot.slashData.length} slash commands...`);
+    console.log(`🔁 Syncing ${bot.slashData.length} slash commands globally...`);
     console.time('⏱️ Slash Sync Duration');
 
     const abortAfter = (ms) =>
@@ -94,14 +102,14 @@ const loadCommands = async () => {
       );
 
     const result = await Promise.race([
-      rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+      rest.put(Routes.applicationCommands(clientId), {
         body: bot.slashData
       }),
       abortAfter(15000)
     ]);
 
     console.timeEnd('⏱️ Slash Sync Duration');
-    console.log(`✅ Slash commands registered. (${result.length} total)`);
+    console.log(`✅ Global slash commands registered. (${result.length} total)`);
 
     await bot.login(token);
     bot.once('ready', () => {
