@@ -129,8 +129,7 @@ export default async function registerDuelCard(client) {
         if (i.user.id !== interaction.user.id) return;
         if (i.customId === 'prev_user_page') currentPage--;
         if (i.customId === 'next_user_page') currentPage++;
-        await i.deferUpdate();
-        await updatePage();
+        await i.update({ embeds: [generateUserPage(currentPage).embed], components: [generateUserPage(currentPage).dropdown, generateUserPage(currentPage).buttons] });
       });
 
       const dropdownCollector = interaction.channel.createMessageComponentCollector({
@@ -151,7 +150,7 @@ export default async function registerDuelCard(client) {
           const raw = await fs.readFile(cardListPath, 'utf-8');
           cardData = JSON.parse(raw);
         } catch {
-          return interaction.editReply({ content: '⚠️ Could not load card data.', ephemeral: true });
+          return interaction.followUp({ content: '⚠️ Could not load card data.', ephemeral: true });
         }
 
         const cardEntries = cardData
@@ -185,43 +184,38 @@ export default async function registerDuelCard(client) {
           return { embed, buttons, dropdown };
         };
 
-        let cardMsg; // Declare early so updateCardPage has access
-
-        const updateCardPage = async () => {
+        let cardMsg;
+        const sendCardPage = async () => {
           const { embed, buttons, dropdown } = generateCardPage(cardPage);
-          if (cardMsg) {
-            const { embed, buttons, dropdown } = generateCardPage(cardPage);
-            await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
-          }
-        };
-        
-        const { embed, buttons, dropdown } = generateCardPage(cardPage);
-        cardMsg = await interaction.followUp({
-          embeds: [embed],
-          components: [dropdown, buttons],
-          ephemeral: true,
-          fetchReply: true
-        });
-
-        const cardCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
-        cardCollector.on('collect', async i => {
-          if (i.user.id !== interaction.user.id) return;
-        
-          if (i.customId === 'prev_card_page' && cardPage > 0) {
-            cardPage--;
-          } else if (i.customId === 'next_card_page' && cardPage < cardPages - 1) {
-            cardPage++;
-          }
-        
-          const { embed, buttons, dropdown } = generateCardPage(cardPage);
-          await i.update({
+          cardMsg = await interaction.followUp({
             embeds: [embed],
             components: [dropdown, buttons],
-            ephemeral: true
+            ephemeral: true,
+            fetchReply: true
           });
+        };
+
+        await sendCardPage();
+
+        const cardCollector = cardMsg.createMessageComponentCollector({
+          componentType: ComponentType.Button,
+          time: 60_000
         });
 
-        const cardSelectCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
+        cardCollector.on('collect', async i => {
+          if (i.user.id !== interaction.user.id) return;
+          if (i.customId === 'prev_card_page' && cardPage > 0) cardPage--;
+          if (i.customId === 'next_card_page' && cardPage < cardPages - 1) cardPage++;
+
+          const { embed, buttons, dropdown } = generateCardPage(cardPage);
+          await i.update({ embeds: [embed], components: [dropdown, buttons], ephemeral: true });
+        });
+
+        const cardSelectCollector = cardMsg.createMessageComponentCollector({
+          componentType: ComponentType.StringSelect,
+          time: 60_000
+        });
+
         cardSelectCollector.on('collect', async cardSelect => {
           if (cardSelect.user.id !== interaction.user.id || !cardSelect.customId.includes('duelcard_card_select')) return;
 
@@ -245,10 +239,12 @@ export default async function registerDuelCard(client) {
 
           return cardSelect.update({
             content: `✅ Card **${cardId}** ${actionMode === 'give' ? 'given to' : 'taken from'} **${targetName}**.`,
-            ephemeral: false
+            ephemeral: true
           });
         });
       });
+
+      return;
     }
   });
 }
