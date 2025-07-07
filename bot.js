@@ -57,7 +57,17 @@ const rest = new REST({ version: '10' }).setToken(token);
 
 try {
   console.log(`🔁 Syncing ${client.slashData.length} slash commands...`);
-  await rest.put(Routes.applicationCommands(clientId), { body: client.slashData });
+  const guildId = process.env.GUILD_ID;
+  if (!guildId) {
+    console.error('❌ Missing GUILD_ID in Railway environment variables.');
+    process.exit(1);
+  }
+
+  // 🧹 Clear old broken commands (optional but helpful)
+  await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
+
+  // 📤 Upload fresh working ones
+  await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: client.slashData });
   console.log('✅ Slash commands registered.');
 } catch (err) {
   console.error('❌ Failed to register slash commands:', err);
