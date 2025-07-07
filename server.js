@@ -1,7 +1,5 @@
-
 // server.js
 
-// ✅ Load Railway env vars
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -10,7 +8,6 @@ import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import { Client, GatewayIntentBits, Events, Collection, REST, Routes } from 'discord.js';
-import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
@@ -39,7 +36,6 @@ bot.commands = new Collection();
 bot.slashData = [];
 
 const cogsDir = path.resolve('./cogs');
-const flagPath = './.commands_registered';
 
 const loadCommands = async () => {
   const cogFiles = await fsPromises.readdir(cogsDir);
@@ -63,9 +59,7 @@ const loadCommands = async () => {
   }
 };
 
-// 🔐 Timeout helper
-const abortAfter = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error(`⏳ Slash command sync timeout after ${ms}ms`)), ms));
-
+// 🔁 Main async init
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
@@ -74,28 +68,27 @@ const abortAfter = (ms) => new Promise((_, reject) => setTimeout(() => reject(ne
     const rest = new REST({ version: '10' }).setToken(token);
 
     console.log(`🔁 Syncing ${bot.slashData.length} slash commands...`);
-    const payloadPreview = JSON.stringify(bot.slashData, null, 2).slice(0, 1000);
-    console.log('📦 Slash payload preview:\n', payloadPreview);
+    console.log('📦 Slash payload preview:\n', JSON.stringify(bot.slashData, null, 2).slice(0, 1000));
 
-    // ⚠️ Prevent hang
-    await Promise.race([
-      rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] }),
-      abortAfter(5000)
-    ]);
+    // Optional: clear existing (for testing)
+    // await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
 
-    await Promise.race([
-      rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: bot.slashData }),
-      abortAfter(10000)
-    ]);
+    const result = await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: bot.slashData }
+    );
+    console.log(`✅ Slash commands registered. (${result.length} total)`);
 
-    console.log('✅ Slash commands registered.');
     await bot.login(token);
-    console.log(`🤖 Bot is online as ${bot.user.tag}`);
+    bot.once('ready', () => {
+      console.log(`🤖 Bot is online as ${bot.user.tag}`);
+    });
   } catch (err) {
     console.error('❌ Bot startup failed:', err);
   }
 })();
 
+// ✅ Handle interactions
 bot.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const command = bot.commands.get(interaction.commandName);
@@ -122,12 +115,11 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// ✅ Middleware
+// ✅ Express Middleware
 app.use(cors());
 app.use(helmet());
 app.use(express.json());
 
-// ✅ Rate limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
