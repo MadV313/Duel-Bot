@@ -5,18 +5,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
+import path from 'path';
 import { Client, GatewayIntentBits, Events, Collection } from 'discord.js';
-import { registerWithClient } from './registerCommands.js';
+import { readdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-// ✅ Routes
-import duelRoutes from './routes/duel.js';
-import statusRoutes from './routes/status.js';
-import duelStartRoutes from './routes/duelStart.js';
-import summaryRoutes from './routes/duelSummary.js';
-import liveRoutes from './routes/duelLive.js';
-import userStatsRoutes from './routes/userStats.js';
-import cardRoutes from './routes/packReveal.js';
-import collectionRoute from './routes/collection.js'; // ✅ NEW
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,27 +22,53 @@ const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
 
-// ✅ Register Slash Commands + Load Cog Commands
 const flagPath = './.commands_registered';
+
+// ✅ Load and register commands
+const loadCommands = async () => {
+  const cogPath = path.resolve('./cogs');
+  const files = readdirSync(cogPath).filter(f => f.endsWith('.js'));
+
+  for (const file of files) {
+    try {
+      const commandModule = await import(`./cogs/${file}`);
+      if (typeof commandModule.default === 'function') {
+        await commandModule.default(bot);
+        console.log(`✅ Cog registered: ${file}`);
+      } else {
+        console.warn(`⚠️ Skipped ${file}: No default export.`);
+      }
+    } catch (err) {
+      console.error(`❌ Failed to register cog ${file}:`, err);
+    }
+  }
+};
+
 (async () => {
   try {
-    await registerWithClient(bot);
+    console.log('🟡 Loading cog commands...');
+    await loadCommands();
+
+    const { REST, Routes } = await import('discord.js');
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
     if (!fs.existsSync(flagPath)) {
       console.log('🔁 Registering slash commands...');
-      const { REST, Routes } = await import('discord.js');
-      const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-      const commands = bot.slashData;
-      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        { body: bot.slashData }
+      );
       fs.writeFileSync(flagPath, 'done');
-      console.log('✅ Commands registered once on boot.');
+      console.log(`✅ ${bot.slashData.length} commands registered.`);
     } else {
       console.log('ℹ️ Commands already registered — skipping.');
     }
 
     await bot.login(process.env.DISCORD_TOKEN);
     console.log('🤖 Discord bot logged in.');
+    console.log('📦 Registered commands:', bot.slashData.map(cmd => cmd.name).join(', '));
   } catch (err) {
-    console.error('❌ Bot init or command registration failed:', err);
+    console.error('❌ Fatal error during bot startup:', err);
   }
 })();
 
@@ -85,6 +107,15 @@ app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 
 // ✅ Routes
+import duelRoutes from './routes/duel.js';
+import statusRoutes from './routes/status.js';
+import duelStartRoutes from './routes/duelStart.js';
+import summaryRoutes from './routes/duelSummary.js';
+import liveRoutes from './routes/duelLive.js';
+import userStatsRoutes from './routes/userStats.js';
+import cardRoutes from './routes/packReveal.js';
+import collectionRoute from './routes/collection.js';
+
 app.use('/bot', duelRoutes);
 app.use('/duel', duelStartRoutes);
 app.use('/duel/live', liveRoutes);
