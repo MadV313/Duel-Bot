@@ -190,6 +190,7 @@ export default async function registerDuelCard(client) {
         const updateCardPage = async () => {
           const { embed, buttons, dropdown } = generateCardPage(cardPage);
           if (cardMsg) {
+            const { embed, buttons, dropdown } = generateCardPage(cardPage);
             await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
           }
         };
@@ -205,10 +206,19 @@ export default async function registerDuelCard(client) {
         const cardCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
         cardCollector.on('collect', async i => {
           if (i.user.id !== interaction.user.id) return;
-          if (i.customId === 'prev_card_page') cardPage--;
-          if (i.customId === 'next_card_page') cardPage++;
-          await i.deferUpdate();
-          await updateCardPage();
+        
+          if (i.customId === 'prev_card_page' && cardPage > 0) {
+            cardPage--;
+          } else if (i.customId === 'next_card_page' && cardPage < cardPages - 1) {
+            cardPage++;
+          }
+        
+          const { embed, buttons, dropdown } = generateCardPage(cardPage);
+          await i.update({
+            embeds: [embed],
+            components: [dropdown, buttons],
+            ephemeral: true
+          });
         });
 
         const cardSelectCollector = cardMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
