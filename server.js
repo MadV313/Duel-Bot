@@ -13,7 +13,6 @@ import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
-import { config } from './utils/config.js'; // ✅ Still useful for payout logic, UI URLs, etc
 
 dotenvConfig();
 
@@ -22,23 +21,18 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Always get token/clientId/guildId directly from process.env
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 
-console.log('🔍 ENV CHECK:', {
-  token: !!token,
-  clientId,
-  guildId
-});
+console.log('🔍 ENV CHECK:', { token: !!token, clientId, guildId });
 
 if (!token || !clientId || !guildId) {
   console.error(`❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID`);
   process.exit(1);
 }
 
-// ✅ Create and configure bot
+// ✅ Create bot
 const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
@@ -46,7 +40,6 @@ bot.slashData = [];
 const cogsDir = path.resolve('./cogs');
 const flagPath = './.commands_registered';
 
-// ✅ Load and register cog commands
 const loadCommands = async () => {
   const cogFiles = await fsPromises.readdir(cogsDir);
   for (const file of cogFiles) {
@@ -58,7 +51,8 @@ const loadCommands = async () => {
       const { default: cog } = await import(cogURL);
       if (typeof cog === 'function') {
         await cog(bot);
-        console.log(`✅ Cog loaded: ${file}`);
+        const lastCmd = bot.slashData.at(-1);
+        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)');
       } else {
         console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
@@ -68,7 +62,9 @@ const loadCommands = async () => {
   }
 };
 
-// ✅ Start and register commands
+// 🔐 Timeout helper
+const abortAfter = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error(`⏳ Slash command sync timeout after ${ms}ms`)), ms));
+
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
@@ -77,10 +73,21 @@ const loadCommands = async () => {
     const rest = new REST({ version: '10' }).setToken(token);
 
     console.log(`🔁 Syncing ${bot.slashData.length} slash commands...`);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] }); // clear old
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: bot.slashData }); // reupload
-    console.log('✅ Slash commands registered.');
+    const payloadPreview = JSON.stringify(bot.slashData, null, 2).slice(0, 1000);
+    console.log('📦 Slash payload preview:\n', payloadPreview);
 
+    // ⚠️ Prevent hang
+    await Promise.race([
+      rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] }),
+      abortAfter(5000)
+    ]);
+
+    await Promise.race([
+      rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: bot.slashData }),
+      abortAfter(10000)
+    ]);
+
+    console.log('✅ Slash commands registered.');
     await bot.login(token);
     console.log(`🤖 Bot is online as ${bot.user.tag}`);
   } catch (err) {
@@ -88,7 +95,6 @@ const loadCommands = async () => {
   }
 })();
 
-// ✅ Handle interactions
 bot.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const command = bot.commands.get(interaction.commandName);
@@ -109,7 +115,6 @@ bot.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// 🧼 Graceful shutdown
 process.on('SIGINT', () => {
   console.log('🛑 Bot shutting down...');
   bot.destroy();
@@ -150,12 +155,10 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/', statusRoutes);
 
-// ✅ Default
 app.get('/', (req, res) => {
   res.send('🌐 Duel Bot Backend is live.');
 });
 
-// ✅ Error handling
 app.use((req, res) => {
   res.status(404).json({ error: '🚫 Endpoint not found' });
 });
@@ -164,7 +167,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// ✅ Launch server
 app.listen(PORT, () => {
   console.log(`🚀 Duel Bot Backend running on port ${PORT}`);
 });
