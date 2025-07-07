@@ -63,13 +63,6 @@ const loadCommands = async () => {
   }
 };
 
-ChatGPT said:
-Here’s the updated server.js with the switch from guild command registration to global command registration, as discussed — this will help break the slash sync death loop:
-
-✅ Updated server.js (Only Diff is the Routes changes)
-js
-Copy
-Edit
 // 🔁 Main Init
 (async () => {
   try {
