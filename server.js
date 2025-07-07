@@ -7,7 +7,10 @@ import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
-import { Client, GatewayIntentBits, Events, Collection, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import {
+  Client, GatewayIntentBits, Events, Collection,
+  REST, Routes, SlashCommandBuilder
+} from 'discord.js';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
@@ -22,15 +25,16 @@ const PORT = process.env.PORT || 3000;
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
-const SAFE_MODE = process.env.SAFE_MODE === 'true'; // Optional dev mode
+const SAFE_MODE = process.env.SAFE_MODE === 'true';
 
-console.log('🔍 ENV CHECK:', { token: !!token, clientId, guildId });
+console.log('🔍 ENV CHECK:', { token: !!token, clientId, guildId, SAFE_MODE });
 
 if (!token || !clientId || !guildId) {
   console.error(`❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID`);
   process.exit(1);
 }
 
+// ✅ Create bot
 const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
@@ -59,12 +63,12 @@ const loadCommands = async () => {
   }
 };
 
-// 🔁 Main async init
+// 🔁 Main Init
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
     if (SAFE_MODE) {
-      console.log('🧪 SAFE MODE: Only loading test command.');
+      console.log('🧪 SAFE MODE: Only loading /ping command.');
       bot.slashData = [
         new SlashCommandBuilder()
           .setName('ping')
@@ -79,15 +83,24 @@ const loadCommands = async () => {
 
     console.log('🧹 Clearing existing guild commands...');
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-    await new Promise(r => setTimeout(r, 2500)); // cooldown delay
+    await new Promise(r => setTimeout(r, 2000)); // cooldown
 
     console.log(`🔁 Syncing ${bot.slashData.length} slash commands...`);
-    console.time("⏱️ Slash Sync Duration");
-    const result = await rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
-      { body: bot.slashData }
-    );
-    console.timeEnd("⏱️ Slash Sync Duration");
+    console.time('⏱️ Slash Sync Duration');
+
+    const abortAfter = (ms) =>
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`⏳ Slash command sync timeout after ${ms}ms`)), ms)
+      );
+
+    const result = await Promise.race([
+      rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+        body: bot.slashData
+      }),
+      abortAfter(15000)
+    ]);
+
+    console.timeEnd('⏱️ Slash Sync Duration');
     console.log(`✅ Slash commands registered. (${result.length} total)`);
 
     await bot.login(token);
@@ -99,6 +112,7 @@ const loadCommands = async () => {
   }
 })();
 
+// 🔄 Handle interactions
 bot.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const command = bot.commands.get(interaction.commandName);
@@ -119,6 +133,7 @@ bot.on(Events.InteractionCreate, async interaction => {
   }
 });
 
+// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('🛑 Bot shutting down...');
   bot.destroy();
@@ -139,7 +154,7 @@ app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 
-// ✅ Routes
+// ✅ API Routes
 import duelRoutes from './routes/duel.js';
 import statusRoutes from './routes/status.js';
 import duelStartRoutes from './routes/duelStart.js';
@@ -158,13 +173,9 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/', statusRoutes);
 
-app.get('/', (req, res) => {
-  res.send('🌐 Duel Bot Backend is live.');
-});
-
-app.use((req, res) => {
-  res.status(404).json({ error: '🚫 Endpoint not found' });
-});
+// Fallback + Error
+app.get('/', (req, res) => res.send('🌐 Duel Bot Backend is live.'));
+app.use((req, res) => res.status(404).json({ error: '🚫 Endpoint not found' }));
 app.use((err, req, res, next) => {
   console.error('🔥 Server Error:', err.stack);
   res.status(500).json({ error: 'Internal Server Error' });
