@@ -7,7 +7,7 @@ import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
-import { Client, GatewayIntentBits, Events, Collection, REST, Routes } from 'discord.js';
+import { Client, GatewayIntentBits, Events, Collection, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
@@ -22,6 +22,7 @@ const PORT = process.env.PORT || 3000;
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
+const SAFE_MODE = process.env.SAFE_MODE === 'true'; // Optional dev mode
 
 console.log('🔍 ENV CHECK:', { token: !!token, clientId, guildId });
 
@@ -30,7 +31,6 @@ if (!token || !clientId || !guildId) {
   process.exit(1);
 }
 
-// ✅ Create bot
 const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
@@ -63,20 +63,31 @@ const loadCommands = async () => {
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
-    await loadCommands();
+    if (SAFE_MODE) {
+      console.log('🧪 SAFE MODE: Only loading test command.');
+      bot.slashData = [
+        new SlashCommandBuilder()
+          .setName('ping')
+          .setDescription('Test if bot is alive')
+          .toJSON()
+      ];
+    } else {
+      await loadCommands();
+    }
 
     const rest = new REST({ version: '10' }).setToken(token);
 
+    console.log('🧹 Clearing existing guild commands...');
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
+    await new Promise(r => setTimeout(r, 2500)); // cooldown delay
+
     console.log(`🔁 Syncing ${bot.slashData.length} slash commands...`);
-    console.log('📦 Slash payload preview:\n', JSON.stringify(bot.slashData, null, 2).slice(0, 1000));
-
-    // Optional: clear existing (for testing)
-    // await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-
+    console.time("⏱️ Slash Sync Duration");
     const result = await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
       { body: bot.slashData }
     );
+    console.timeEnd("⏱️ Slash Sync Duration");
     console.log(`✅ Slash commands registered. (${result.length} total)`);
 
     await bot.login(token);
@@ -88,7 +99,6 @@ const loadCommands = async () => {
   }
 })();
 
-// ✅ Handle interactions
 bot.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const command = bot.commands.get(interaction.commandName);
