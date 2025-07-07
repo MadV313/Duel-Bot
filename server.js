@@ -13,6 +13,7 @@ import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
+import { config } from './utils/config.js'; // ✅ Still useful for payout logic, UI URLs, etc
 
 dotenvConfig();
 
@@ -21,13 +22,16 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Use Railway-safe env variables directly
+// ✅ Always get token/clientId/guildId directly from process.env
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 
-// ✅ Validate required environment variables
-console.log('🔍 Checking ENV:', { token: !!token, clientId, guildId });
+console.log('🔍 ENV CHECK:', {
+  token: !!token,
+  clientId,
+  guildId
+});
 
 if (!token || !clientId || !guildId) {
   console.error(`❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID`);
