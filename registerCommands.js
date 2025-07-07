@@ -5,6 +5,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
+/**
+ * Dynamically loads all cog files and registers their slash commands.
+ * Populates client.commands and client.slashData.
+ */
 export async function registerWithClient(client) {
   client.commands = new Map();
   client.slashData = [];
@@ -38,62 +42,31 @@ export async function registerWithClient(client) {
     }
   }
 
-  const { CLIENT_ID, GUILD_ID, DISCORD_TOKEN } = process.env;
-
-  if (CLIENT_ID && GUILD_ID && DISCORD_TOKEN) {
-    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-    const commands = client.slashData.map((cmd, i) => {
-      try {
-        if (!cmd || typeof cmd !== 'object' || !cmd.name) {
-          console.warn(`⚠️ Skipping malformed command [index ${i}]:`, cmd);
-          return null;
-        }
-        const converted = cmd.toJSON ? cmd.toJSON() : cmd;
-        console.log(`📦 Preparing /${converted.name}`);
-        return converted;
-      } catch (err) {
-        console.error(`❌ Error serializing command [index ${i}]:`, err);
-        return null;
-      }
-    }).filter(Boolean);
-
-    console.log(`📊 Total slash commands queued: ${commands.length}`);
+  // Register commands to Discord (guild-level only)
+  if (process.env.CLIENT_ID && process.env.GUILD_ID && process.env.DISCORD_TOKEN) {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    const commands = client.slashData;
 
     try {
-      console.log('📤 Registering slash commands to guild:', GUILD_ID);
-      if (!commands.length) {
-        console.warn('⚠️ No valid commands found to register.');
-        return;
-      }
+      console.log('📤 Registering commands to guild...');
+      commands.forEach(cmd => {
+        const name = cmd.name || '[Unnamed]';
+        console.log(`- /${name}`);
+      });
 
-      // Optional: clear old commands first
-      console.log('🧼 Clearing old commands...');
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
-      await new Promise(r => setTimeout(r, 1000)); // slight delay
-
-      console.log(`🚀 Sending ${commands.length} command(s) to Discord...`);
-      const response = await rest.put(
-        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
         { body: commands }
       );
 
-      console.log(`✅ Discord acknowledged ${Array.isArray(response) ? response.length : '?'} command(s).`);
+      console.log(`✅ Registered ${commands.length} command(s) to guild.`);
     } catch (err) {
-      console.error('❌ Slash command registration failed:', err?.message || err);
-      if (err?.stack) console.error(err.stack);
-      if (err?.data?.errors) {
-        console.error('📛 Discord API Validation Errors:', JSON.stringify(err.data.errors, null, 2));
-      }
+      console.error('❌ Failed to register commands to Discord:', err);
     }
   } else {
     console.warn('⚠️ Missing ENV vars: CLIENT_ID, GUILD_ID, or DISCORD_TOKEN.');
-    console.log('🔧 CLIENT_ID:', CLIENT_ID);
-    console.log('🔧 GUILD_ID:', GUILD_ID);
-    console.log('🔧 DISCORD_TOKEN length:', DISCORD_TOKEN?.length || 0);
   }
-
-  console.log('🧭 registerCommands.js completed setup process.');
 }
 
-// ✅ Dummy export for Railway compatibility
+// ✅ Dummy default export for compatibility (e.g. in Railway)
 export default async function () {}
