@@ -127,6 +127,11 @@ export default async function registerDuelCard(client) {
         await updateUserPage();
 
         const userCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
+        const userSelectCollector = interaction.channel.createMessageComponentCollector({
+          componentType: ComponentType.StringSelect,
+          time: 60_000
+        });
+
         userCollector.on('collect', async i => {
           if (i.user.id !== interaction.user.id) return;
           await i.deferUpdate();
@@ -135,13 +140,11 @@ export default async function registerDuelCard(client) {
           await updateUserPage();
         });
 
-        const userSelectCollector = interaction.channel.createMessageComponentCollector({
-          componentType: ComponentType.StringSelect,
-          time: 60_000
-        });
-
         userSelectCollector.on('collect', async select => {
           if (select.user.id !== interaction.user.id || !select.customId.includes('duelcard_user_select')) return;
+          userCollector.stop();
+          userSelectCollector.stop();
+
           await select.deferUpdate();
 
           const targetId = select.values[0];
@@ -189,9 +192,8 @@ export default async function registerDuelCard(client) {
             return { embed, buttons, dropdown };
           };
 
-          let cardMsg;
           const { embed, buttons, dropdown } = generateCardPage(cardPage);
-          cardMsg = await interaction.editReply({
+          const cardMsg = await interaction.editReply({
             embeds: [embed],
             components: [dropdown, buttons],
             fetchReply: true
@@ -199,17 +201,15 @@ export default async function registerDuelCard(client) {
 
           const cardCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.Button,
-            time: 60_000
+            time: 60_000,
+            filter: i => i.message.id === cardMsg.id && i.user.id === interaction.user.id
           });
 
           cardCollector.on('collect', async btn => {
-            if (btn.user.id !== interaction.user.id) return;
-
             if (btn.customId === 'prev_card_page') cardPage--;
             if (btn.customId === 'next_card_page') cardPage++;
 
             const { embed, buttons, dropdown } = generateCardPage(cardPage);
-
             try {
               await btn.update({
                 embeds: [embed],
@@ -230,12 +230,11 @@ export default async function registerDuelCard(client) {
 
           const selectCollector = cardMsg.createMessageComponentCollector({
             componentType: ComponentType.StringSelect,
-            time: 60_000
+            time: 60_000,
+            filter: i => i.message.id === cardMsg.id && i.user.id === interaction.user.id
           });
 
           selectCollector.on('collect', async cardSelect => {
-            if (cardSelect.user.id !== interaction.user.id) return;
-
             const cardId = cardSelect.values[0];
             const player = linkedData[targetId];
             const collection = player.collection || {};
