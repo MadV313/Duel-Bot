@@ -217,6 +217,14 @@ export default async function registerDuelCard(client) {
               });
             } catch (err) {
               console.warn('⚠️ Failed to update card page:', err);
+              try {
+                await cardMsg.edit({
+                  embeds: [embed],
+                  components: [dropdown, buttons]
+                });
+              } catch (editErr) {
+                console.error('❌ Could not fallback-edit cardMsg:', editErr);
+              }
             }
           });
 
