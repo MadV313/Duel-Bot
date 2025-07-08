@@ -48,7 +48,7 @@ export default async function registerDuelCard(client) {
           });
         }
 
-        // 1. Mode Select (Give or Take)
+        // Mode Select
         const modeRow = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId('duelcard_mode')
@@ -70,10 +70,18 @@ export default async function registerDuelCard(client) {
           time: 30_000
         });
 
-        const actionMode = modeSelect.values[0];
-        await modeSelect.update({ content: '✅ Mode selected. Loading players...', components: [] });
+        // ✅ FIX: Defer interaction immediately
+        try {
+          await modeSelect.deferUpdate();
+        } catch (err) {
+          console.warn('⚠️ Mode select interaction expired or failed:', err);
+          return;
+        }
 
-        // 2. Load Linked Players
+        const actionMode = modeSelect.values[0];
+        await interaction.editReply({ content: '✅ Mode selected. Loading players...', components: [] });
+
+        // Load linked users
         let linkedData = {};
         try {
           const raw = await fs.readFile(linkedDecksPath, 'utf-8');
@@ -87,7 +95,6 @@ export default async function registerDuelCard(client) {
           return interaction.editReply({ content: '⚠️ No linked profiles found.' });
         }
 
-        // 3. User Select with Pagination
         const pageSize = 25;
         let userPage = 0;
         const userPages = Math.ceil(entries.length / pageSize);
@@ -125,9 +132,9 @@ export default async function registerDuelCard(client) {
         const userCollector = interaction.channel.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
         userCollector.on('collect', async i => {
           if (i.user.id !== interaction.user.id) return;
+          await i.deferUpdate();
           if (i.customId === 'prev_user_page') userPage--;
           if (i.customId === 'next_user_page') userPage++;
-          await i.deferUpdate();
           await updateUserPage();
         });
 
@@ -145,7 +152,7 @@ export default async function registerDuelCard(client) {
 
           console.log(`[${timestamp}] 🎯 ${executor} selected ${targetName} (${targetId})`);
 
-          // Load Card Data
+          // Load card data
           let cardData = [];
           try {
             const raw = await fs.readFile(cardListPath, 'utf-8');
@@ -208,9 +215,9 @@ export default async function registerDuelCard(client) {
 
           cardCollector.on('collect', async btn => {
             if (btn.user.id !== interaction.user.id) return;
+            await btn.deferUpdate();
             if (btn.customId === 'prev_card_page') cardPage--;
             if (btn.customId === 'next_card_page') cardPage++;
-            await btn.deferUpdate();
             await updateCardPage();
           });
 
