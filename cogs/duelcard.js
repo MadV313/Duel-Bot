@@ -270,7 +270,7 @@ export default async function registerDuelCard(client) {
             const embed = new EmbedBuilder()
               .setTitle(`✅ Card ${verb}`)
               .setDescription(`Card **${cardId} ${selectedCard?.name || ''}** ${verb} ${targetTag} by ${adminTag}.`)
-              .setImage(`${imageBasePath}/${cardId}_${selectedCard?.name?.replace(/[^a-zA-Z0-9]/g, '')}_${selectedCard?.type}.png`)
+              .setImage(`https://raw.githubusercontent.com/MadV313/Duel-Bot/main/images/cards/${cardId}_${selectedCard?.name?.replace(/[^a-zA-Z0-9]/g, '')}_${selectedCard?.type}.png`)
               .setColor(actionMode === 'give' ? 0x00cc66 : 0xcc0000);
 
             return interaction.followUp({ embeds: [embed], ephemeral: false });
