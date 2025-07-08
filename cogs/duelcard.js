@@ -18,6 +18,7 @@ const ADMIN_CHANNEL_ID = '1368023977519222895';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 const cardListPath = path.resolve('./logic/CoreMasterReference.json');
+const imageBasePath = 'https://madv313.github.io/images/cards'; // Adjust path if local or hosted elsewhere
 
 export default async function registerDuelCard(client) {
   const commandData = new SlashCommandBuilder()
@@ -184,8 +185,7 @@ export default async function registerDuelCard(client) {
             const pageSlice = cardOptions.slice(page * cardPageSize, (page + 1) * cardPageSize);
             const embed = new EmbedBuilder()
               .setTitle(`${actionMode === 'give' ? '🟢 GIVE' : '🔴 TAKE'} a Card`)
-              .setDescription(`Select a card for **${targetName}**
-Page ${page + 1} of ${cardPages}`);
+              .setDescription(`Select a card for **${targetName}**\nPage ${page + 1} of ${cardPages}`);
 
             const buttons = new ActionRowBuilder().addComponents(
               new ButtonBuilder().setCustomId('prev_card_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
@@ -265,12 +265,15 @@ Page ${page + 1} of ${cardPages}`);
             const verb = actionMode === 'give' ? 'given to' : 'taken from';
             const adminTag = `<@${interaction.user.id}>`;
             const targetTag = `<@${targetId}>`;
-            console.log(`[${timestamp}] ✅ ${actionMode.toUpperCase()} ${cardId} ${verb} ${targetName}`);
+            const selectedCard = cardData.find(c => c.card_id === cardId);
 
-            return interaction.followUp({
-              content: `✅ Card **${cardId}** ${verb} ${targetTag} by ${adminTag}.`,
-              ephemeral: false
-            });
+            const embed = new EmbedBuilder()
+              .setTitle(`✅ Card ${verb}`)
+              .setDescription(`Card **${cardId} ${selectedCard?.name || ''}** ${verb} ${targetTag} by ${adminTag}.`)
+              .setImage(`${imageBasePath}/${cardId}_${selectedCard?.name?.replace(/[^a-zA-Z0-9]/g, '')}_${selectedCard?.type}.png`)
+              .setColor(actionMode === 'give' ? 0x00cc66 : 0xcc0000);
+
+            return interaction.followUp({ embeds: [embed], ephemeral: false });
           });
         });
       } catch (err) {
