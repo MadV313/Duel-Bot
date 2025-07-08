@@ -1,1 +1,146 @@
+// cogs/cardpack.js — Admin-only command to send a pack of 3 random cards via DM
+
+import fs from 'fs/promises';
+import path from 'path';
+import {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  EmbedBuilder
+} from 'discord.js';
+
+const ADMIN_ROLE_ID = '1173049392371085392';
+const ADMIN_CHANNEL_ID = '1368023977519222895';
+
+const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const cardListPath = path.resolve('./logic/CoreMasterReference.json');
+const revealOutputPath = path.resolve('./public/data');
+
+export default async function registerCardPack(client) {
+  const commandData = new SlashCommandBuilder()
+    .setName('cardpack')
+    .setDescription('Admin only: Send a pack of 3 random cards to a user.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
+
+  client.slashData.push(commandData.toJSON());
+
+  client.commands.set('cardpack', {
+    data: commandData,
+    async execute(interaction) {
+      if (!interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID)) {
+        return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
+      }
+
+      if (interaction.channelId !== ADMIN_CHANNEL_ID) {
+        return interaction.reply({ content: '❌ This command must be used in the admin-tools channel.', ephemeral: true });
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId('cardpack_modal')
+        .setTitle('Send Card Pack')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('target_user_id')
+              .setLabel('Enter target Discord ID')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          )
+        );
+
+      await interaction.showModal(modal);
+
+      const submitted = await interaction.awaitModalSubmit({
+        time: 30_000,
+        filter: i => i.user.id === interaction.user.id
+      }).catch(() => null);
+
+      if (!submitted) {
+        return interaction.followUp({ content: '⌛ Prompt timed out.', ephemeral: true });
+      }
+
+      const userId = submitted.fields.getTextInputValue('target_user_id');
+      const targetUser = await client.users.fetch(userId).catch(() => null);
+
+      if (!targetUser) {
+        return submitted.reply({ content: '⚠️ Could not find user with that ID.', ephemeral: true });
+      }
+
+      let cardList = [];
+      try {
+        const raw = await fs.readFile(cardListPath, 'utf-8');
+        cardList = JSON.parse(raw).filter(card => card.card_id !== '000');
+      } catch (err) {
+        console.error('❌ Failed to load card list:', err);
+        return submitted.reply({ content: '⚠️ Failed to load card list.', ephemeral: true });
+      }
+
+      const rarityWeights = { Common: 5, Uncommon: 3, Rare: 2, Legendary: 1 };
+
+      function weightedRandomCard() {
+        const pool = cardList.flatMap(card =>
+          Array(rarityWeights[card.rarity] || 1).fill(card)
+        );
+        const selected = structuredClone(pool[Math.floor(Math.random() * pool.length)]);
+        return selected;
+      }
+
+      const drawnCards = [
+        weightedRandomCard(),
+        weightedRandomCard(),
+        weightedRandomCard()
+      ];
+
+      const linkedRaw = await fs.readFile(linkedDecksPath, 'utf-8');
+      const linkedData = JSON.parse(linkedRaw);
+      const userProfile = linkedData[userId] || {
+        discordName: targetUser.username,
+        collection: {}
+      };
+
+      const revealJson = [];
+      for (const card of drawnCards) {
+        const ownedCount = userProfile.collection[card.card_id] || 0;
+        const isNew = ownedCount === 0;
+
+        userProfile.collection[card.card_id] = ownedCount + 1;
+
+        revealJson.push({
+          card_id: `#${card.card_id}`,
+          name: card.name,
+          rarity: card.rarity || 'Common',
+          filename: `${card.card_id}_${card.name.replace(/[^a-zA-Z0-9.]/g, '')}_${card.type}.png`,
+          isNew,
+          owned: userProfile.collection[card.card_id]
+        });
+      }
+
+      linkedData[userId] = userProfile;
+
+      await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
+      await fs.writeFile(path.join(revealOutputPath, `reveal_${userId}.json`), JSON.stringify(revealJson, null, 2));
+
+      try {
+        await targetUser.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🎁 You’ve received a new card pack!')
+              .setDescription('Click below to open your 3-card reveal.')
+              .setURL(`https://madv313.github.io/Pack-Reveal-UI/?uid=${userId}`)
+              .setColor(0x00ccff)
+          ],
+          content: `🔓 [Open Your Pack](https://madv313.github.io/Pack-Reveal-UI/?uid=${userId})`
+        });
+      } catch (err) {
+        console.warn(`⚠️ Could not DM user ${userId}`, err);
+        return submitted.reply({ content: '⚠️ Cards granted, but failed to send DM.', ephemeral: true });
+      }
+
+      return submitted.reply({ content: `✅ Pack sent to <@${userId}> and 3 cards added to their collection.`, ephemeral: true });
+    }
+  });
+}
 
