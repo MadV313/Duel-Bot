@@ -48,7 +48,6 @@ export default async function registerDuelCard(client) {
           });
         }
 
-        // Mode Select
         const modeRow = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId('duelcard_mode')
@@ -70,7 +69,6 @@ export default async function registerDuelCard(client) {
           time: 30_000
         });
 
-        // ✅ FIX: Defer interaction immediately
         try {
           await modeSelect.deferUpdate();
         } catch (err) {
@@ -81,7 +79,6 @@ export default async function registerDuelCard(client) {
         const actionMode = modeSelect.values[0];
         await interaction.editReply({ content: '✅ Mode selected. Loading players...', components: [] });
 
-        // Load linked users
         let linkedData = {};
         try {
           const raw = await fs.readFile(linkedDecksPath, 'utf-8');
@@ -152,7 +149,6 @@ export default async function registerDuelCard(client) {
 
           console.log(`[${timestamp}] 🎯 ${executor} selected ${targetName} (${targetId})`);
 
-          // Load card data
           let cardData = [];
           try {
             const raw = await fs.readFile(cardListPath, 'utf-8');
@@ -194,13 +190,6 @@ export default async function registerDuelCard(client) {
           };
 
           let cardMsg;
-          const updateCardPage = async () => {
-            const { embed, buttons, dropdown } = generateCardPage(cardPage);
-            if (cardMsg) {
-              await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
-            }
-          };
-
           const { embed, buttons, dropdown } = generateCardPage(cardPage);
           cardMsg = await interaction.editReply({
             embeds: [embed],
@@ -215,10 +204,20 @@ export default async function registerDuelCard(client) {
 
           cardCollector.on('collect', async btn => {
             if (btn.user.id !== interaction.user.id) return;
-            await btn.deferUpdate();
+
             if (btn.customId === 'prev_card_page') cardPage--;
             if (btn.customId === 'next_card_page') cardPage++;
-            await updateCardPage();
+
+            const { embed, buttons, dropdown } = generateCardPage(cardPage);
+
+            try {
+              await btn.update({
+                embeds: [embed],
+                components: [dropdown, buttons]
+              });
+            } catch (err) {
+              console.warn('⚠️ Failed to update card page:', err);
+            }
           });
 
           const selectCollector = cardMsg.createMessageComponentCollector({
@@ -228,8 +227,8 @@ export default async function registerDuelCard(client) {
 
           selectCollector.on('collect', async cardSelect => {
             if (cardSelect.user.id !== interaction.user.id) return;
-            const cardId = cardSelect.values[0];
 
+            const cardId = cardSelect.values[0];
             const player = linkedData[targetId];
             const collection = player.collection || {};
 
@@ -237,7 +236,7 @@ export default async function registerDuelCard(client) {
               collection[cardId] = (collection[cardId] || 0) + 1;
             } else {
               if (!collection[cardId]) {
-                return cardSelect.update({ content: '⚠️ That player doesn’t own this card.', ephemeral: true });
+                return cardSelect.reply({ content: '⚠️ That player doesn’t own this card.', ephemeral: true });
               }
               collection[cardId]--;
               if (collection[cardId] <= 0) delete collection[cardId];
@@ -247,12 +246,15 @@ export default async function registerDuelCard(client) {
             await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
             console.log(`[${timestamp}] ✅ ${actionMode.toUpperCase()} ${cardId} ${actionMode === 'give' ? 'to' : 'from'} ${targetName}`);
 
-            return cardSelect.update({
-              content: `✅ Card **${cardId}** ${actionMode === 'give' ? 'given to' : 'taken from'} **${targetName}**.`,
-              ephemeral: false,
-              embeds: [],
-              components: []
-            });
+            try {
+              await cardSelect.update({
+                content: `✅ Card **${cardId}** ${actionMode === 'give' ? 'given to' : 'taken from'} **${targetName}**.`,
+                embeds: [],
+                components: []
+              });
+            } catch (err) {
+              console.warn('⚠️ Failed to update confirmation message:', err);
+            }
           });
         });
       } catch (err) {
