@@ -119,6 +119,7 @@ export default async function registerCardPack(client) {
       linkedData[userId] = userProfile;
 
       await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
+      await fs.mkdir(revealOutputPath, { recursive: true }); // Ensure folder exists
       await fs.writeFile(path.join(revealOutputPath, `reveal_${userId}.json`), JSON.stringify(revealJson, null, 2));
 
       try {
