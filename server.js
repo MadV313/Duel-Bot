@@ -162,8 +162,9 @@ import duelStartRoutes from './routes/duelStart.js';
 import summaryRoutes from './routes/duelSummary.js';
 import liveRoutes from './routes/duelLive.js';
 import userStatsRoutes from './routes/userStats.js';
-import cardRoutes from './routes/packReveal.js';
+import cardRoutes from './routes/packreveal.js';
 import collectionRoute from './routes/collection.js';
+import revealRoute from './routes/reveal.js'; // ✅ New route
 
 app.use('/bot', duelRoutes);
 app.use('/duel', duelStartRoutes);
@@ -172,7 +173,8 @@ app.use('/summary', summaryRoutes);
 app.use('/user', userStatsRoutes);
 app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
-app.use('/', statusRoutes);
+app.use('/reveal', revealRoute); // ✅ Mount reveal route
+app.use('/public', express.static('public')); // ✅ Serve static JSON files
 
 // Fallback + Error
 app.get('/', (req, res) => res.send('🌐 Duel Bot Backend is live.'));
