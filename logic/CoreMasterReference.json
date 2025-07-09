@@ -270,7 +270,7 @@
         "image": "020_KAM_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "021",
@@ -283,7 +283,7 @@
         "image": "021_FAL_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "022",
@@ -296,7 +296,7 @@
         "image": "022_AK101_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "023",
@@ -309,7 +309,7 @@
         "image": "023_AK74_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "024",
@@ -322,7 +322,7 @@
         "image": "024_M16A2_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "025",
@@ -335,7 +335,7 @@
         "image": "025_SG5K_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "026",
@@ -348,7 +348,7 @@
         "image": "026_MP5K_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "027",
@@ -361,7 +361,7 @@
         "image": "027_Repeater_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "028",
@@ -374,7 +374,7 @@
         "image": "028_Derringer_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "029",
@@ -387,7 +387,7 @@
         "image": "029_Longhorn_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "030",
@@ -400,7 +400,7 @@
         "image": "030_Crossbow_Attack.png",
         "card_emoji": "\u2694\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "031",
@@ -413,7 +413,7 @@
         "image": "031_TacticalVest_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "032",
@@ -426,7 +426,7 @@
         "image": "032_BallisticHelmet_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "033",
@@ -439,7 +439,7 @@
         "image": "033_AssaultHelmet_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "034",
@@ -452,7 +452,7 @@
         "image": "034_CombatBoots_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "035",
@@ -465,7 +465,7 @@
         "image": "035_PlateCarrier_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "036",
@@ -478,7 +478,7 @@
         "image": "036_NBCSuit_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "037",
@@ -491,7 +491,7 @@
         "image": "037_MotorbikeHelmet_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "038",
@@ -504,7 +504,7 @@
         "image": "038_GorkaJacket_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "039",
@@ -517,7 +517,7 @@
         "image": "039_GorkaPants_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "040",
@@ -530,7 +530,7 @@
         "image": "040_CombatGloves_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "041",
@@ -543,7 +543,7 @@
         "image": "041_HunterJacket_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "042",
@@ -556,7 +556,7 @@
         "image": "042_TacticalShirt_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "043",
@@ -569,7 +569,7 @@
         "image": "043_ParamedicJacket_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "044",
@@ -582,7 +582,7 @@
         "image": "044_PressVest_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "045",
@@ -595,7 +595,7 @@
         "image": "045_FirefighterPants_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "046",
@@ -608,7 +608,7 @@
         "image": "046_M65Jacket_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "047",
@@ -621,7 +621,7 @@
         "image": "047_RidersJacket_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "048",
@@ -634,7 +634,7 @@
         "image": "048_LeatherShoes_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "049",
@@ -647,7 +647,7 @@
         "image": "049_TracksuitJacket_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "050",
@@ -660,7 +660,7 @@
         "image": "050_MilitaryBoots_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "051",
@@ -673,7 +673,7 @@
         "image": "051_FieldVest_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "052",
@@ -686,7 +686,7 @@
         "image": "052_ChestHolster_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "053",
@@ -699,7 +699,7 @@
         "image": "053_StabproofVest_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "054",
@@ -712,7 +712,7 @@
         "image": "054_AssaultBackpack_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "055",
@@ -725,7 +725,7 @@
         "image": "055_DrybagBackpack_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "056",
@@ -738,7 +738,7 @@
         "image": "056_TacticalBackpack_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "common",
-        "rarity_color": "#d3d3d3"
+        "color": "#d3d3d3"
     },
     {
         "card_id": "057",
@@ -751,7 +751,7 @@
         "image": "057_SkateHelmet_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "uncommon",
-        "rarity_color": "#1e90ff"
+        "color": "#1e90ff"
     },
     {
         "card_id": "058",
@@ -764,7 +764,7 @@
         "image": "058_BoonieHat_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "059",
@@ -777,7 +777,7 @@
         "image": "059_WeldingMask_Defense.png",
         "card_emoji": "\ud83d\udee1\ufe0f",
         "rarity": "rare",
-        "rarity_color": "#8b00ff"
+        "color": "#8b00ff"
     },
     {
         "card_id": "060",
