@@ -1,0 +1,27 @@
+{
+  "title": "New Card Pack Unlocked!",
+  "autoCloseIn": 10,
+  "cards": [
+    {
+      "card_id": "001",
+      "name": "M4-A1",
+      "rarity": "Rare",
+      "filename": "001_M4-A1_Attack.png",
+      "isNew": true
+    },
+    {
+      "card_id": "045",
+      "name": "Firefighter Pants",
+      "rarity": "Common",
+      "filename": "045_FirefighterPants_Defense.png",
+      "isNew": false
+    },
+    {
+      "card_id": "072",
+      "name": "Flashlight",
+      "rarity": "Common",
+      "filename": "072_Flashlight_Tactical.png",
+      "isNew": true
+    }
+  ]
+}
