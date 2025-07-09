@@ -162,7 +162,7 @@ import duelStartRoutes from './routes/duelStart.js';
 import summaryRoutes from './routes/duelSummary.js';
 import liveRoutes from './routes/duelLive.js';
 import userStatsRoutes from './routes/userStats.js';
-import cardRoutes from './routes/packreveal.js';
+import cardRoutes from './routes/packReveal.js';
 import collectionRoute from './routes/collection.js';
 import revealRoute from './routes/reveal.js'; // ✅ New route
 
