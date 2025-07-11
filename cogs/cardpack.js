@@ -128,7 +128,7 @@ export default async function registerCardPack(client) {
             new EmbedBuilder()
               .setTitle('🎁 You’ve received a new card pack!')
               .setDescription('Click below to open your 3-card reveal.')
-              .setURL(`https://madv313.github.io/Pack-Reveal-UI/?userId=${userId}`)
+              .setURL(`https://madv313.github.io/Pack-Reveal-UI/?uid=${userId}`)
               .setColor(0x00ccff)
           ],
           content: `🔓 [Open Your Pack](https://madv313.github.io/Pack-Reveal-UI/?uid=${userId})`
