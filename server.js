@@ -14,6 +14,7 @@ import {
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 import { config as dotenvConfig } from 'dotenv';
+import duelRoutes, { botAlias as botPracticeAlias } from './routes/duel.js';
 
 dotenvConfig();
 
@@ -154,6 +155,8 @@ const apiLimiter = rateLimit({
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
+app.use('/duel', duelRoutes);
+app.use('/bot', botPracticeAlias);
 
 // ✅ API Routes
 import duelRoutes from './routes/duel.js';
