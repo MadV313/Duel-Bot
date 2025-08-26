@@ -116,25 +116,16 @@ function statusHandler(_req, res) {
 }
 
 // ────────────────────────────────────────────────────────────
-/** Public routes
- *  (Mount in server.js as:)
- *    app.use('/duel', router);
- *    app.use('/bot', botAlias);
- */
+// Public routes
 // ────────────────────────────────────────────────────────────
-
-// Health / status
 router.get('/status', statusHandler);
 botAlias.get('/status', statusHandler);
 
-// Start practice (GET /duel/practice and alias GET /bot/practice)
-router.get('/practice', startPracticeHandler);
-botAlias.get('/practice', startPracticeHandler);
+router.get('/practice', startPracticeHandler); // /duel/practice
+botAlias.get('/practice', startPracticeHandler); // /bot/practice
 
-// Bot turn (UI posts state to /duel/turn)
-router.post('/turn', botTurnHandler);
+router.post('/turn', botTurnHandler); // /duel/turn
 
-// Optional: debugging peek at current state
-router.get('/state', (_req, res) => res.json(duelState));
+router.get('/state', (_req, res) => res.json(duelState)); // debug
 
 export default router;
