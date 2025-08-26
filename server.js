@@ -154,15 +154,19 @@ process.on('SIGINT', () => {
 });
 
 // ✅ Express Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    /localhost:5173$/,                      // local UI
+    /duel-ui-production\.up\.railway\.app$/ // hosted UI
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 app.use(helmet());
 app.use(express.json());
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: '🚫 Too many requests. Please try again later.'
-});
+// Rate limiting (keep your existing)
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
@@ -189,8 +193,28 @@ app.use('/collection', collectionRoute);  // /collection/*
 app.use('/reveal', revealRoute);          // /reveal/*
 app.use('/public', express.static('public'));
 
-// Fallback + Error (keep as-is)
-app.get('/', (req, res) => res.send('🌐 Duel Bot Backend is live.'));
+// Route table log (after mounts)
+function printRoutes(app) {
+  const list = [];
+  app._router.stack.forEach(layer => {
+    if (layer.route && layer.route.path) {
+      const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
+      list.push({ path: layer.route.path, methods, base: '' });
+    } else if (layer.name === 'router' && layer.handle.stack) {
+      layer.handle.stack.forEach(sub => {
+        if (sub.route) {
+          const methods = Object.keys(sub.route.methods).join(',').toUpperCase();
+          list.push({ path: sub.route.path, methods, base: layer.regexp?.source || '' });
+        }
+      });
+    }
+  });
+  console.log('🧭 Mounted Routes:', list);
+}
+printRoutes(app);
+
+// Health root
+app.get('/', (_req, res) => res.send('🌐 Duel Bot Backend is live.'));
 app.use((req, res) => res.status(404).json({ error: '🚫 Endpoint not found' }));
 app.use((err, req, res, next) => {
   console.error('🔥 Server Error:', err.stack);
