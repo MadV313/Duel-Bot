@@ -156,15 +156,25 @@ process.on('SIGINT', () => {
 // ✅ Express Middleware
 app.use(cors({
   origin: [
-    /localhost:5173$/,                      // local UI
-    /duel-ui-production\.up\.railway\.app$/ // hosted UI
+    /localhost:5173$/,
+    /duel-ui-production\.up\.railway\.app$/
   ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET','POST','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
 }));
-
 app.use(helmet());
 app.use(express.json());
+
+// ✅ define apiLimiter BEFORE using it
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  // support either version of express-rate-limit:
+  max: 100,                 // v6 option
+  limit: 100,               // v7 option
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '🚫 Too many requests. Please try again later.' }
+});
 
 // Rate limiting (keep your existing)
 app.use('/duel', apiLimiter);
