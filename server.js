@@ -155,11 +155,8 @@ const apiLimiter = rateLimit({
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
-app.use('/duel', duelRoutes);
-app.use('/bot', botPracticeAlias);
 
-// ✅ API Routes
-import duelRoutes from './routes/duel.js';
+// ✅ Routes (single import of duel.js is already at the top)
 import statusRoutes from './routes/status.js';
 import duelStartRoutes from './routes/duelStart.js';
 import summaryRoutes from './routes/duelSummary.js';
@@ -167,19 +164,21 @@ import liveRoutes from './routes/duelLive.js';
 import userStatsRoutes from './routes/userStats.js';
 import cardRoutes from './routes/packReveal.js';
 import collectionRoute from './routes/collection.js';
-import revealRoute from './routes/reveal.js'; // ✅ New route
+import revealRoute from './routes/reveal.js';
 
-app.use('/bot', duelRoutes);
-app.use('/duel', duelStartRoutes);
-app.use('/duel/live', liveRoutes);
-app.use('/summary', summaryRoutes);
-app.use('/user', userStatsRoutes);
-app.use('/packReveal', cardRoutes);
-app.use('/collection', collectionRoute);
-app.use('/reveal', revealRoute); // ✅ Mount reveal route
-app.use('/public', express.static('public')); // ✅ Serve static JSON files
+// Mount routes
+app.use('/duel', duelRoutes);             // /duel/*
+app.use('/bot', botPracticeAlias);        // /bot/practice (alias to practice)
+app.use('/duel/live', liveRoutes);        // /duel/live/*
+app.use('/duel', duelStartRoutes);        // /duel/* (start endpoints)
+app.use('/summary', summaryRoutes);       // /summary/*
+app.use('/user', userStatsRoutes);        // /user/*
+app.use('/packReveal', cardRoutes);       // /packReveal/*
+app.use('/collection', collectionRoute);  // /collection/*
+app.use('/reveal', revealRoute);          // /reveal/*
+app.use('/public', express.static('public'));
 
-// Fallback + Error
+// Fallback + Error (keep as-is)
 app.get('/', (req, res) => res.send('🌐 Duel Bot Backend is live.'));
 app.use((req, res) => res.status(404).json({ error: '🚫 Endpoint not found' }));
 app.use((err, req, res, next) => {
