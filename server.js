@@ -83,27 +83,38 @@ const loadCommands = async () => {
     const rest = new REST({ version: '10' }).setToken(token);
 
     // 🔄 GLOBAL COMMANDS instead of guild
-    console.log('🧹 Clearing existing global commands...');
-    await rest.put(Routes.applicationCommands(clientId), { body: [] });
-    await new Promise(r => setTimeout(r, 2000));
-
-    console.log(`🔁 Syncing ${bot.slashData.length} slash commands globally...`);
+    console.log(`🧹 Clearing existing GUILD commands for ${guildId}...`);
+    await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: [] }
+    );
+    await new Promise(r => setTimeout(r, 1000));
+    
+    console.log(`🔁 Syncing ${bot.slashData.length} GUILD slash commands...`);
     console.time('⏱️ Slash Sync Duration');
-
-    const abortAfter = (ms) =>
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`⏳ Slash command sync timeout after ${ms}ms`)), ms)
+    
+    const putGuild = () =>
+      rest.put(
+        Routes.applicationGuildCommands(clientId, guildId),
+        { body: bot.slashData }
       );
-
-    const result = await Promise.race([
-      rest.put(Routes.applicationCommands(clientId), {
-        body: bot.slashData
-      }),
-      abortAfter(15000)
-    ]);
-
+    
+    // simple retry once if first attempt is slow/flaky
+    let result;
+    try {
+      result = await Promise.race([
+        putGuild(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('⏳ Guild command sync timeout after 60s')), 60000)
+        )
+      ]);
+    } catch (e) {
+      console.warn('⚠️ First guild sync attempt failed, retrying once...', e.message);
+      result = await putGuild();
+    }
+    
     console.timeEnd('⏱️ Slash Sync Duration');
-    console.log(`✅ Global slash commands registered. (${result.length} total)`);
+    console.log(`✅ Guild slash commands registered. (${result.length} total)`);
 
     await bot.login(token);
     bot.once('ready', () => {
