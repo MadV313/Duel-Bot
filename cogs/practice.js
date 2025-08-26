@@ -18,7 +18,8 @@ try {
   cfg = JSON.parse(raw);
 } catch (_) {}
 
-const DUEL_BACKEND_URL = (process.env.DUEL_BACKEND_URL || cfg.duel_backend_base_url || 'http://localhost:3000').replace(/\/$/, '');
+// Backend/UI base URLs (env → config.json → sensible local default)
+const DUEL_BACKEND_URL = (process.env.DUEL_BACKEND_URL || cfg.duel_backend_base_url || 'http://localhost:8080').replace(/\/$/, '');
 const DUEL_UI_URL      = (process.env.DUEL_UI_URL      || cfg.duel_ui_url            || 'http://localhost:5173').replace(/\/$/, '');
 
 // export default function that the loader in server.js calls
@@ -39,7 +40,7 @@ export default async function registerPractice(bot) {
       // Channel restriction
       if (interaction.channelId !== BATTLEFIELD_CHANNEL_ID) {
         await interaction.reply({
-          content: '❌ This command can only be used in **#battlefield**.',
+          content: `❌ This command can only be used in <#${BATTLEFIELD_CHANNEL_ID}>.`,
           ephemeral: true,
         });
         return;
@@ -73,7 +74,8 @@ export default async function registerPractice(bot) {
         return;
       }
 
-      const duelUrl = `${DUEL_UI_URL}?mode=practice`;
+      // Pass backend URL to UI so it knows where to call (works for local + prod)
+      const duelUrl = `${DUEL_UI_URL}?mode=practice&api=${encodeURIComponent(DUEL_BACKEND_URL)}`;
 
       const embed = new EmbedBuilder()
         .setTitle('Practice Duel Ready')
