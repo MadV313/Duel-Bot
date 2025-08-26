@@ -117,7 +117,7 @@ const loadCommands = async () => {
     console.log(`✅ Guild slash commands registered. (${result.length} total)`);
 
     await bot.login(token);
-    bot.once('ready', () => {
+    bot.once(Events.ClientReady, () => {
       console.log(`🤖 Bot is online as ${bot.user.tag}`);
     });
   } catch (err) {
