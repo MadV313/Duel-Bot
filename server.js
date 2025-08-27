@@ -1,13 +1,6 @@
 // server.js
 
 import express from 'express';
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/health', (_req, res) => res.type('text/plain').send('ok'));
-app.get('/', (_req, res) => res.send('backend-root-ok'));
-
-app.listen(PORT, '0.0.0.0', () => console.log('BACKEND listening', PORT));
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -22,31 +15,43 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { config as dotenvConfig } from 'dotenv';
 import duelRoutes, { botAlias as botPracticeAlias } from './routes/duel.js';
 
+// Optional routes used elsewhere in your repo
+import duelStartRoutes from './routes/duelStart.js';
+import summaryRoutes from './routes/duelSummary.js';
+import liveRoutes from './routes/duelLive.js';
+import userStatsRoutes from './routes/userStats.js';
+import cardRoutes from './routes/packReveal.js';
+import collectionRoute from './routes/collection.js';
+import revealRoute from './routes/reveal.js';
+
 dotenvConfig();
 
-console.log('BOOT env:', {
-  NODE_ENV: process.env.NODE_ENV,
-  PORT: process.env.PORT,
-  PWD: process.cwd(),
-  FILES: (() => { try { return require('fs').readdirSync('.'); } catch { return []; } })(),
-});
-
 /* ──────────────────────────────────────────────────────────
- * App + Bot boot
+ * Paths / App
  * ────────────────────────────────────────────────────────── */
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname  = dirname(__filename);
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
-
-// trust Railway/Proxy for correct req.ip, rate limits, etc.
 app.set('trust proxy', 1);
 
-// Discord env
-const token = process.env.DISCORD_TOKEN;
+// Boot banner so we can see exactly what’s running
+try {
+  console.log('BOOT env:', {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    PWD: process.cwd(),
+    FILES: fs.readdirSync('.')
+  });
+} catch {}
+
+/* ──────────────────────────────────────────────────────────
+ * Discord client
+ * ────────────────────────────────────────────────────────── */
+const token   = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
-const guildId = process.env.GUILD_ID;
+const guildId  = process.env.GUILD_ID;
 const SAFE_MODE = process.env.SAFE_MODE === 'true';
 
 console.log('🔍 ENV CHECK:', { token: !!token, clientId, guildId, SAFE_MODE });
@@ -56,9 +61,6 @@ if (!token || !clientId || !guildId) {
   process.exit(1);
 }
 
-/* ──────────────────────────────────────────────────────────
- * Discord client
- * ────────────────────────────────────────────────────────── */
 const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
@@ -70,7 +72,7 @@ const loadCommands = async () => {
   for (const file of cogFiles) {
     if (!file.endsWith('.js')) continue;
     const cogPath = path.join(cogsDir, file);
-    const cogURL = pathToFileURL(cogPath).href;
+    const cogURL  = pathToFileURL(cogPath).href;
     try {
       const { default: cog } = await import(cogURL);
       if (typeof cog === 'function') {
@@ -86,17 +88,14 @@ const loadCommands = async () => {
   }
 };
 
-// Main init (register slash + login)
+// Slash registration + login
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
     if (SAFE_MODE) {
       console.log('🧪 SAFE MODE: Only loading /ping command.');
       bot.slashData = [
-        new SlashCommandBuilder()
-          .setName('ping')
-          .setDescription('Test if bot is alive')
-          .toJSON()
+        new SlashCommandBuilder().setName('ping').setDescription('Test if bot is alive').toJSON()
       ];
     } else {
       await loadCommands();
@@ -111,14 +110,16 @@ const loadCommands = async () => {
     console.log(`🔁 Syncing ${bot.slashData.length} GUILD slash commands...`);
     console.time('⏱️ Slash Sync Duration');
 
-    const putGuild = () =>
-      rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: bot.slashData });
+    const putGuild = () => rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: bot.slashData }
+    );
 
     let result;
     try {
       result = await Promise.race([
         putGuild(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('⏳ Guild command sync timeout after 60s')), 60000))
+        new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ Guild command sync timeout after 60s')), 60000))
       ]);
     } catch (e) {
       console.warn('⚠️ First guild sync attempt failed, retrying once...', e.message);
@@ -129,9 +130,7 @@ const loadCommands = async () => {
     console.log(`✅ Guild slash commands registered. (${result.length} total)`);
 
     await bot.login(token);
-    bot.once(Events.ClientReady, () => {
-      console.log(`🤖 Bot is online as ${bot.user.tag}`);
-    });
+    bot.once(Events.ClientReady, () => console.log(`🤖 Bot is online as ${bot.user.tag}`));
   } catch (err) {
     console.error('❌ Bot startup failed:', err);
   }
@@ -154,14 +153,9 @@ bot.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('🛑 Bot shutting down...');
-  bot.destroy();
-  process.exit(0);
-});
-process.on('unhandledRejection', (r) => console.error('⚠️ UnhandledRejection:', r));
-process.on('uncaughtException', (e) => console.error('⚠️ UncaughtException:', e));
+process.on('SIGINT', () => { console.log('🛑 Bot shutting down...'); bot.destroy(); process.exit(0); });
+process.on('unhandledRejection', r => console.error('⚠️ UnhandledRejection:', r));
+process.on('uncaughtException', e => console.error('⚠️ UncaughtException:', e));
 
 /* ──────────────────────────────────────────────────────────
  * Express middleware
@@ -180,14 +174,16 @@ app.use(express.json());
 // Rate limiter (define before use)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,       // v6
-  limit: 100,     // v7 (ignored by v6)
+  max: 100,   // v6
+  limit: 100, // v7 (ignored on v6)
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '🚫 Too many requests. Please try again later.' }
 });
 
-// Health + routes debug (public)
+/* ──────────────────────────────────────────────────────────
+ * Health + route inventory
+ * ────────────────────────────────────────────────────────── */
 app.get('/health', (_req, res) => res.type('text/plain').send('ok'));
 app.get('/_routes', (_req, res) => {
   const list = [];
@@ -211,19 +207,8 @@ app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 
-// Primary routes
-import statusRoutes from './routes/status.js';
-import duelStartRoutes from './routes/duelStart.js';
-import summaryRoutes from './routes/duelSummary.js';
-import liveRoutes from './routes/duelLive.js';
-import userStatsRoutes from './routes/userStats.js';
-import cardRoutes from './routes/packReveal.js';
-import collectionRoute from './routes/collection.js';
-import revealRoute from './routes/reveal.js';
-
-// Mount (no duplicate /bot → duelRoutes!)
-app.use('/duel', duelRoutes);               // /duel/practice, /duel/turn, /duel/status, /duel/state
-app.use('/bot', botPracticeAlias);          // /bot/practice, /bot/status
+app.use('/duel', duelRoutes);              // /duel/practice, /duel/turn, /duel/status, /duel/state
+app.use('/bot', botPracticeAlias);         // /bot/practice, /bot/status
 app.use('/duel/live', liveRoutes);
 app.use('/duel', duelStartRoutes);
 app.use('/summary', summaryRoutes);
@@ -233,7 +218,7 @@ app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 app.use('/public', express.static('public'));
 
-// Log route table after mounts
+// Route table log after mounts
 (function printRoutes(appRef) {
   const list = [];
   appRef._router?.stack?.forEach(layer => {
@@ -253,7 +238,9 @@ app.use('/public', express.static('public'));
   console.log('🧭 Mounted Routes:', list);
 })(app);
 
-// Root + handlers
+/* ──────────────────────────────────────────────────────────
+ * Fallbacks + listen
+ * ────────────────────────────────────────────────────────── */
 app.get('/', (_req, res) => res.send('🌐 Duel Bot Backend is live.'));
 app.use((req, res) => res.status(404).json({ error: '🚫 Endpoint not found' }));
 app.use((err, _req, res, _next) => {
@@ -261,9 +248,6 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-/* ──────────────────────────────────────────────────────────
- * Listen
- * ────────────────────────────────────────────────────────── */
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Duel Bot Backend running on port ${PORT}`);
 });
