@@ -13,12 +13,10 @@ import {
  * Small logging helpers
  * ─────────────────────────── */
 const iso = () => new Date().toISOString();
-const j = (o) => {
-  try { return JSON.stringify(o); } catch { return String(o); }
-};
+const j = (o) => { try { return JSON.stringify(o); } catch { return String(o); } };
 const log = {
-  info: (event, data = {}) => console.log(`[practice] ${event} ${j({ t: iso(), ...data })}`),
-  warn: (event, data = {}) => console.warn(`[practice] ${event} ${j({ t: iso(), ...data })}`),
+  info:  (event, data = {}) => console.log (`[practice] ${event} ${j({ t: iso(), ...data })}`),
+  warn:  (event, data = {}) => console.warn (`[practice] ${event} ${j({ t: iso(), ...data })}`),
   error: (event, data = {}) => console.error(`[practice] ${event} ${j({ t: iso(), ...data })}`),
 };
 
@@ -27,9 +25,7 @@ const log = {
  * ─────────────────────────── */
 const DEFAULT_ADMIN_ROLE_IDS = ['1173049392371085392']; // Admin only
 const ADMIN_ROLE_IDS = (process.env.ADMIN_ROLE_IDS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+  .split(',').map(s => s.trim()).filter(Boolean);
 const EFFECTIVE_ADMIN_ROLE_IDS =
   ADMIN_ROLE_IDS.length ? ADMIN_ROLE_IDS : DEFAULT_ADMIN_ROLE_IDS;
 
@@ -48,7 +44,6 @@ try {
 } catch (_) {}
 
 const trim = v => String(v).replace(/\/$/, '');
-
 const pick = (envKeys, cfgKeys, fallback) => {
   for (const k of envKeys) {
     const v = process.env[k];
@@ -90,6 +85,9 @@ const DUEL_UI_URL = pick(
   'http://localhost:5173'
 );
 
+// Whether to append &api=<public-backend> to the UI link (default false since UI proxies /api now)
+const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?? 'false').toLowerCase() === 'true';
+
 /** ───────────────────────────
  * Register /practice
  * ─────────────────────────── */
@@ -130,6 +128,7 @@ export default async function registerPractice(bot) {
           INTERNAL_BACKEND_URL,
           PUBLIC_BACKEND_URL,
           DUEL_UI_URL,
+          PASS_API_QUERY,
           adminRoleIds: EFFECTIVE_ADMIN_ROLE_IDS,
           battlefieldChannelId: EFFECTIVE_BATTLEFIELD_CHANNEL_ID,
         }
@@ -186,7 +185,7 @@ export default async function registerPractice(bot) {
         if (!res.ok) {
           throw new Error(`Backend responded ${httpStatus}: ${textPeek.slice(0, 300)} (INTERNAL_BACKEND_URL=${INTERNAL_BACKEND_URL})`);
         }
-        // If you want the duelState: const duelState = JSON.parse(textPeek);
+        // Optionally: const duelState = JSON.parse(textPeek);
       } catch (err) {
         log.error('init.fail', { traceId, err: String(err), status: httpStatus, durationMs });
         await interaction.editReply({
@@ -198,8 +197,10 @@ export default async function registerPractice(bot) {
         return;
       }
 
-      // Build UI link: pass the PUBLIC API so the browser can reach it
-      const duelUrl = `${DUEL_UI_URL}?mode=practice&api=${encodeURIComponent(PUBLIC_BACKEND_URL)}`;
+      // Build UI link
+      const duelUrl = PASS_API_QUERY
+        ? `${DUEL_UI_URL}?mode=practice&api=${encodeURIComponent(PUBLIC_BACKEND_URL)}`
+        : `${DUEL_UI_URL}?mode=practice`;
 
       const embed = new EmbedBuilder()
         .setTitle('Practice Duel Ready')
@@ -221,11 +222,20 @@ export default async function registerPractice(bot) {
         new ButtonBuilder()
           .setLabel('Open Duel UI')
           .setStyle(ButtonStyle.Link)
-          .setURL(duelUrl)
+          .setURL(duelUrl),
+        new ButtonBuilder()
+          .setLabel('API Status')
+          .setStyle(ButtonStyle.Link)
+          .setURL(`${PUBLIC_BACKEND_URL}/duel/status`)
       );
 
       await interaction.editReply({ embeds: [embed], components: [row] });
-      log.info('init.success', { traceId, publicUrl: PUBLIC_BACKEND_URL, uiUrl: DUEL_UI_URL });
+      log.info('init.success', {
+        traceId,
+        publicUrl: PUBLIC_BACKEND_URL,
+        uiUrl: DUEL_UI_URL,
+        linkHasApiParam: PASS_API_QUERY
+      });
     },
   });
 }
