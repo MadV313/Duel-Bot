@@ -1,6 +1,13 @@
 // server.js
 
 import express from 'express';
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/health', (_req, res) => res.type('text/plain').send('ok'));
+app.get('/', (_req, res) => res.send('backend-root-ok'));
+
+app.listen(PORT, '0.0.0.0', () => console.log('BACKEND listening', PORT));
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
