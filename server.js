@@ -17,6 +17,13 @@ import duelRoutes, { botAlias as botPracticeAlias } from './routes/duel.js';
 
 dotenvConfig();
 
+console.log('BOOT env:', {
+  NODE_ENV: process.env.NODE_ENV,
+  PORT: process.env.PORT,
+  PWD: process.cwd(),
+  FILES: (() => { try { return require('fs').readdirSync('.'); } catch { return []; } })(),
+});
+
 /* ──────────────────────────────────────────────────────────
  * App + Bot boot
  * ────────────────────────────────────────────────────────── */
