@@ -166,7 +166,8 @@ process.on('uncaughtException', e => console.error('⚠️ UncaughtException:', 
 app.use(cors({
   origin: [
     /localhost:5173$/,
-    /duel-ui-production\.up\.railway\.app$/
+    /duel-ui-production\.up\.railway\.app$/,
+    /madv313\.github\.io$/ // ✅ allow Card-Collection-UI hosted on GitHub Pages
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
