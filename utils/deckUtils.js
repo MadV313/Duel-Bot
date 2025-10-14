@@ -1,6 +1,7 @@
 // utils/deckUtils.js
 // Utilities that operate on ID-keyed linked_decks.json and related data files.
-// Also provides token → userId resolution and master list loading.
+// Provides token → userId resolution, master list loading,
+// and both map- and array-shaped collection helpers (compat).
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -79,6 +80,19 @@ export async function getPlayerCollectionMap(userId) {
     map[id] = count;
   }
   return map;
+}
+
+/**
+ * ⚠️ COMPAT: Older routes import { getPlayerCollection } expecting an ARRAY like:
+ *   [{ number: "001", owned: 2 }, ...] sorted ascending, excluding "000".
+ * This wrapper converts the map shape to the legacy array shape.
+ */
+export async function getPlayerCollection(userId) {
+  const map = await getPlayerCollectionMap(userId);
+  return Object.entries(map)
+    .filter(([id]) => id !== '000')
+    .map(([number, owned]) => ({ number, owned: Number(owned) || 0 }))
+    .sort((a, b) => parseInt(a.number) - parseInt(b.number));
 }
 
 /**
