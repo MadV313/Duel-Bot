@@ -1,66 +1,116 @@
 // utils/deckUtils.js
+// Utilities that operate on ID-keyed linked_decks.json and related data files.
+// Also provides token → userId resolution and master list loading.
 
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 
-const decksPath = path.resolve('data', 'linked_decks.json');
+const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const playerDataPath  = path.resolve('./data/player_data.json');
+const coinBankPath    = path.resolve('./data/coin_bank.json');
+const masterPath      = path.resolve('./logic/CoreMasterReference.json');
 
-/**
- * Update or create a player's deck entry in linked_decks.json.
- * Merges new fields into existing data if found.
- *
- * @param {string} userId - Discord user ID
- * @param {object} update - Partial update object (e.g. { deck, coins, collection })
- */
-export function updatePlayerDeck(userId, update) {
+export function pad3(n) {
+  return String(n).padStart(3, '0');
+}
+
+async function readJson(file, fallback = {}) {
   try {
-    let data = { players: [] };
-
-    if (fs.existsSync(decksPath)) {
-      const raw = fs.readFileSync(decksPath, 'utf8');
-      data = JSON.parse(raw);
-    }
-
-    const index = data.players.findIndex(p => p.discordId === userId);
-
-    if (index !== -1) {
-      // Update existing entry
-      data.players[index] = {
-        ...data.players[index],
-        ...update
-      };
-    } else {
-      // Add new entry
-      data.players.push({
-        discordId: userId,
-        ...update
-      });
-    }
-
-    fs.writeFileSync(decksPath, JSON.stringify(data, null, 2));
-    console.log(`✅ Deck data updated for user: ${userId}`);
-  } catch (err) {
-    console.error(`❌ Failed to update deck for ${userId}: ${err.message}`);
-    console.error(err.stack);
+    const raw = await fs.readFile(file, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
   }
 }
 
 /**
- * Get a player's full card collection from linked_decks.json.
- *
- * @param {string} userId - Discord user ID
- * @returns {Array} The collection array, or empty if not found.
+ * Loads the full map of linked decks keyed by userId.
+ * {
+ *   "1234567890": {
+ *     discordName: "Miles",
+ *     deck: [],
+ *     collection: { "001": 2, "002": 1, ... },
+ *     token: "abc...",
+ *     createdAt: "...",
+ *     lastLinkedAt: "..."
+ *   }
+ * }
  */
-export function getPlayerCollection(userId) {
-  try {
-    if (fs.existsSync(decksPath)) {
-      const raw = fs.readFileSync(decksPath, 'utf8');
-      const data = JSON.parse(raw);
-      const player = data.players.find(p => p.discordId === userId);
-      return player?.collection || [];
-    }
-  } catch (err) {
-    console.error(`❌ Failed to get collection for ${userId}: ${err.message}`);
+export async function loadLinkedDecks() {
+  const data = await readJson(linkedDecksPath, {});
+  // Ensure an object map
+  return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+}
+
+/**
+ * Returns userId for a given token or null if not found.
+ */
+export async function resolveUserIdByToken(token) {
+  if (!token) return null;
+  const linked = await loadLinkedDecks();
+  for (const [userId, profile] of Object.entries(linked)) {
+    if (profile && profile.token === token) return userId;
   }
-  return [];
+  return null;
+}
+
+/**
+ * Returns the full player profile by userId, or null if missing.
+ */
+export async function getPlayerProfileByUserId(userId) {
+  const linked = await loadLinkedDecks();
+  return linked[userId] || null;
+}
+
+/**
+ * Returns a simple { "001": 2, "002": 0, ... } map for the player's collection.
+ * Guarantees 3-digit keys, excludes invalid entries, keeps raw counts as-is.
+ */
+export async function getPlayerCollectionMap(userId) {
+  const profile = await getPlayerProfileByUserId(userId);
+  const map = {};
+  if (!profile || !profile.collection || typeof profile.collection !== 'object') {
+    return map;
+  }
+  for (const [k, v] of Object.entries(profile.collection)) {
+    const id = pad3(k);
+    const count = Number(v) || 0;
+    if (!Number.isFinite(count) || id === 'NaN') continue;
+    map[id] = count;
+  }
+  return map;
+}
+
+/**
+ * Loads master card list from logic/CoreMasterReference.json and normalizes entries.
+ * Ensures array of objects with fields: { card_id, name, rarity, type, image }
+ * Skips #000 in callers.
+ */
+export async function loadMaster() {
+  const raw = await readJson(masterPath, []);
+  const arr = Array.isArray(raw) ? raw : (raw.cards || []);
+  // Normalize: card_id must be 3-digit string
+  return arr.map(c => ({
+    card_id: pad3(c.card_id ?? c.number ?? c.id ?? ''),
+    name: c.name ?? `Card ${c.card_id}`,
+    rarity: c.rarity ?? 'Common',
+    type: c.type ?? 'Unknown',
+    image: c.image ?? `${pad3(c.card_id)}_${(c.name || 'Card').replace(/[^a-zA-Z0-9._-]/g, '')}_${(c.type || 'Unknown').replace(/[^a-zA-Z0-9._-]/g, '')}.png`
+  }));
+}
+
+/**
+ * Returns { wins, losses, coins } for the user.
+ */
+export async function getUserStats(userId) {
+  const [playerData, bank] = await Promise.all([
+    readJson(playerDataPath, {}),
+    readJson(coinBankPath, {})
+  ]);
+
+  const wins = Number(playerData?.[userId]?.wins ?? 0) || 0;
+  const losses = Number(playerData?.[userId]?.losses ?? 0) || 0;
+  const coins = Number(bank?.[userId] ?? 0) || 0;
+
+  return { wins, losses, coins };
 }
