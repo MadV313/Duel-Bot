@@ -24,6 +24,9 @@ import cardRoutes from './routes/packReveal.js';
 import collectionRoute from './routes/collection.js';
 import revealRoute from './routes/reveal.js';
 
+// 🔐 NEW: token-aware routes (/me/:token/collection, /me/:token/stats)
+import meTokenRouter from './routes/meToken.js';
+
 dotenvConfig();
 
 /* ──────────────────────────────────────────────────────────
@@ -207,6 +210,7 @@ app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 
+// Core feature routes
 app.use('/duel', duelRoutes);              // /duel/practice, /duel/turn, /duel/status, /duel/state
 app.use('/bot', botPracticeAlias);         // /bot/practice, /bot/status
 app.use('/duel/live', liveRoutes);
@@ -216,6 +220,13 @@ app.use('/user', userStatsRoutes);
 app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
+
+// 🔐 NEW: token-aware endpoints mounted at root
+//  - GET /me/:token/collection
+//  - GET /me/:token/stats
+//  - GET /userStatsToken?token=...
+app.use('/', meTokenRouter);
+
 app.use('/public', express.static('public'));
 
 // Route table log after mounts
