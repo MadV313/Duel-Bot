@@ -33,10 +33,25 @@ function loadConfig() {
   }
 }
 
+function resolveBaseUrl(s) {
+  return (s || '').toString().trim().replace(/\/+$/, '');
+}
+
 function resolvePackRevealBase(cfg) {
-  // Prefer explicit pack reveal UI, then a general frontend base if provided
-  const base = (cfg.pack_reveal_ui || cfg.frontend_url || cfg.ui_base || cfg.UI_BASE || '').trim();
-  return base.replace(/\/+$/, '');
+  // Prefer explicit Pack Reveal UI, then general frontend base if provided
+  return resolveBaseUrl(cfg.pack_reveal_ui || cfg.frontend_url || cfg.ui_base || cfg.UI_BASE || '');
+}
+
+function resolveCollectionBase(cfg) {
+  // Prefer explicit Collection UI; fall back to general base
+  return resolveBaseUrl(
+    cfg.collection_ui ||
+    cfg.ui_urls?.card_collection_ui ||
+    cfg.frontend_url ||
+    cfg.ui_base ||
+    cfg.UI_BASE ||
+    ''
+  );
 }
 
 /* ---------------- helpers ---------------- */
@@ -59,7 +74,7 @@ function randomToken(len = 24) {
 }
 
 function sanitizeNameForFile(name = '') {
-  // Keep letters, numbers, dot, dash, underscore (safer for cross-platform)
+  // Keep letters, numbers, dot, dash, underscore (safe for cross-platform)
   return String(name).replace(/[^a-zA-Z0-9._-]/g, '');
 }
 
@@ -90,9 +105,13 @@ function makeWeightedPicker(cards, weightsByRarity) {
 /* ---------------- command registration ---------------- */
 export default async function registerCardPack(client) {
   const CONFIG = loadConfig();
-  const ADMIN_ROLE_ID   = String(CONFIG.admin_role_ids?.[0] || '1173049392371085392'); // keep your default as fallback
-  const ADMIN_CHANNEL_ID = String(CONFIG.admin_tools_channel_id || CONFIG.admin_channel_id || '1368023977519222895'); // fallback to your constant
-  const PACK_REVEAL_BASE = resolvePackRevealBase(CONFIG);
+
+  const ADMIN_ROLE_ID     = String(CONFIG.admin_role_ids?.[0] || '1173049392371085392');        // fallback to your default
+  const ADMIN_CHANNEL_ID  = String(CONFIG.admin_tools_channel_id || CONFIG.admin_channel_id || '1368023977519222895');
+
+  const PACK_REVEAL_BASE  = resolvePackRevealBase(CONFIG) || 'https://madv313.github.io/Pack-Reveal-UI';
+  const COLLECTION_BASE   = resolveCollectionBase(CONFIG)  || 'https://madv313.github.io/Card-Collection-UI';
+  const API_BASE          = resolveBaseUrl(CONFIG.api_base || CONFIG.API_BASE || process.env.API_BASE || '');
 
   const commandData = new SlashCommandBuilder()
     .setName('cardpack')
@@ -152,7 +171,7 @@ export default async function registerCardPack(client) {
         const parsed = JSON.parse(raw);
         // Supports either array of cards or object wrapper { cards: [...] }
         const source = Array.isArray(parsed) ? parsed : (parsed.cards || []);
-        allCards = source.filter(card => String(card.card_id) !== '000');
+        allCards = source.filter(card => String(card.card_id).padStart(3, '0') !== '000');
       } catch (err) {
         console.error('❌ [cardpack] Failed to load card list:', err);
         return userSelection.update({ content: '⚠️ Failed to load card list.', components: [] });
@@ -227,11 +246,13 @@ export default async function registerCardPack(client) {
       await fs.writeFile(userRevealPath, JSON.stringify(revealJson, null, 2));
       await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
 
-      // --- Compose Pack Reveal links (token-preferred, uid as fallback) ---
-      // If PACK_REVEAL_BASE not configured, fallback to your previously hardcoded GitHub UI.
-      const PACK_UI = PACK_REVEAL_BASE || 'https://madv313.github.io/Pack-Reveal-UI';
-      const tokenUrl = `${PACK_UI}/?token=${encodeURIComponent(userProfile.token)}`;
-      const uidUrl   = `${PACK_UI}/?uid=${encodeURIComponent(userId)}`;
+      // --- Compose Pack Reveal links (token-preferred, uid as fallback), include &api= ---
+      const apiQP   = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+      const tokenUrl = `${PACK_REVEAL_BASE}/index.html?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
+      const uidUrl   = `${PACK_REVEAL_BASE}/index.html?uid=${encodeURIComponent(userId)}${apiQP}`;
+
+      // Optional direct Collection link (you can include in content if you like)
+      const collectionUrl = `${COLLECTION_BASE}/index.html?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
 
       // --- DM the user with the reveal link ---
       try {
@@ -243,7 +264,10 @@ export default async function registerCardPack(client) {
               .setURL(tokenUrl) // prefer tokenized link
               .setColor(0x00ccff)
           ],
-          content: `🔓 **Open Your Pack:** ${tokenUrl}\n_(If needed: ${uidUrl})_`
+          content:
+            `🔓 **Open Your Pack:** ${tokenUrl}\n` +
+            `_(If needed: ${uidUrl})_`
+            // + `\n📒 **View Your Collection:** ${collectionUrl}`
         });
       } catch (err) {
         console.warn(`⚠️ [cardpack] Could not DM user ${userId}`, err);
