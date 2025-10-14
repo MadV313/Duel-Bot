@@ -1,5 +1,6 @@
 // cogs/linkdeck.js
-// /linkdeck — create or ensure a player profile, mint a per-user token, and return personal links
+// /linkdeck — create or ensure a player profile, mint a per-user token,
+// and reply with tokenized links to your static UIs (Card-Collection-UI, etc.)
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -28,23 +29,6 @@ function _loadConfig() {
   }
 }
 
-/**
- * Resolve a base URL for user-facing pages.
- * Priority:
- *  1) CONFIG.frontend_url
- *  2) CONFIG.ui_base (or UI_BASE)
- *  3) CONFIG.pack_reveal_ui (fallback)
- */
-function resolveFrontendBase(config) {
-  return (
-    config.frontend_url ||
-    config.ui_base ||
-    config.UI_BASE ||
-    config.pack_reveal_ui || // last-resort fallback
-    ''
-  ).replace(/\/+$/, ''); // trim trailing slashes
-}
-
 /* ---------------- helpers ---------------- */
 function randomToken(len = 24) {
   // URL-safe base64 without padding
@@ -63,6 +47,33 @@ async function readJson(file, fallback = {}) {
 async function writeJson(file, data) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, JSON.stringify(data, null, 2));
+}
+
+function trimSlash(s = '') { return String(s).replace(/\/+$/, ''); }
+
+/**
+ * Build tokenized URLs for static UIs (GitHub Pages or elsewhere).
+ * Uses top-level config first, then ui_urls map. Adds ?token=... and optional &api=...
+ */
+function buildUIUrls(cfg, token) {
+  const ui = {
+    collection: cfg.collection_ui || cfg.ui_urls?.card_collection_ui,
+    deck:       cfg.deck_builder_ui || cfg.ui_urls?.deck_builder_ui,
+    stats:      cfg.stats_leaderboard_ui || cfg.ui_urls?.stats_leaderboard_ui,
+  };
+
+  const API_BASE = cfg.api_base || cfg.API_BASE || ''; // your Railway backend url
+  const qpApi = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+
+  const mk = (base) => base
+    ? `${trimSlash(base)}/index.html?token=${encodeURIComponent(token)}${qpApi}`
+    : null;
+
+  return {
+    collectionUrl: mk(ui.collection),
+    deckUrl: mk(ui.deck),
+    statsUrl: mk(ui.stats)
+  };
 }
 
 /* ---------------- command registration ---------------- */
@@ -92,7 +103,6 @@ export default async function registerLinkDeck(client) {
       }
 
       const CONFIG = _loadConfig();
-      const FRONTEND_BASE = resolveFrontendBase(CONFIG);
 
       // Load or init data files
       const linked = await readJson(linkedDecksPath, {});
@@ -159,38 +169,28 @@ export default async function registerLinkDeck(client) {
         }
       }
 
-      // Build personal links (tokenized). If FRONTEND_BASE missing, we still show the token for manual use.
+      // Build personal links (tokenized) for static UIs (e.g., GitHub Pages)
       const token = linked[userId].token;
-      const hasBase = !!FRONTEND_BASE;
-
-      const collectionUrl = hasBase ? `${FRONTEND_BASE}/me/${token}/collection` : null;
-      const deckUrl       = hasBase ? `${FRONTEND_BASE}/me/${token}/deck`       : null;
-      const statsUrl      = hasBase ? `${FRONTEND_BASE}/me/${token}/stats`      : null;
+      const { collectionUrl, deckUrl, statsUrl } = buildUIUrls(CONFIG, token);
 
       let msgLines = [];
       if (created) {
         msgLines.push('✅ Your profile has been created and linked!');
       } else {
-        msgLines.push('ℹ️ Your profile is already linked. Refreshed your details and ensured your personal links are active.');
+        msgLines.push('ℹ️ Your profile is already linked. Your personal links are below.');
       }
 
-      if (hasBase) {
-        msgLines.push(
-          '',
-          'Here are your personal links:',
-          `• **Collection:** ${collectionUrl}`,
-          `• **Deck Builder:** ${deckUrl}`,
-          `• **Stats & Coins:** ${statsUrl}`
-        );
+      if (collectionUrl || deckUrl || statsUrl) {
+        msgLines.push('', 'Here are your personal links:');
+        if (collectionUrl) msgLines.push(`• **Collection:** ${collectionUrl}`);
+        if (deckUrl)       msgLines.push(`• **Deck Builder:** ${deckUrl}`);
+        if (statsUrl)      msgLines.push(`• **Stats & Coins:** ${statsUrl}`);
       } else {
         msgLines.push(
           '',
-          '⚠️ A frontend base URL is not configured. Ask an admin to set `frontend_url` (or `ui_base`) in `CONFIG_JSON` or `config.json`.',
-          `Your token (save this): \`${token}\``,
-          'Expected paths once configured:',
-          '• /me/:token/collection',
-          '• /me/:token/deck',
-          '• /me/:token/stats'
+          '⚠️ No UI base URLs are configured. Ask an admin to set these in `CONFIG_JSON` or `config.json`:',
+          '```json\n{"collection_ui":"https://madv313.github.io/Card-Collection-UI/","pack_reveal_ui":"https://madv313.github.io/Pack-Reveal-UI/","api_base":"https://duel-bot-production.up.railway.app"}\n```',
+          `Your token (save this): \`${token}\``
         );
       }
 
