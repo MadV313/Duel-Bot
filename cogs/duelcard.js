@@ -1,4 +1,8 @@
 // cogs/duelcard.js — Admin-only card give/take command
+// Updates:
+//  • Ensures the target player has a token (mint if missing) for Collection UI deep-linking
+//  • Normalizes collection keys to 3-digit IDs (001, 002, ...)
+//  • Adds a tokenized "View Collection" link in the confirmation (uses CONFIG.api_base + collection_ui)
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -12,15 +16,78 @@ import {
   ComponentType,
   EmbedBuilder
 } from 'discord.js';
+import crypto from 'crypto';
 
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 const cardListPath = path.resolve('./logic/CoreMasterReference.json');
-const imageBasePath = 'https://madv313.github.io/images/cards'; // Adjust path if local or hosted elsewhere
+
+// ------------ Config helpers ------------
+function loadConfig() {
+  try {
+    const raw = process.env.CONFIG_JSON;
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn(`[duelcard] CONFIG_JSON parse error: ${e?.message}`);
+  }
+  try {
+    // eslint-disable-next-line import/no-dynamic-require, global-require
+    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
+  } catch {
+    return {};
+  }
+}
+function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
+function resolveCollectionBase(cfg) {
+  return trimBase(
+    cfg.collection_ui ||
+    cfg.ui_urls?.card_collection_ui ||
+    cfg.frontend_url ||
+    cfg.ui_base ||
+    cfg.UI_BASE ||
+    'https://madv313.github.io/Card-Collection-UI'
+  );
+}
+function resolveApiBase(cfg) {
+  return trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+}
+
+// ------------ Utility helpers ------------
+function pad3(n) {
+  return String(n).padStart(3, '0');
+}
+function sanitize(s = '') {
+  return String(s).replace(/[^a-zA-Z0-9._-]/g, '');
+}
+function makeFilename(id3, name, type) {
+  return `${pad3(id3)}_${sanitize(name || 'Card')}_${sanitize(type || 'Unknown')}.png`;
+}
+function randomToken(len = 24) {
+  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+}
+
+// ------------ File I/O helpers ------------
+async function readJson(file, fallback = {}) {
+  try {
+    const raw = await fs.readFile(file, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+async function writeJson(file, data) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(data, null, 2));
+}
 
 export default async function registerDuelCard(client) {
+  const CFG = loadConfig();
+  const COLLECTION_BASE = resolveCollectionBase(CFG);
+  const API_BASE = resolveApiBase(CFG);
+  const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+
   const commandData = new SlashCommandBuilder()
     .setName('duelcard')
     .setDescription('Admin only: Give or take cards from a player.')
@@ -82,8 +149,7 @@ export default async function registerDuelCard(client) {
 
         let linkedData = {};
         try {
-          const raw = await fs.readFile(linkedDecksPath, 'utf-8');
-          linkedData = JSON.parse(raw);
+          linkedData = await readJson(linkedDecksPath, {});
         } catch {
           return interaction.editReply({ content: '⚠️ Could not load linked users.' });
         }
@@ -149,23 +215,35 @@ export default async function registerDuelCard(client) {
           await select.deferUpdate();
 
           const targetId = select.values[0];
-          const targetName = linkedData[targetId]?.discordName || 'Unknown';
+          const playerProfile = linkedData[targetId];
+          const targetName = playerProfile?.discordName || 'Unknown';
 
           console.log(`[${timestamp}] 🎯 ${executor} selected ${targetName} (${targetId})`);
 
+          // Ensure token for the player (for collection UI deep link)
+          if (!playerProfile.token || typeof playerProfile.token !== 'string' || playerProfile.token.length < 12) {
+            playerProfile.token = randomToken(24);
+            await writeJson(linkedDecksPath, linkedData);
+          }
+
+          // Load card data
           let cardData = [];
           try {
             const raw = await fs.readFile(cardListPath, 'utf-8');
-            cardData = JSON.parse(raw);
+            const parsed = JSON.parse(raw);
+            cardData = Array.isArray(parsed) ? parsed : (parsed.cards || []);
           } catch {
             return interaction.editReply({ content: '⚠️ Could not load card data.' });
           }
 
-          let filteredCards = cardData.filter(card => card.card_id !== '000');
+          // Normalize and filter out #000
+          let filteredCards = cardData
+            .map(c => ({ ...c, card_id: pad3(c.card_id) }))
+            .filter(card => card.card_id !== '000');
 
           if (actionMode === 'take') {
-            const owned = linkedData[targetId].collection || {};
-            filteredCards = filteredCards.filter(card => owned[card.card_id]);
+            const owned = playerProfile.collection || {};
+            filteredCards = filteredCards.filter(card => Number(owned[pad3(card.card_id)]) > 0);
           }
 
           const cardOptions = filteredCards.map(card => ({
@@ -239,41 +317,59 @@ export default async function registerDuelCard(client) {
           });
 
           selectCollector.on('collect', async cardSelect => {
-            let cardId = cardSelect.values[0];
+            let selectedId = cardSelect.values[0];
 
-            if (cardId === 'RANDOM_CARD') {
+            if (selectedId === 'RANDOM_CARD') {
               const random = filteredCards[Math.floor(Math.random() * filteredCards.length)];
-              cardId = random.card_id;
+              selectedId = random.card_id;
             }
 
+            const cardId3 = pad3(selectedId);
             const player = linkedData[targetId];
             const collection = player.collection || {};
+            const selectedCard = filteredCards.find(c => c.card_id === cardId3) ||
+                                 cardData.find(c => pad3(c.card_id) === cardId3) || {};
 
             if (actionMode === 'give') {
-              collection[cardId] = (collection[cardId] || 0) + 1;
+              collection[cardId3] = Number(collection[cardId3] || 0) + 1;
             } else {
-              if (!collection[cardId]) {
+              if (!collection[cardId3]) {
                 return cardSelect.reply({ content: '⚠️ That player doesn’t own this card.', ephemeral: true });
               }
-              collection[cardId]--;
-              if (collection[cardId] <= 0) delete collection[cardId];
+              collection[cardId3] = Number(collection[cardId3] || 0) - 1;
+              if (collection[cardId3] <= 0) delete collection[cardId3];
             }
 
-            linkedData[targetId].collection = collection;
-            await fs.writeFile(linkedDecksPath, JSON.stringify(linkedData, null, 2));
+            player.collection = collection;
+
+            // Ensure token still present
+            if (!player.token || typeof player.token !== 'string' || player.token.length < 12) {
+              player.token = randomToken(24);
+            }
+
+            await writeJson(linkedDecksPath, linkedData);
 
             const verb = actionMode === 'give' ? 'given to' : 'taken from';
             const adminTag = `<@${interaction.user.id}>`;
             const targetTag = `<@${targetId}>`;
-            const selectedCard = cardData.find(c => c.card_id === cardId);
+
+            const imgFile = makeFilename(cardId3, selectedCard?.name, selectedCard?.type);
+            const imageUrl = `https://raw.githubusercontent.com/MadV313/Duel-Bot/main/images/cards/${imgFile}`;
 
             const embed = new EmbedBuilder()
               .setTitle(`✅ Card ${verb}`)
-              .setDescription(`Card **${cardId} ${selectedCard?.name || ''}** ${verb} ${targetTag} by ${adminTag}.`)
-              .setImage(`https://raw.githubusercontent.com/MadV313/Duel-Bot/main/images/cards/${cardId}_${selectedCard?.name?.replace(/[^a-zA-Z0-9]/g, '')}_${selectedCard?.type}.png`)
+              .setDescription(`Card **${cardId3} ${selectedCard?.name || ''}** ${verb} ${targetTag} by ${adminTag}.`)
+              .setImage(imageUrl)
               .setColor(actionMode === 'give' ? 0x00cc66 : 0xcc0000);
 
-            return interaction.followUp({ embeds: [embed], ephemeral: false });
+            // Include a tokenized collection link for quick verification
+            const collectionUrl = `${COLLECTION_BASE}/index.html?token=${encodeURIComponent(player.token)}${apiQP}`;
+
+            await interaction.followUp({
+              embeds: [embed],
+              content: `📒 **View ${targetName}'s Collection:** ${collectionUrl}`,
+              ephemeral: true
+            });
           });
         });
       } catch (err) {
