@@ -3,6 +3,8 @@
 //  • Ensures the target player has a token (mint if missing) for Collection UI deep-linking
 //  • Normalizes collection keys to 3-digit IDs (001, 002, ...)
 //  • Adds a tokenized "View Collection" link in the confirmation (uses CONFIG.api_base + collection_ui)
+//  • Restores card image URL to your GitHub Pages host
+//  • Final confirmation messages are NON-EPHEMERAL so admins see them
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -53,6 +55,10 @@ function resolveCollectionBase(cfg) {
 function resolveApiBase(cfg) {
   return trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
 }
+function resolveImageBase(cfg) {
+  // Restore your GitHub Pages image host by default
+  return trimBase(cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/images/cards');
+}
 
 // ------------ Utility helpers ------------
 function pad3(n) {
@@ -86,6 +92,7 @@ export default async function registerDuelCard(client) {
   const CFG = loadConfig();
   const COLLECTION_BASE = resolveCollectionBase(CFG);
   const API_BASE = resolveApiBase(CFG);
+  const IMAGE_BASE = resolveImageBase(CFG);
   const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
 
   const commandData = new SlashCommandBuilder()
@@ -260,7 +267,7 @@ export default async function registerDuelCard(client) {
           const cardPages = Math.ceil(cardOptions.length / cardPageSize);
 
           const generateCardPage = (page) => {
-            const pageSlice = cardOptions.slice(page * cardPageSize, (page + 1) * cardPageSize);
+            const pageSlice = cardOptions.slice(page * cardPageSize, (page + 1) * pageSize);
             const embed = new EmbedBuilder()
               .setTitle(`${actionMode === 'give' ? '🟢 GIVE' : '🔴 TAKE'} a Card`)
               .setDescription(`Select a card for **${targetName}**\nPage ${page + 1} of ${cardPages}`);
@@ -280,10 +287,10 @@ export default async function registerDuelCard(client) {
             return { embed, buttons, dropdown };
           };
 
-          const { embed, buttons, dropdown } = generateCardPage(cardPage);
+          const firstRender = generateCardPage(cardPage);
           const cardMsg = await interaction.editReply({
-            embeds: [embed],
-            components: [dropdown, buttons],
+            embeds: [firstRender.embed],
+            components: [firstRender.dropdown, firstRender.buttons],
             fetchReply: true
           });
 
@@ -297,13 +304,13 @@ export default async function registerDuelCard(client) {
             if (btn.customId === 'prev_card_page') cardPage--;
             if (btn.customId === 'next_card_page') cardPage++;
 
-            const { embed, buttons, dropdown } = generateCardPage(cardPage);
+            const update = generateCardPage(cardPage);
             try {
-              await btn.update({ embeds: [embed], components: [dropdown, buttons] });
+              await btn.update({ embeds: [update.embed], components: [update.dropdown, update.buttons] });
             } catch (err) {
               console.warn('⚠️ Failed to update card page:', err);
               try {
-                await cardMsg.edit({ embeds: [embed], components: [dropdown, buttons] });
+                await cardMsg.edit({ embeds: [update.embed], components: [update.dropdown, update.buttons] });
               } catch (editErr) {
                 console.error('❌ Could not fallback-edit cardMsg:', editErr);
               }
@@ -354,7 +361,8 @@ export default async function registerDuelCard(client) {
             const targetTag = `<@${targetId}>`;
 
             const imgFile = makeFilename(cardId3, selectedCard?.name, selectedCard?.type);
-            const imageUrl = `https://raw.githubusercontent.com/MadV313/Duel-Bot/main/images/cards/${imgFile}`;
+            // ✅ Restored to GitHub Pages image host
+            const imageUrl = `${IMAGE_BASE}/${imgFile}`;
 
             const embed = new EmbedBuilder()
               .setTitle(`✅ Card ${verb}`)
@@ -363,12 +371,13 @@ export default async function registerDuelCard(client) {
               .setColor(actionMode === 'give' ? 0x00cc66 : 0xcc0000);
 
             // Include a tokenized collection link for quick verification
-            const collectionUrl = `${COLLECTION_BASE}/index.html?token=${encodeURIComponent(player.token)}${apiQP}`;
+            const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(player.token)}${apiQP}`;
 
+            // ➜ Final confirmation is NON-EPHEMERAL so other admins can see it
             await interaction.followUp({
               embeds: [embed],
               content: `📒 **View ${targetName}'s Collection:** ${collectionUrl}`,
-              ephemeral: true
+              ephemeral: false
             });
           });
         });
