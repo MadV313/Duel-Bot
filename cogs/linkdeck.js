@@ -65,7 +65,7 @@ function normalizeCollectionMap(collection = {}) {
 
 /**
  * Build tokenized URLs for static UIs (GitHub Pages or elsewhere).
- * Uses top-level config first, then ui_urls map. Adds ?token=... and optional &api=...
+ * Uses top-level config first, then ui_urls map. Adds ?token=... and optional &api=... and &imgbase=...
  */
 function buildUIUrls(cfg, token) {
   const ui = {
@@ -74,11 +74,15 @@ function buildUIUrls(cfg, token) {
     stats:      cfg.stats_leaderboard_ui || cfg.ui_urls?.stats_leaderboard_ui,
   };
 
-  const API_BASE = cfg.api_base || cfg.API_BASE || ''; // your Railway backend url
+  const API_BASE   = cfg.api_base || cfg.API_BASE || '';
+  // Default image base to the front-end repo copy of images/cards; override via config if needed.
+  const IMAGE_BASE = cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards';
+
   const qpApi = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+  const qpImg = IMAGE_BASE ? `&imgbase=${encodeURIComponent(trimSlash(IMAGE_BASE))}` : '';
 
   const mk = (base) => base
-    ? `${trimSlash(base)}/index.html?token=${encodeURIComponent(token)}${qpApi}`
+    ? `${trimSlash(base)}/index.html?token=${encodeURIComponent(token)}${qpApi}${qpImg}`
     : null;
 
   return {
@@ -203,7 +207,7 @@ export default async function registerLinkDeck(client) {
         msgLines.push(
           '',
           '⚠️ No UI base URLs are configured. Ask an admin to set these in `CONFIG_JSON` or `config.json`:',
-          '```json\n{"collection_ui":"https://madv313.github.io/Card-Collection-UI/","pack_reveal_ui":"https://madv313.github.io/Pack-Reveal-UI/","api_base":"https://duel-bot-production.up.railway.app"}\n```',
+          '```json\n{"collection_ui":"https://madv313.github.io/Card-Collection-UI/","pack_reveal_ui":"https://madv313.github.io/Pack-Reveal-UI/","api_base":"https://duel-bot-production.up.railway.app","image_base":"https://madv313.github.io/Card-Collection-UI/images/cards"}\n```',
           `Your token (save this): \`${token}\``
         );
       }
