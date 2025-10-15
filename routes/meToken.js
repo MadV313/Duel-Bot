@@ -196,12 +196,15 @@ router.post('/me/:token/sell', async (req, res) => {
       return res.status(400).json({ error: 'No items provided' });
     }
 
-    // Normalize items
-    const normalized = items.map(it => ({
-      id: pad3(String(it.number || it.card_id || it.id || '').replace('#', '')),
-      qty: Math.max(1, parseInt(it.qty ?? it.quantity ?? 0, 10) || 0),
-    })).filter(it => it.id && it.qty > 0 && it.id !== '000');
-
+    // Normalize and COALESCE duplicate numbers (prevents overdraft via split entries)
+    const coalesced = {};
+    for (const raw of items) {
+      const id = pad3(String(raw.number || raw.card_id || raw.id || '').replace('#', ''));
+      const qty = Math.max(1, parseInt(raw.qty ?? raw.quantity ?? 0, 10) || 0);
+      if (!id || id === '000' || !qty) continue;
+      coalesced[id] = (coalesced[id] || 0) + qty;
+    }
+    const normalized = Object.entries(coalesced).map(([id, qty]) => ({ id, qty }));
     if (!normalized.length) {
       return res.status(400).json({ error: 'Invalid items' });
     }
@@ -245,10 +248,8 @@ router.post('/me/:token/sell', async (req, res) => {
     // Build master lookup
     const metaById = new Map(master.map(c => [pad3(c.card_id), c]));
 
-    // Validate ownership and compute credit
+    // Validate ownership
     const collection = { ...(profile.collection || {}) };
-    let credited = 0;
-
     for (const { id, qty } of normalized) {
       const owned = Number(collection[id] || 0);
       if (owned < qty) {
@@ -256,13 +257,13 @@ router.post('/me/:token/sell', async (req, res) => {
       }
     }
 
+    // Apply changes + compute credit
+    let credited = 0;
     for (const { id, qty } of normalized) {
-      // Decrement collection
       const newQty = Number(collection[id] || 0) - qty;
       if (newQty > 0) collection[id] = newQty;
       else delete collection[id];
 
-      // Credit coins by rarity
       const meta = metaById.get(id);
       const rarity = meta?.rarity || 'Common';
       const value = SELL_VALUES[rarity] ?? SELL_VALUES.Common;
