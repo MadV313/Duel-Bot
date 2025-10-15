@@ -24,7 +24,7 @@ import cardRoutes from './routes/packReveal.js';
 import collectionRoute from './routes/collection.js';
 import revealRoute from './routes/reveal.js';
 
-// 🔐 NEW: token-aware routes (/me/:token/collection, /me/:token/stats)
+// 🔐 Token-aware routes (/me/:token/collection, /me/:token/stats, POST /me/:token/sell)
 import meTokenRouter from './routes/meToken.js';
 
 dotenvConfig();
@@ -52,7 +52,7 @@ try {
 /* ──────────────────────────────────────────────────────────
  * Discord client
  * ────────────────────────────────────────────────────────── */
-const token   = process.env.DISCORD_TOKEN;
+const token    = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId  = process.env.GUILD_ID;
 const SAFE_MODE = process.env.SAFE_MODE === 'true';
@@ -167,13 +167,14 @@ app.use(cors({
   origin: [
     /localhost:5173$/,
     /duel-ui-production\.up\.railway\.app$/,
-    /madv313\.github\.io$/ // ✅ allow Card-Collection-UI hosted on GitHub Pages
+    /madv313\.github\.io$/ // ✅ allow Card-Collection-UI & Pack-Reveal-UI on GitHub Pages
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(helmet());
-app.use(express.json());
+// Slightly higher JSON limit (sell & future trade payloads are small, but this is safe)
+app.use(express.json({ limit: '256kb' }));
 
 // Rate limiter (define before use)
 const apiLimiter = rateLimit({
@@ -207,9 +208,15 @@ app.get('/_routes', (_req, res) => {
 /* ──────────────────────────────────────────────────────────
  * Routes
  * ────────────────────────────────────────────────────────── */
+// Apply limiter to API surfaces
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
+app.use('/collection', apiLimiter);
+app.use('/reveal', apiLimiter);
+// 🔐 Apply limiter to token-aware endpoints as well
+app.use('/me', apiLimiter);
+app.use('/userStatsToken', apiLimiter);
 
 // Core feature routes
 app.use('/duel', duelRoutes);              // /duel/practice, /duel/turn, /duel/status, /duel/state
@@ -222,10 +229,11 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
-// 🔐 NEW: token-aware endpoints mounted at root
+// 🔐 Token-aware endpoints mounted at root
 //  - GET /me/:token/collection
 //  - GET /me/:token/stats
-//  - GET /userStatsToken?token=...
+//  - POST /me/:token/sell
+//  - GET  /userStatsToken?token=...
 app.use('/', meTokenRouter);
 
 app.use('/public', express.static('public'));
