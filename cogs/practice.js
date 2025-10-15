@@ -1,5 +1,7 @@
 // cogs/practice.js
 import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -87,6 +89,61 @@ const DUEL_UI_URL = pick(
 
 // Whether to append &api=<public-backend> to the UI link (default false since UI proxies /api now)
 const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?? 'false').toLowerCase() === 'true';
+
+/** ───────────────────────────
+ * Token + profile helpers (ensure invoking admin has a token)
+ * ─────────────────────────── */
+const linkedDecksPath = path.resolve('./data/linked_decks.json');
+
+const readJson = async (file, fallback = {}) => {
+  try {
+    const raw = await fs.promises.readFile(file, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+};
+const writeJson = async (file, data) => {
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await fs.promises.writeFile(file, JSON.stringify(data, null, 2));
+};
+const randomToken = (len = 24) =>
+  crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+
+/** Ensure a linked profile + token exists for a given Discord user ID. */
+async function ensureUserToken(userId, userName) {
+  const linked = await readJson(linkedDecksPath, {});
+  let changed = false;
+
+  if (!linked[userId]) {
+    linked[userId] = {
+      discordName: userName,
+      deck: [],
+      collection: {},
+      createdAt: new Date().toISOString(),
+    };
+    changed = true;
+  } else {
+    if (linked[userId].discordName !== userName) {
+      linked[userId].discordName = userName;
+      changed = true;
+    }
+  }
+
+  if (!linked[userId].token || typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
+    linked[userId].token = randomToken(24);
+    changed = true;
+  }
+
+  if (changed) {
+    try {
+      await writeJson(linkedDecksPath, linked);
+    } catch (e) {
+      log.warn('token.persist.fail', { userId, err: String(e) });
+    }
+  }
+  return linked[userId].token;
+}
 
 /** ───────────────────────────
  * Register /practice
@@ -197,10 +254,32 @@ export default async function registerPractice(bot) {
         return;
       }
 
+      // Ensure invoking admin has a token for UI deep-linking
+      let token = '';
+      try {
+        token = await ensureUserToken(user.id, user.username);
+      } catch (e) {
+        log.warn('token.ensure.fail', { traceId, userId: user.id, err: String(e) });
+      }
+
       // Build UI link
-      const duelUrl = PASS_API_QUERY
-        ? `${DUEL_UI_URL}?mode=practice&api=${encodeURIComponent(PUBLIC_BACKEND_URL)}`
-        : `${DUEL_UI_URL}?mode=practice`;
+      const qp = new URLSearchParams();
+      qp.set('mode', 'practice');
+      if (token) qp.set('token', token);
+
+      if (PASS_API_QUERY) {
+        qp.set('api', PUBLIC_BACKEND_URL);
+      }
+
+      // Optional: pass image base to the UI if configured (keeps images consistent across UIs)
+      const imageBase =
+        cfg.image_base ||
+        cfg.IMAGE_BASE ||
+        'https://madv313.github.io/Card-Collection-UI/images/cards';
+      if (imageBase) qp.set('imgbase', trim(imageBase));
+      qp.set('ts', String(Date.now())); // bust caches
+
+      const duelUrl = `${DUEL_UI_URL}?${qp.toString()}`;
 
       const embed = new EmbedBuilder()
         .setTitle('Practice Duel Ready')
@@ -234,7 +313,8 @@ export default async function registerPractice(bot) {
         traceId,
         publicUrl: PUBLIC_BACKEND_URL,
         uiUrl: DUEL_UI_URL,
-        linkHasApiParam: PASS_API_QUERY
+        linkHasApiParam: PASS_API_QUERY,
+        tokenIncluded: Boolean(token)
       });
     },
   });
