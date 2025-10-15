@@ -3,6 +3,11 @@
 // Restrictions:
 //  • Can only be used in channel ID 1367977677658656868 (#manage-cards)
 //  • User must have linked a profile via /linkdeck (or they’ll be prompted to do so)
+// Updates:
+//  • Keeps all existing behavior
+//  • Self-heals: ensures token exists and normalizes stored name
+//  • Builds link with ?token= plus optional &api=, &imgbase=, and cache-busting &ts=
+//  • Uses config.collection_ui (or ui_urls.card_collection_ui/front end base) consistently
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -29,10 +34,18 @@ function loadConfig() {
   }
 }
 
+function trimSlash(s = '') { return String(s).trim().replace(/\/+$/, ''); }
+
+/** Prefer explicit Collection UI; fall back to general bases. */
 function resolveCollectionBase(cfg) {
-  // Prefer an explicit collection UI if present; otherwise use general frontend base
-  const base = (cfg.collection_ui || cfg.frontend_url || cfg.ui_base || cfg.UI_BASE || 'https://madv313.github.io/Card-Collection-UI').trim();
-  return base.replace(/\/+$/, '');
+  const base =
+    cfg.collection_ui ||
+    cfg.ui_urls?.card_collection_ui ||
+    cfg.frontend_url ||
+    cfg.ui_base ||
+    cfg.UI_BASE ||
+    'https://madv313.github.io/Card-Collection-UI';
+  return trimSlash(String(base));
 }
 
 function randomToken(len = 24) {
@@ -87,17 +100,23 @@ export default async function registerMyCards(client) {
         });
       }
 
+      // Keep display name fresh
+      if (profile.discordName !== userName) {
+        profile.discordName = userName;
+      }
+
       // Ensure token exists (self-heal if older profile didn’t have one yet)
       if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
         profile.token = randomToken(24);
+        console.log(`🔑 [mycards] Minted token for ${userName} (${userId})`);
+      }
+
+      // Persist any self-heal updates quietly
+      try {
         linked[userId] = profile;
-        try {
-          await writeJson(linkedDecksPath, linked);
-          console.log(`🔑 [mycards] Minted token for ${userName} (${userId})`);
-        } catch (e) {
-          console.warn('[mycards] Failed to persist token mint:', e);
-          // continue; we’ll still attempt to reply with the in-memory token
-        }
+        await writeJson(linkedDecksPath, linked);
+      } catch (e) {
+        console.warn('[mycards] Failed to persist profile updates:', e?.message || e);
       }
 
       const CONFIG = loadConfig();
@@ -108,11 +127,16 @@ export default async function registerMyCards(client) {
       const hasHtml = /\.(html?)$/i.test(BASE);
       const page = hasHtml ? BASE : `${BASE}/index.html`;
 
-      // Optional: pass API base if configured (so the UI can call the same server)
-      const apiBase = CONFIG.api_base || CONFIG.API_BASE || '';
-      const url = apiBase
-        ? `${page}?token=${encodeURIComponent(profile.token)}&api=${encodeURIComponent(apiBase)}`
-        : `${page}?token=${encodeURIComponent(profile.token)}`;
+      const apiBase   = CONFIG.api_base || CONFIG.API_BASE || '';
+      const imageBase = CONFIG.image_base || CONFIG.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards';
+      const ts        = Date.now();
+
+      const qpToken = `token=${encodeURIComponent(profile.token)}`;
+      const qpApi   = apiBase   ? `&api=${encodeURIComponent(apiBase)}` : '';
+      const qpImg   = imageBase ? `&imgbase=${encodeURIComponent(trimSlash(imageBase))}` : '';
+      const qpTs    = `&ts=${ts}`;
+
+      const url = `${page}?${qpToken}${qpApi}${qpImg}${qpTs}`;
 
       const embed = new EmbedBuilder()
         .setTitle('🃏 Your Card Collection')
