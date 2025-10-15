@@ -173,7 +173,8 @@ app.use(cors({
     /madv313\.github\.io$/ // ✅ allow Card-Collection-UI & Pack-Reveal-UI on GitHub Pages
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  // 🔑 include X-Bot-Key for /trade/start
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Bot-Key'],
 }));
 app.use(helmet());
 // Slightly higher JSON limit (sell & future trade payloads are small, but this is safe)
