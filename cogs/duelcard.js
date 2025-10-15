@@ -5,6 +5,8 @@
 //  • Adds a tokenized "View Collection" link in the confirmation (uses CONFIG.api_base + collection_ui)
 //  • Uses the selected card's actual image filename (image/filename from master), with absolute-URL support
 //  • Defaults image base to Card-Collection-UI/images/cards (front-end) and keeps messages NON-EPHEMERAL
+//  • NEW: Add &new=<cardId3>&ts=<now> to the collection link on GIVE
+//  • NEW: DM the target user with the same embed+link; notify admins if DM fails
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -397,15 +399,37 @@ export default async function registerDuelCard(client) {
               .setImage(imageUrl)
               .setColor(actionMode === 'give' ? 0x00cc66 : 0xcc0000);
 
-            // Include a tokenized collection link for quick verification
-            const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(player.token)}${apiQP}`;
+            // Build collection link (always ts param; add &new=... only on GIVE)
+            const ts = Date.now();
+            const baseLink = `${COLLECTION_BASE}/?token=${encodeURIComponent(player.token)}${apiQP}`;
+            const collectionUrl = actionMode === 'give'
+              ? `${baseLink}&new=${encodeURIComponent(cardId3)}&ts=${ts}`
+              : `${baseLink}&ts=${ts}`;
 
-            // Final confirmation is NON-EPHEMERAL so other admins can see it
+            // Final confirmation to admins is NON-EPHEMERAL
             await interaction.followUp({
               embeds: [embed],
               content: `📒 **View ${targetName}'s Collection:** ${collectionUrl}`,
               ephemeral: false
             });
+
+            // NEW: DM the user on GIVE with the same embed + link; catch errors and notify admins
+            if (actionMode === 'give') {
+              try {
+                const user = await client.users.fetch(targetId);
+                await user.send({
+                  embeds: [embed],
+                  content: `🎁 You were just gifted a card!\nView your collection: ${collectionUrl}`
+                });
+              } catch (dmErr) {
+                console.warn(`[duelcard] Failed to DM user ${targetId}:`, dmErr?.message || dmErr);
+                // Notify admins in the same channel/thread
+                await interaction.followUp({
+                  content: `⚠️ Could not DM ${targetTag} about the gifted card. They may have DMs disabled.`,
+                  ephemeral: false
+                });
+              }
+            }
           });
         });
       } catch (err) {
