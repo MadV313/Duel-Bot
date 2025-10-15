@@ -18,20 +18,12 @@
   "manage_cards_channel_id": "1367977677658656868",
   "manage_deck_channel_id": "1368023905964658760",
 
-  /* ──────────────────────────────────────────────────────────
-   * NEW: Top-level UI + API hints used by cogs and routes
-   *  - collection_ui: where /mycards should send players (Card Collection UI)
-   *  - pack_reveal_ui: where /cardpack DM should point (Pack Reveal UI)
-   *  - frontend_url / ui_base: generic base if you later host a unified app
-   *  - api_base: your backend base URL so static UIs can call the API
-   * ────────────────────────────────────────────────────────── */
   "collection_ui": "https://madv313.github.io/Card-Collection-UI/",
   "pack_reveal_ui": "https://madv313.github.io/Pack-Reveal-UI/",
   "frontend_url": "https://madv313.github.io/",
   "ui_base": "https://madv313.github.io/",
   "api_base": "https://duel-bot-production.up.railway.app",
 
-  /* Existing per-app UI list (kept for reference/other tools) */
   "ui_urls": {
     "hub_ui": "https://madv313.github.io/HUB-UI/",
     "card_collection_ui": "https://madv313.github.io/Card-Collection-UI/",
