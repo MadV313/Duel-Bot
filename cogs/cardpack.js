@@ -171,7 +171,9 @@ export default async function registerCardPack(client) {
         const parsed = JSON.parse(raw);
         // Supports either array of cards or object wrapper { cards: [...] }
         const source = Array.isArray(parsed) ? parsed : (parsed.cards || []);
-        allCards = source.filter(card => String(card.card_id).padStart(3, '0') !== '000');
+        allCards = source
+          .map(c => ({ ...c, card_id: String(c.card_id).padStart(3, '0') }))
+          .filter(card => card.card_id !== '000');
       } catch (err) {
         console.error('❌ [cardpack] Failed to load card list:', err);
         return userSelection.update({ content: '⚠️ Failed to load card list.', components: [] });
@@ -212,6 +214,8 @@ export default async function registerCardPack(client) {
 
       // --- Apply draws to collection & craft reveal payload ---
       const revealJson = [];
+      const newIds = [];
+
       for (const card of drawnCards) {
         const idStr = String(card.card_id).padStart(3, '0');
         const owned = Number(userProfile.collection[idStr] || 0);
@@ -223,8 +227,10 @@ export default async function registerCardPack(client) {
             ? sanitizeNameForFile(card.filename)
             : `${idStr}_${sanitizeNameForFile(card.name)}_${sanitizeNameForFile(card.type)}.png`;
 
-        // Persist collection increment (use 3-digit padded keys to align with your other systems)
+        // Persist collection increment (use 3-digit padded keys)
         userProfile.collection[idStr] = owned + 1;
+
+        if (isNew) newIds.push(idStr);
 
         revealJson.push({
           card_id: `#${idStr}`,
@@ -246,13 +252,22 @@ export default async function registerCardPack(client) {
       await fs.writeFile(userRevealPath, JSON.stringify(revealJson, null, 2));
       await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
 
-      // --- Compose Pack Reveal link (tokenized, single masked sentence), include &api= if present ---
+      // --- Compose URLs ---
       const apiQP   = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
-      // NOTE: no /index.html so it matches the requested format
-      const tokenUrl = `${PACK_REVEAL_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
+      const ts      = Date.now();
 
-      // Optional direct Collection link (kept for future; not used in DM body per spec)
-      const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
+      // Collection deep-link that will HIGHLIGHT freshly drawn cards
+      // Example: .../Card-Collection-UI/?token=...&api=...&fromPackReveal=true&new=001,007,089&ts=1700000000000
+      const newCsv  = newIds.join(',');
+      const collectionUrlBase = `${COLLECTION_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
+      const collectionUrlWithFlags =
+        `${collectionUrlBase}&fromPackReveal=true${newCsv ? `&new=${encodeURIComponent(newCsv)}` : ''}&ts=${ts}`;
+
+      // Pack Reveal link gets a `next=` param so the reveal page can redirect to the collection with highlights
+      // Example: .../Pack-Reveal-UI/?token=...&api=...&next=<encoded collectionUrlWithFlags>
+      const tokenUrl =
+        `${PACK_REVEAL_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}` +
+        `&next=${encodeURIComponent(collectionUrlWithFlags)}`;
 
       // --- DM the user with one clear masked link sentence ---
       try {
@@ -264,7 +279,8 @@ export default async function registerCardPack(client) {
               .setURL(tokenUrl) // keep embed clickable
               .setColor(0x00ccff)
           ],
-          // Single sentence with a masked link to the tokenized Pack Reveal URL (optionally carries &api=)
+          // Single sentence with a masked link to the tokenized Pack Reveal URL.
+          // After reveal, the UI should follow `next=` to your Collection UI and highlight new cards.
           content: `🔓 **Open your pack:** [Click here to reveal your cards](${tokenUrl})`
         });
       } catch (err) {
