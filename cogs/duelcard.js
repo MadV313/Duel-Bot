@@ -73,6 +73,15 @@ function makeFilename(id3, name, type) {
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
+function normalizeCollectionMap(collection = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(collection)) {
+    const id3 = pad3(k);
+    const qty = Number(v) || 0;
+    if (qty > 0) out[id3] = qty;
+  }
+  return out;
+}
 
 // ------------ File I/O helpers ------------
 async function readJson(file, fallback = {}) {
@@ -222,10 +231,22 @@ export default async function registerDuelCard(client) {
           await select.deferUpdate();
 
           const targetId = select.values[0];
-          const playerProfile = linkedData[targetId];
-          const targetName = playerProfile?.discordName || 'Unknown';
+          let playerProfile = linkedData[targetId];
+          let targetName = playerProfile?.discordName || 'Unknown';
 
           console.log(`[${timestamp}] 🎯 ${executor} selected ${targetName} (${targetId})`);
+
+          // ✅ Safety: if somehow missing (shouldn't happen via the options list), initialize now
+          if (!playerProfile) {
+            playerProfile = {
+              discordName: (await interaction.client.users.fetch(targetId).catch(() => null))?.username || targetName,
+              deck: [],
+              collection: {},
+              createdAt: new Date().toISOString()
+            };
+            linkedData[targetId] = playerProfile;
+            targetName = playerProfile.discordName;
+          }
 
           // Ensure token for the player (for collection UI deep link)
           if (!playerProfile.token || typeof playerProfile.token !== 'string' || playerProfile.token.length < 12) {
@@ -249,7 +270,9 @@ export default async function registerDuelCard(client) {
             .filter(card => card.card_id !== '000');
 
           if (actionMode === 'take') {
-            const owned = playerProfile.collection || {};
+            // normalize existing keys too (safety)
+            playerProfile.collection = normalizeCollectionMap(playerProfile.collection || {});
+            const owned = playerProfile.collection;
             filteredCards = filteredCards.filter(card => Number(owned[pad3(card.card_id)]) > 0);
           }
 
@@ -333,7 +356,7 @@ export default async function registerDuelCard(client) {
 
             const cardId3 = pad3(selectedId);
             const player = linkedData[targetId];
-            const collection = player.collection || {};
+            const collection = normalizeCollectionMap(player.collection || {});
             const selectedCard = filteredCards.find(c => c.card_id === cardId3) ||
                                  cardData.find(c => pad3(c.card_id) === cardId3) || {};
 
