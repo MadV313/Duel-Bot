@@ -3,8 +3,8 @@
 //  • Ensures the target player has a token (mint if missing) for Collection UI deep-linking
 //  • Normalizes collection keys to 3-digit IDs (001, 002, ...)
 //  • Adds a tokenized "View Collection" link in the confirmation (uses CONFIG.api_base + collection_ui)
-//  • Restores card image URL to your GitHub Pages host
-//  • Final confirmation messages are NON-EPHEMERAL so admins see them
+//  • Uses the selected card's actual image filename (image/filename from master), with absolute-URL support
+//  • Defaults image base to Card-Collection-UI/images/cards (front-end) and keeps messages NON-EPHEMERAL
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -56,8 +56,8 @@ function resolveApiBase(cfg) {
   return trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
 }
 function resolveImageBase(cfg) {
-  // Restore your GitHub Pages image host by default
-  return trimBase(cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/images/cards');
+  // Default to the front-end repo where images live; override with CONFIG.image_base if you like
+  return trimBase(cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards');
 }
 
 // ------------ Utility helpers ------------
@@ -81,6 +81,9 @@ function normalizeCollectionMap(collection = {}) {
     if (qty > 0) out[id3] = qty;
   }
   return out;
+}
+function isAbsoluteUrl(u) {
+  return /^https?:\/\//i.test(String(u || ''));
 }
 
 // ------------ File I/O helpers ------------
@@ -236,7 +239,7 @@ export default async function registerDuelCard(client) {
 
           console.log(`[${timestamp}] 🎯 ${executor} selected ${targetName} (${targetId})`);
 
-          // ✅ Safety: if somehow missing (shouldn't happen via the options list), initialize now
+          // Safety: if profile missing (shouldn't happen), initialize
           if (!playerProfile) {
             playerProfile = {
               discordName: (await interaction.client.users.fetch(targetId).catch(() => null))?.username || targetName,
@@ -383,9 +386,10 @@ export default async function registerDuelCard(client) {
             const adminTag = `<@${interaction.user.id}>`;
             const targetTag = `<@${targetId}>`;
 
-            const imgFile = makeFilename(cardId3, selectedCard?.name, selectedCard?.type);
-            // ✅ Restored to GitHub Pages image host
-            const imageUrl = `${IMAGE_BASE}/${imgFile}`;
+            // 🔽 Build the correct image URL for the selected card
+            const fileFromMaster = selectedCard?.image || selectedCard?.filename;
+            const file = fileFromMaster || makeFilename(cardId3, selectedCard?.name, selectedCard?.type);
+            const imageUrl = isAbsoluteUrl(file) ? file : `${IMAGE_BASE}/${file}`;
 
             const embed = new EmbedBuilder()
               .setTitle(`✅ Card ${verb}`)
@@ -396,7 +400,7 @@ export default async function registerDuelCard(client) {
             // Include a tokenized collection link for quick verification
             const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(player.token)}${apiQP}`;
 
-            // ➜ Final confirmation is NON-EPHEMERAL so other admins can see it
+            // Final confirmation is NON-EPHEMERAL so other admins can see it
             await interaction.followUp({
               embeds: [embed],
               content: `📒 **View ${targetName}'s Collection:** ${collectionUrl}`,
