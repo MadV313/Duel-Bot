@@ -267,7 +267,7 @@ export default async function registerDuelCard(client) {
           const cardPages = Math.ceil(cardOptions.length / cardPageSize);
 
           const generateCardPage = (page) => {
-            const pageSlice = cardOptions.slice(page * cardPageSize, (page + 1) * pageSize);
+            const pageSlice = cardOptions.slice(page * cardPageSize, (page + 1) * cardPageSize);
             const embed = new EmbedBuilder()
               .setTitle(`${actionMode === 'give' ? '🟢 GIVE' : '🔴 TAKE'} a Card`)
               .setDescription(`Select a card for **${targetName}**\nPage ${page + 1} of ${cardPages}`);
