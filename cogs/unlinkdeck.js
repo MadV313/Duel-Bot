@@ -1,4 +1,8 @@
 // cogs/unlinkdeck.js — Paginated version synced with dropdown
+// Updates:
+// • Keeps existing UX/logic intact
+// • Also cleans up any tokenized Pack Reveal JSON for the user (userId + token variants)
+// • Extra logging + safe error handling around file I/O
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -16,9 +20,10 @@ import {
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
-const coinBankPath = path.resolve('./data/coin_bank.json');
-const playerDataPath = path.resolve('./data/player_data.json');
+const linkedDecksPath  = path.resolve('./data/linked_decks.json');
+const coinBankPath     = path.resolve('./data/coin_bank.json');
+const playerDataPath   = path.resolve('./data/player_data.json');
+const revealOutputDir  = path.resolve('./public/data'); // where cardpack writes reveal_<id>.json
 
 export default async function registerUnlinkDeck(client) {
   const commandData = new SlashCommandBuilder()
@@ -136,6 +141,7 @@ export default async function registerUnlinkDeck(client) {
 
         const selectedId = selectInteraction.values[0];
         const removedUser = linkedData[selectedId]?.discordName || 'Unknown';
+        const removedToken = linkedData[selectedId]?.token || '';
 
         // Remove from linked_decks.json
         delete linkedData[selectedId];
@@ -161,6 +167,19 @@ export default async function registerUnlinkDeck(client) {
           console.log(`📊 [unlinkdeck] Removed player data for ${selectedId}`);
         } catch {
           console.warn('⚠️ [unlinkdeck] Failed to update player_data.json (may not exist).');
+        }
+
+        // Clean up any Pack Reveal JSON files for this user (user + token variants)
+        try {
+          const userRevealPath  = path.join(revealOutputDir, `reveal_${selectedId}.json`);
+          await fs.unlink(userRevealPath).catch(() => {});
+          if (removedToken) {
+            const tokenRevealPath = path.join(revealOutputDir, `reveal_${removedToken}.json`);
+            await fs.unlink(tokenRevealPath).catch(() => {});
+          }
+          console.log(`🧹 [unlinkdeck] Cleaned reveal JSON for ${selectedId}${removedToken ? ` (token ${removedToken})` : ''}`);
+        } catch (e) {
+          console.warn('⚠️ [unlinkdeck] Failed to clean reveal files:', e?.message || e);
         }
 
         await selectInteraction.update({
