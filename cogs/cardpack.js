@@ -246,28 +246,26 @@ export default async function registerCardPack(client) {
       await fs.writeFile(userRevealPath, JSON.stringify(revealJson, null, 2));
       await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
 
-      // --- Compose Pack Reveal links (token-preferred, uid as fallback), include &api= ---
+      // --- Compose Pack Reveal link (tokenized, single masked sentence), include &api= if present ---
       const apiQP   = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
-      const tokenUrl = `${PACK_REVEAL_BASE}/index.html?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
-      const uidUrl   = `${PACK_REVEAL_BASE}/index.html?uid=${encodeURIComponent(userId)}${apiQP}`;
+      // NOTE: no /index.html so it matches the requested format
+      const tokenUrl = `${PACK_REVEAL_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
 
-      // Optional direct Collection link (you can include in content if you like)
-      const collectionUrl = `${COLLECTION_BASE}/index.html?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
+      // Optional direct Collection link (kept for future; not used in DM body per spec)
+      const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}`;
 
-      // --- DM the user with the reveal link ---
+      // --- DM the user with one clear masked link sentence ---
       try {
         await targetUser.send({
           embeds: [
             new EmbedBuilder()
               .setTitle('🎁 You’ve received a new card pack!')
               .setDescription('Tap to open your 3-card reveal.')
-              .setURL(tokenUrl) // prefer tokenized link
+              .setURL(tokenUrl) // keep embed clickable
               .setColor(0x00ccff)
           ],
-          content:
-            `🔓 **Open Your Pack:** ${tokenUrl}\n` +
-            `_(If needed: ${uidUrl})_`
-            // + `\n📒 **View Your Collection:** ${collectionUrl}`
+          // Single sentence with a masked link to the tokenized Pack Reveal URL (optionally carries &api=)
+          content: `🔓 **Open your pack:** [Click here to reveal your cards](${tokenUrl})`
         });
       } catch (err) {
         console.warn(`⚠️ [cardpack] Could not DM user ${userId}`, err);
