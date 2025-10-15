@@ -2,6 +2,9 @@
   "token_env": "DISCORD_TOKEN",
   "admin_api_key": "YOUR_SECRET_ADMIN_KEY_HERE",
 
+  /* New: optional—used by /trade/start auth if you prefer config over env */
+  "bot_api_key": "YOUR_SECRET_BOT_API_KEY_HERE",
+
   "admin_payout_channel_id": "1368023977519222895",
   "admin_role_ids": [
     "1173049392371085392",
@@ -18,11 +21,18 @@
   "manage_cards_channel_id": "1367977677658656868",
   "manage_deck_channel_id": "1368023905964658760",
 
+  /* UI bases (used in deep links and DMs) */
   "collection_ui": "https://madv313.github.io/Card-Collection-UI/",
   "pack_reveal_ui": "https://madv313.github.io/Pack-Reveal-UI/",
   "frontend_url": "https://madv313.github.io/",
   "ui_base": "https://madv313.github.io/",
   "api_base": "https://duel-bot-production.up.railway.app",
+
+  /* Optional: practice cog looks for this key name, too */
+  "duel_backend_base_url": "https://duel-bot-production.up.railway.app",
+
+  /* Optional: if true, append &api=<backend> to UI links created by bot */
+  "pass_api_query": false,
 
   "ui_urls": {
     "hub_ui": "https://madv313.github.io/HUB-UI/",
@@ -53,5 +63,11 @@
       "legendary": 1
     },
     "buycard_message": "Your new card pack is ready! View it here: https://madv313.github.io/Pack-Reveal-UI/"
+  },
+
+  /* New: trade system knobs used by new routes (defaults exist in code) */
+  "trade_system": {
+    "trade_limit_per_day": 3,
+    "session_ttl_hours": 24
   }
 }
