@@ -1,6 +1,13 @@
 // cogs/linkdeck.js
 // /linkdeck — create or ensure a player profile, mint a per-user token,
 // and reply with tokenized links to your static UIs (Card-Collection-UI, etc.)
+// Updates:
+//  • Keeps all existing behavior
+//  • Normalizes collection keys to 3-digit IDs
+//  • Ensures/mints a persistent per-user token
+//  • Builds tokenized links with optional &api= and &imgbase=
+//  • Adds a cache-busting &ts=<epoch> to each link
+//  • Refreshes stored discordName if it changed
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -66,29 +73,32 @@ function normalizeCollectionMap(collection = {}) {
 /**
  * Build tokenized URLs for static UIs (GitHub Pages or elsewhere).
  * Uses top-level config first, then ui_urls map. Adds ?token=... and optional &api=... and &imgbase=...
+ * Appends &ts= for cache-busting.
  */
 function buildUIUrls(cfg, token) {
   const ui = {
-    collection: cfg.collection_ui || cfg.ui_urls?.card_collection_ui,
-    deck:       cfg.deck_builder_ui || cfg.ui_urls?.deck_builder_ui,
-    stats:      cfg.stats_leaderboard_ui || cfg.ui_urls?.stats_leaderboard_ui,
+    collection: cfg.collection_ui || cfg.ui_urls?.card_collection_ui || 'https://madv313.github.io/Card-Collection-UI',
+    deck:       cfg.deck_builder_ui || cfg.ui_urls?.deck_builder_ui || null,
+    stats:      cfg.stats_leaderboard_ui || cfg.ui_urls?.stats_leaderboard_ui || null,
   };
 
   const API_BASE   = cfg.api_base || cfg.API_BASE || '';
   // Default image base to the front-end repo copy of images/cards; override via config if needed.
   const IMAGE_BASE = cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards';
+  const ts         = Date.now();
 
   const qpApi = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
   const qpImg = IMAGE_BASE ? `&imgbase=${encodeURIComponent(trimSlash(IMAGE_BASE))}` : '';
+  const qpTs  = `&ts=${ts}`;
 
   const mk = (base) => base
-    ? `${trimSlash(base)}/index.html?token=${encodeURIComponent(token)}${qpApi}${qpImg}`
+    ? `${trimSlash(base)}/index.html?token=${encodeURIComponent(token)}${qpApi}${qpImg}${qpTs}`
     : null;
 
   return {
     collectionUrl: mk(ui.collection),
-    deckUrl: mk(ui.deck),
-    statsUrl: mk(ui.stats)
+    deckUrl:       mk(ui.deck),
+    statsUrl:      mk(ui.stats)
   };
 }
 
@@ -143,6 +153,8 @@ export default async function registerLinkDeck(client) {
         }
         // Safety: normalize any existing collection keys to 3-digit IDs
         linked[userId].collection = normalizeCollectionMap(linked[userId].collection || {});
+        // Safety: ensure deck is an array
+        if (!Array.isArray(linked[userId].deck)) linked[userId].deck = [];
       }
 
       // Ensure a persistent per-user token for personal links
