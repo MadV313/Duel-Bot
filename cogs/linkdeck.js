@@ -49,7 +49,19 @@ async function writeJson(file, data) {
   await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
 
-function trimSlash(s = '') { return String(s).replace(/\/+$/, ''); }
+function trimSlash(s = '') { return String(s).trim().replace(/\/+$/, ''); }
+function pad3(n) { return String(n).padStart(3, '0'); }
+
+/** Normalize collection keys to 3-digit strings (001, 002, ...). */
+function normalizeCollectionMap(collection = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(collection)) {
+    const id3 = pad3(k);
+    const qty = Number(v) || 0;
+    if (qty > 0) out[id3] = qty;
+  }
+  return out;
+}
 
 /**
  * Build tokenized URLs for static UIs (GitHub Pages or elsewhere).
@@ -87,8 +99,8 @@ export default async function registerLinkDeck(client) {
   client.commands.set('linkdeck', {
     data: commandData,
     async execute(interaction) {
-      const userId   = interaction.user.id;
-      const userName = interaction.user.username;
+      const userId    = interaction.user.id;
+      const userName  = interaction.user.username;
       const channelId = interaction.channelId;
       const guildId   = interaction.guildId;
 
@@ -125,6 +137,8 @@ export default async function registerLinkDeck(client) {
         if (linked[userId].discordName !== userName) {
           linked[userId].discordName = userName;
         }
+        // Safety: normalize any existing collection keys to 3-digit IDs
+        linked[userId].collection = normalizeCollectionMap(linked[userId].collection || {});
       }
 
       // Ensure a persistent per-user token for personal links
@@ -173,7 +187,7 @@ export default async function registerLinkDeck(client) {
       const token = linked[userId].token;
       const { collectionUrl, deckUrl, statsUrl } = buildUIUrls(CONFIG, token);
 
-      let msgLines = [];
+      const msgLines = [];
       if (created) {
         msgLines.push('✅ Your profile has been created and linked!');
       } else {
