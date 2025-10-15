@@ -14,7 +14,10 @@ import {
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
-function trimBase(u='') { return String(u).trim().replace(/\/+$/, ''); }
+// Channel restriction (same as /linkdeck)
+const MANAGE_CARDS_CHANNEL_ID = String(process.env.MANAGE_CARDS_CHANNEL_ID || '1367977677658656868');
+
+function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
 
 function loadConfig() {
   try {
@@ -23,7 +26,7 @@ function loadConfig() {
   } catch {}
   try {
     // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json','utf-8')) || {};
+    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
   } catch { return {}; }
 }
 
@@ -37,6 +40,14 @@ export default async function registerTrade(bot) {
   bot.commands.set('trade', {
     data: cmd,
     async execute(interaction) {
+      // Channel restriction
+      if (String(interaction.channelId) !== MANAGE_CARDS_CHANNEL_ID) {
+        return interaction.reply({
+          content: `⚠️ This command can only be used in <#${MANAGE_CARDS_CHANNEL_ID}>.`,
+          ephemeral: true
+        });
+      }
+
       // Load linked profiles to build the list (exclude self)
       let linked = {};
       try {
@@ -61,7 +72,7 @@ export default async function registerTrade(bot) {
       const pages = Math.ceil(entries.length / pageSize);
 
       const build = (p) => {
-        const slice = entries.slice(p*pageSize, (p+1)*pageSize);
+        const slice = entries.slice(p * pageSize, (p + 1) * pageSize);
         const row = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId(`trade_select_${p}`)
@@ -72,10 +83,10 @@ export default async function registerTrade(bot) {
             })))
         );
         const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('prev').setStyle(ButtonStyle.Secondary).setLabel('⏮ Prev').setDisabled(p===0),
-          new ButtonBuilder().setCustomId('next').setStyle(ButtonStyle.Secondary).setLabel('Next ⏭').setDisabled(p===pages-1),
+          new ButtonBuilder().setCustomId('prev').setStyle(ButtonStyle.Secondary).setLabel('⏮ Prev').setDisabled(p === 0),
+          new ButtonBuilder().setCustomId('next').setStyle(ButtonStyle.Secondary).setLabel('Next ⏭').setDisabled(p === pages - 1),
         );
-        return { row, buttons, text: `Page ${p+1} of ${pages}` };
+        return { row, buttons, text: `Page ${p + 1} of ${pages}` };
       };
 
       const first = build(page);
@@ -89,8 +100,8 @@ export default async function registerTrade(bot) {
       const btnCollector = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
       btnCollector.on('collect', async i => {
         if (i.user.id !== userId) return i.reply({ content: '⚠️ Not your menu.', ephemeral: true });
-        if (i.customId === 'prev') page--;
-        if (i.customId === 'next') page++;
+        if (i.customId === 'prev') page = Math.max(0, page - 1);
+        if (i.customId === 'next') page = Math.min(pages - 1, page + 1);
         const built = build(page);
         await i.update({ content: `🔁 Choose a player to trade with\n${built.text}`, components: [built.row, built.buttons] });
       });
@@ -102,9 +113,16 @@ export default async function registerTrade(bot) {
 
         const partnerId = i.values[0];
         const cfg = loadConfig();
-        const API_BASE  = trimBase(cfg.api_base || process.env.API_BASE || '');
-        const UI_BASE   = trimBase(cfg.collection_ui || cfg.ui_urls?.card_collection_ui || cfg.frontend_url || cfg.ui_base || 'https://madv313.github.io/Card-Collection-UI');
-        const BOT_KEY   = process.env.BOT_API_KEY || '';
+
+        const API_BASE = trimBase(cfg.api_base || process.env.API_BASE || '');
+        const UI_BASE  = trimBase(
+          cfg.collection_ui ||
+          cfg.ui_urls?.card_collection_ui ||
+          cfg.frontend_url ||
+          cfg.ui_base ||
+          'https://madv313.github.io/Card-Collection-UI'
+        );
+        const BOT_KEY  = process.env.BOT_API_KEY || '';
 
         if (!API_BASE || !BOT_KEY) {
           return interaction.editReply({
@@ -113,34 +131,80 @@ export default async function registerTrade(bot) {
           });
         }
 
-        // Create session (bot-only)
-        let resp;
+        // Create session (bot-only). Prefer initiatorToken per backend contract.
+        let resp, json;
         try {
           resp = await fetch(`${API_BASE}/trade/start`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Bot-Key': BOT_KEY },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Bot-Key': BOT_KEY
+            },
             body: JSON.stringify({
-              initiatorId: userId,
+              initiatorToken: mine.token,
               partnerId,
+              // Optional hints for backend link building:
               apiBase: API_BASE,
               collectionUiBase: UI_BASE
             })
           });
+          json = await resp.json().catch(() => ({}));
         } catch (e) {
           return interaction.editReply({ content: `❌ Failed to contact server: ${String(e)}`, components: [] });
         }
 
         if (!resp.ok) {
-          const err = await resp.json().catch(()=>({}));
-          return interaction.editReply({ content: `❌ Could not start trade: ${err.error || resp.status}`, components: [] });
+          const msg = json?.error || json?.message || `${resp.status} ${resp.statusText}`;
+          return interaction.editReply({ content: `❌ Could not start trade: ${msg}`, components: [] });
         }
 
-        const json = await resp.json().catch(()=>({}));
+        const sessionId = json.sessionId || json.session || '';
+        // Prefer backend-provided URL; otherwise construct client-side
+        const urlInitiator =
+          json.urlInitiator ||
+          `${UI_BASE}/?mode=trade&tradeSession=${encodeURIComponent(sessionId)}&role=initiator&token=${encodeURIComponent(mine.token)}&api=${encodeURIComponent(API_BASE)}`;
+
+        // Try DM first (clean UX)
+        try {
+          await interaction.user.send(
+            `🤝 **Trade started!**\n` +
+            `Partner: <@${partnerId}>\n` +
+            `Session: \`${sessionId}\`\n\n` +
+            `👉 **Open your collection to pick up to 3 cards:** ${urlInitiator}`
+          );
+        } catch {
+          // DM might be closed; fall back to ephemeral reply only
+        }
+
         await interaction.editReply({
-          content: `✅ Trade session created with <@${partnerId}>.\nI’ve DMed you a link to pick your cards.\n(Session: \`${json.sessionId}\`)`,
+          content:
+            `✅ Trade session created with <@${partnerId}>.\n` +
+            `I’ve sent you a link${
+              json.urlInitiator ? '' : ' (constructed)'
+            } to pick your cards.\n` +
+            `Session: \`${sessionId}\`\n\n` +
+            `If you didn’t get a DM, click here: ${urlInitiator}`,
           components: []
         });
+
+        // Stop collectors after success
+        try { btnCollector.stop(); } catch {}
+        try { ddCollector.stop(); } catch {}
       });
+
+      // Auto-cleanup on timeout
+      const endAll = async () => {
+        if (msg.editable) {
+          try {
+            await interaction.editReply({
+              content: '⏰ Trade partner selection expired. Run **/trade** again to restart.',
+              components: []
+            });
+          } catch {}
+        }
+      };
+      btnCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+      ddCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
     }
   });
 }
