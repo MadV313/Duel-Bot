@@ -62,18 +62,20 @@ function hasExpired(session) {
   return Date.now() > new Date(session.expiresAt).getTime();
 }
 
-function buildUiLink({ base, token, apiBase, sessionId, stage, partnerName }) {
+// Build a Collection UI link following the UI/cog contract:
+// ?mode=trade&tradeSession=<id>&role=<initiator|partner>[&stage=...&partner=...]
+function buildUiLink({ base, token, apiBase, sessionId, role, stage, partnerName }) {
   const ts = Date.now();
   const qp = new URLSearchParams();
-  qp.set('token', token);
-  if (apiBase) qp.set('api', apiBase);
   qp.set('mode', 'trade');
-  qp.set('session', sessionId);
-  qp.set('stage', stage);
+  qp.set('tradeSession', sessionId);
+  if (role) qp.set('role', role);
+  if (token) qp.set('token', token);
+  if (apiBase) qp.set('api', apiBase);
+  if (stage) qp.set('stage', stage);
   if (partnerName) qp.set('partner', partnerName);
   qp.set('ts', String(ts));
-  // point to /index.html explicitly for compatibility
-  return `${base.replace(/\/+$/, '')}/index.html?${qp.toString()}`;
+  return `${String(base || '').replace(/\/+$/, '')}/index.html?${qp.toString()}`;
 }
 
 export default function createTradeRouter(bot) {
@@ -88,9 +90,27 @@ export default function createTradeRouter(bot) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      const { initiatorId, partnerId, apiBase, collectionUiBase } = req.body || {};
-      if (!initiatorId || !partnerId) {
-        return res.status(400).json({ error: 'Missing initiatorId or partnerId' });
+      // Accept either initiatorToken or initiatorId
+      const {
+        initiatorToken,
+        initiatorId: initiatorIdRaw,
+        partnerId,
+        apiBase,
+        collectionUiBase
+      } = req.body || {};
+
+      if (!partnerId || (!initiatorToken && !initiatorIdRaw)) {
+        return res.status(400).json({ error: 'Missing initiator and/or partner.' });
+      }
+
+      let initiatorId = initiatorIdRaw;
+      if (initiatorToken && !initiatorId) {
+        const resolved = await resolveUserIdByToken(String(initiatorToken));
+        if (!resolved) return res.status(400).json({ error: 'Invalid initiator token' });
+        initiatorId = resolved;
+      }
+      if (!initiatorId) {
+        return res.status(400).json({ error: 'Cannot resolve initiator' });
       }
       if (initiatorId === partnerId) {
         return res.status(400).json({ error: 'Cannot trade with yourself.' });
@@ -145,7 +165,7 @@ export default function createTradeRouter(bot) {
       incLimit(limits, initiatorId, day);
       await writeJson(tradeLimitsPath, limits);
 
-      // Build link for initiator
+      // Build link for initiator (role=initiator)
       const uiBase = (collectionUiBase ||
         process.env.COLLECTION_UI_BASE ||
         process.env.COLLECTION_UI ||
@@ -156,6 +176,7 @@ export default function createTradeRouter(bot) {
         token: iniProfile.token,
         apiBase,
         sessionId,
+        role: 'initiator',
         stage: 'pickMine',
         partnerName: parProfile.discordName || ''
       });
@@ -174,7 +195,7 @@ export default function createTradeRouter(bot) {
         ok: true,
         sessionId,
         stage: session.stage,
-        initiatorLink: initLink,
+        urlInitiator: initLink,
         message: 'Trade session created.'
       });
     } catch (e) {
@@ -247,7 +268,7 @@ export default function createTradeRouter(bot) {
 
       const sel = clampCards(cards);
 
-      // Initiator selects
+      // Initiator selects their cards
       if (s.stage === 'pickMine') {
         if (idFromToken !== s.initiator.userId) {
           return res.status(403).json({ error: 'Not initiator turn' });
@@ -268,6 +289,7 @@ export default function createTradeRouter(bot) {
             token: s.partner.token,
             apiBase,
             sessionId: s.id,
+            role: 'partner',
             stage: 'pickTheirs',
             partnerName: s.initiator.name
           });
@@ -288,7 +310,7 @@ export default function createTradeRouter(bot) {
         });
       }
 
-      // Partner selects
+      // Partner selects their requested cards
       if (s.stage === 'pickTheirs') {
         if (idFromToken !== s.partner.userId) {
           return res.status(403).json({ error: 'Not partner turn' });
@@ -315,12 +337,22 @@ export default function createTradeRouter(bot) {
   });
 
   // POST /trade/:session/decision
-  // Body: { token, decision: "accept"|"deny" }
+  // Body: { token, decision: "accept"|"deny" } OR { token, accept: true|false }
   router.post('/trade/:session/decision', async (req, res) => {
     try {
       const { session } = req.params;
-      const { token, decision } = req.body || {};
-      if (!token || !decision) return res.status(400).json({ error: 'Missing token or decision' });
+      const { token } = req.body || {};
+      let { decision } = req.body || {};
+      const hasAcceptBool = Object.prototype.hasOwnProperty.call(req.body || {}, 'accept');
+
+      if (!token || (typeof decision === 'undefined' && !hasAcceptBool)) {
+        return res.status(400).json({ error: 'Missing token or decision' });
+      }
+
+      if (hasAcceptBool) {
+        decision = req.body.accept ? 'accept' : 'deny';
+      }
+
       if (!['accept','deny'].includes(String(decision))) {
         return res.status(400).json({ error: 'Invalid decision' });
       }
@@ -382,7 +414,7 @@ export default function createTradeRouter(bot) {
         }
       }
 
-      // Perform swap
+      // Perform swap (1 copy per selection)
       for (const id of giveA) {
         colA[id] = (colA[id] || 0) - 1;
         if (colA[id] <= 0) delete colA[id];
@@ -416,7 +448,6 @@ export default function createTradeRouter(bot) {
       return res.json({
         ok: true,
         status: s.status,
-        collection: colB, // return *partner* latest if caller is partner; front-end will refresh via /me/:token/collection anyway
         message: 'Trade accepted and applied.'
       });
     } catch (e) {
