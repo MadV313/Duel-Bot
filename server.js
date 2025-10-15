@@ -27,6 +27,9 @@ import revealRoute from './routes/reveal.js';
 // 🔐 Token-aware routes (/me/:token/collection, /me/:token/stats, POST /me/:token/sell)
 import meTokenRouter from './routes/meToken.js';
 
+// 🔄 Trade routes (POST /trade/start, GET /trade/:session/state, POST /trade/:session/select, POST /trade/:session/decision, GET /me/:token/trade/limits)
+import createTradeRouter from './routes/trade.js';
+
 dotenvConfig();
 
 /* ──────────────────────────────────────────────────────────
@@ -217,6 +220,8 @@ app.use('/reveal', apiLimiter);
 // 🔐 Apply limiter to token-aware endpoints as well
 app.use('/me', apiLimiter);
 app.use('/userStatsToken', apiLimiter);
+// 🔄 Apply limiter to trade endpoints
+app.use('/trade', apiLimiter);
 
 // Core feature routes
 app.use('/duel', duelRoutes);              // /duel/practice, /duel/turn, /duel/status, /duel/state
@@ -235,6 +240,9 @@ app.use('/reveal', revealRoute);
 //  - POST /me/:token/sell
 //  - GET  /userStatsToken?token=...
 app.use('/', meTokenRouter);
+
+// 🔄 Trade endpoints mounted at root (need the live Discord client for DMs)
+app.use('/', createTradeRouter(bot));
 
 app.use('/public', express.static('public'));
 
