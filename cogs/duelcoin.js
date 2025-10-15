@@ -1,4 +1,9 @@
 // cogs/duelcoin.js — Admin-only coin adjuster with full debug logging
+// Additions:
+//  • Token-aware collection link in confirmations (&ts=...)
+//  • Ensures target player has a token (mint if missing) for deep-linking
+//  • Syncs coin balance into linked_decks.json as well as coin_bank.json
+//  • DMs the target user their new balance + collection link (graceful failure handling)
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -15,14 +20,53 @@ import {
   TextInputBuilder,
   TextInputStyle
 } from 'discord.js';
+import crypto from 'crypto';
 
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
-const coinBankPath = path.resolve('./data/coin_bank.json');
+const coinBankPath    = path.resolve('./data/coin_bank.json');
+
+/* ---------------- config helpers (mirrors duelcard style) ---------------- */
+function loadConfig() {
+  try {
+    const raw = process.env.CONFIG_JSON;
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn(`[duelcoin] CONFIG_JSON parse error: ${e?.message}`);
+  }
+  try {
+    // eslint-disable-next-line import/no-dynamic-require, global-require
+    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
+  } catch {
+    return {};
+  }
+}
+function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
+function resolveCollectionBase(cfg) {
+  return trimBase(
+    cfg.collection_ui ||
+    cfg.ui_urls?.card_collection_ui ||
+    cfg.frontend_url ||
+    cfg.ui_base ||
+    cfg.UI_BASE ||
+    'https://madv313.github.io/Card-Collection-UI'
+  );
+}
+function resolveApiBase(cfg) {
+  return trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+}
+function randomToken(len = 24) {
+  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+}
 
 export default async function registerDuelCoin(client) {
+  const CFG = loadConfig();
+  const COLLECTION_BASE = resolveCollectionBase(CFG);
+  const API_BASE        = resolveApiBase(CFG);
+  const apiQP           = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+
   const commandData = new SlashCommandBuilder()
     .setName('duelcoin')
     .setDescription('Admin only: Give or take coins from a player.')
@@ -39,7 +83,7 @@ export default async function registerDuelCoin(client) {
       console.log(`[${timestamp}] 🔸 /duelcoin triggered by ${executor}`);
 
       const userRoles = interaction.member?.roles?.cache;
-      const isAdmin = userRoles?.has(ADMIN_ROLE_ID);
+      const isAdmin   = userRoles?.has(ADMIN_ROLE_ID);
       const channelId = interaction.channelId;
 
       if (!isAdmin) {
@@ -179,6 +223,7 @@ export default async function registerDuelCoin(client) {
         await selectInteraction.showModal(modal);
       });
 
+      // NOTE: Keep listener as in your original file; scoped filter prevents noise.
       client.on('interactionCreate', async modalInteraction => {
         if (!modalInteraction.isModalSubmit()) return;
         if (!modalInteraction.customId.startsWith('duelcoin:amount:')) return;
@@ -195,29 +240,91 @@ export default async function registerDuelCoin(client) {
           return modalInteraction.reply({ content: '⚠️ Invalid amount.', ephemeral: true });
         }
 
+        // Read coin bank (legacy store)
         let coinData = {};
         try {
           const raw = await fs.readFile(coinBankPath, 'utf-8');
           coinData = JSON.parse(raw);
         } catch {
-          console.warn(`[${modalTimestamp}] ⚠️ Could not read coin bank file.`);
+          console.warn(`[${modalTimestamp}] ⚠️ Could not read coin bank file (will create).`);
         }
 
-        const current = coinData[userId] ?? 0;
-        const newBalance = mode === 'give' ? current + amount : Math.max(0, current - amount);
-        coinData[userId] = newBalance;
+        // Ensure linked decks is available & player entry exists
+        let linked = {};
+        try {
+          const raw = await fs.readFile(linkedDecksPath, 'utf-8');
+          linked = JSON.parse(raw);
+        } catch {
+          console.warn(`[${modalTimestamp}] ⚠️ Could not read linked_decks.json (will create).`);
+          linked = {};
+        }
+
+        if (!linked[userId]) {
+          linked[userId] = {
+            discordName: (await modalInteraction.client.users.fetch(userId).catch(() => null))?.username || 'Unknown',
+            deck: [],
+            collection: {},
+            createdAt: new Date().toISOString()
+          };
+        }
+
+        // Ensure player has a token for deep-linking to collection UI
+        if (!linked[userId].token || typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
+          linked[userId].token = randomToken(24);
+        }
+
+        const currentLegacy = coinData[userId] ?? 0;
+        const currentLinked = Number(linked[userId].coins ?? currentLegacy ?? 0);
+
+        const newBalance = mode === 'give'
+          ? currentLinked + amount
+          : Math.max(0, currentLinked - amount);
+
+        // Write both stores to keep backward compat
+        coinData[userId]     = newBalance;
+        linked[userId].coins = newBalance;
+        linked[userId].coinsUpdatedAt = new Date().toISOString();
 
         const adminUsername = modalInteraction.user.username;
-        const targetName = linkedData[userId]?.discordName || 'Unknown';
+        const targetName    = linked[userId]?.discordName || 'Unknown';
 
         console.log(`[${modalTimestamp}] 💼 Admin ${adminUsername} executed: ${mode.toUpperCase()} ${amount} coins ${mode === 'give' ? 'to' : 'from'} ${targetName} (${userId}) — New Balance: ${newBalance}`);
 
         await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
+        await fs.writeFile(linkedDecksPath, JSON.stringify(linked, null, 2));
 
+        // Build tokenized collection URL (with &ts= for cache-bust; fromPackReveal=false here)
+        const ts = Date.now();
+        const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(linked[userId].token)}${apiQP}&ts=${ts}`;
+
+        // Non-ephemeral channel confirmation (as before)
         await modalInteraction.reply({
-          content: `✅ <@${modalInteraction.user.id}> ${mode === 'give' ? 'gave' : 'took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance 🪙: ${newBalance}`,
+          content: `✅ <@${modalInteraction.user.id}> ${mode === 'give' ? 'gave' : 'took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance 🪙: ${newBalance}\n📒 **View ${targetName}'s Collection:** ${collectionUrl}`,
           ephemeral: false
         });
+
+        // DM the user with their updated balance & the collection link (ignore errors, notify admins in console)
+        try {
+          const user = await modalInteraction.client.users.fetch(userId);
+          const dmEmbed = new EmbedBuilder()
+            .setTitle('🪙 Coin Balance Updated')
+            .setDescription(`Your new balance is **${newBalance}** coins.`)
+            .setColor(0x00ccff);
+
+          await user.send({
+            embeds: [dmEmbed],
+            content: `View your collection: ${collectionUrl}`
+          });
+        } catch (e) {
+          console.warn(`[${modalTimestamp}] ⚠️ Failed to DM user ${userId}:`, e?.message || e);
+          // Optional: also notify admins in-channel (kept minimal to avoid spam)
+          try {
+            await modalInteraction.followUp({
+              content: `⚠️ Could not DM <@${userId}> their updated balance. They may have DMs disabled.`,
+              ephemeral: true
+            });
+          } catch {}
+        }
       });
     }
   });
