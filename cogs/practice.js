@@ -87,8 +87,9 @@ const DUEL_UI_URL = pick(
   'http://localhost:5173'
 );
 
-// Whether to append &api=<public-backend> to the UI link (default false since UI proxies /api now)
-const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?? 'false').toLowerCase() === 'true';
+// Whether to append &api=<public-backend> to the UI link.
+// 🔄 Default changed to TRUE so the UI link always carries the API unless you turn it off in env/config.
+const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?? 'true').toLowerCase() === 'true';
 
 /** ───────────────────────────
  * Token + profile helpers (ensure invoking admin has a token)
@@ -242,7 +243,8 @@ export default async function registerPractice(bot) {
         if (!res.ok) {
           throw new Error(`Backend responded ${httpStatus}: ${textPeek.slice(0, 300)} (INTERNAL_BACKEND_URL=${INTERNAL_BACKEND_URL})`);
         }
-        // Optionally: const duelState = JSON.parse(textPeek);
+        // Optionally parse duel state:
+        // const duelState = JSON.parse(textPeek);
       } catch (err) {
         log.error('init.fail', { traceId, err: String(err), status: httpStatus, durationMs });
         await interaction.editReply({
@@ -262,10 +264,10 @@ export default async function registerPractice(bot) {
         log.warn('token.ensure.fail', { traceId, userId: user.id, err: String(e) });
       }
 
-      // Build UI link
+      // Build UI link — always include token; include api by default (can disable via env/config)
       const qp = new URLSearchParams();
       qp.set('mode', 'practice');
-      if (token) qp.set('token', token);
+      qp.set('token', token || ''); // carry user’s token for downstream Hub/Collection/etc
 
       if (PASS_API_QUERY) {
         qp.set('api', PUBLIC_BACKEND_URL);
