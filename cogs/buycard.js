@@ -1,8 +1,8 @@
 // cogs/buycard.js — Player command to buy a 3-card pack for 3 coins.
+// - Confined to #manage-cards channel
 // - Checks coin balance (>=3), decrements on success, enforces 247-card cap
 // - Enforces 1 purchase per 24 hours (cooldown)
-// - Confined to #manage-cards channel
-// - Accepts optional `token` input to use/persist a player’s token
+// - Uses player's stored token automatically (mints if missing)
 // - Updates linked_decks.json collection + lastPackPurchasedAt
 // - Generates tokenized reveal JSON (by userId and by token) for Pack Reveal UI
 // - DMs the buyer with the tokenized Pack Reveal URL
@@ -137,13 +137,7 @@ export default async function registerBuyCard(client) {
 
   const commandData = new SlashCommandBuilder()
     .setName('buycard')
-    .setDescription(`Buy a 3-card pack for ${PACK_COST_COINS} coins (1 per 24h).`)
-    .addStringOption(opt =>
-      opt
-        .setName('token')
-        .setDescription('Use your existing player token (optional)')
-        .setRequired(false)
-    );
+    .setDescription(`Buy a 3-card pack for ${PACK_COST_COINS} coins (1 per 24h).`);
 
   client.slashData.push(commandData.toJSON());
 
@@ -160,7 +154,6 @@ export default async function registerBuyCard(client) {
 
       const buyerId = interaction.user.id;
       const buyer   = interaction.user;
-      const providedTokenRaw = interaction.options.getString('token') || '';
 
       // Load cards (skip #000 back)
       let allCards = [];
@@ -228,14 +221,8 @@ export default async function registerBuyCard(client) {
       // Deduct coins
       profile.coins = currentCoins - PACK_COST_COINS;
 
-      // Accept/validate provided token (optional)
-      const cleanProvided =
-        providedTokenRaw && /^[A-Za-z0-9_-]{12,128}$/.test(providedTokenRaw) ? providedTokenRaw : null;
-
-      // Ensure token (prefer provided if valid, else keep existing or mint new)
-      if (cleanProvided) {
-        profile.token = cleanProvided;
-      } else if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
+      // Ensure token automatically (no user input)
+      if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
         profile.token = randomToken(24);
       }
 
