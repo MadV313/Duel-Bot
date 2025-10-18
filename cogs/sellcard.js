@@ -1,6 +1,7 @@
 // cogs/sellcard.js — Gives the invoker their personal Card Collection UI link for selling.
 // - Confined to #manage-cards channel
 // - Auto-uses/mints the player's token from linked_decks.json
+// - ALSO accepts optional `token` to pass a specific player token and persist it
 // - Sends an embed with the Collection URL + selling instructions (limit 5/day)
 //
 // Config keys used (ENV CONFIG_JSON or config.json fallback):
@@ -69,6 +70,9 @@ async function writeJson(file, data) {
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
+function isTokenValid(t) {
+  return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
+}
 
 /* ---------------- command registration ---------------- */
 export default async function registerSellCard(client) {
@@ -82,7 +86,13 @@ export default async function registerSellCard(client) {
 
   const commandData = new SlashCommandBuilder()
     .setName('sellcard')
-    .setDescription('Get your personal collection link to sell cards (limit 5/day).');
+    .setDescription('Get your personal collection link to sell cards (limit 5/day).')
+    .addStringOption(opt =>
+      opt
+        .setName('token')
+        .setDescription('(Optional) Provide a specific player token to use/persist')
+        .setRequired(false)
+    );
 
   client.slashData.push(commandData.toJSON());
 
@@ -99,8 +109,9 @@ export default async function registerSellCard(client) {
 
       const userId = interaction.user.id;
       const username = interaction.user.username;
+      const providedToken = interaction.options.getString('token');
 
-      // Ensure profile + token
+      // Ensure profile
       const linked = await readJson(linkedDecksPath, {});
       if (!linked[userId]) {
         linked[userId] = {
@@ -113,7 +124,11 @@ export default async function registerSellCard(client) {
       } else if (linked[userId].discordName !== username) {
         linked[userId].discordName = username;
       }
-      if (!linked[userId].token || typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
+
+      // Token logic: accept provided token if valid, else auto-use/mint stored token
+      if (isTokenValid(providedToken)) {
+        linked[userId].token = providedToken.trim();
+      } else if (!isTokenValid(linked[userId].token)) {
         linked[userId].token = randomToken(24);
       }
 
