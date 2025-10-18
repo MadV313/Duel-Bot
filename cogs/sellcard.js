@@ -1,8 +1,9 @@
 // cogs/sellcard.js — Gives the invoker their personal Card Collection UI link for selling.
 // - Confined to #manage-cards channel
 // - Auto-uses/mints the player's token from linked_decks.json
-// - ALSO accepts optional `token` to pass a specific player token and persist it
-// - Sends an embed with the Collection URL + selling instructions (limit 5/day)
+// - If the player has already sold 5 cards in the last 24h, returns a warning embed
+//   with a countdown until they can sell again (no link shown in that case)
+// - Otherwise, sends an embed with the Collection URL + selling instructions (limit 5/day)
 //
 // Config keys used (ENV CONFIG_JSON or config.json fallback):
 //   manage_cards_channel_id
@@ -11,6 +12,11 @@
 //
 // Files used:
 //   ./data/linked_decks.json
+//
+// Notes:
+// - This command only *warns* about the daily sell limit based on profile.sellStats.
+//   Your Collection UI/back-end should still enforce the limit during actual sale.
+// - We track a simple rolling 24h window via sellStats: { windowStartISO, sellsInWindow }.
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -73,6 +79,19 @@ function randomToken(len = 24) {
 function isTokenValid(t) {
   return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
 }
+function fmtHMS(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/* ---------------- constants ---------------- */
+const DAILY_SELL_LIMIT = 5;
+const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /* ---------------- command registration ---------------- */
 export default async function registerSellCard(client) {
@@ -86,13 +105,7 @@ export default async function registerSellCard(client) {
 
   const commandData = new SlashCommandBuilder()
     .setName('sellcard')
-    .setDescription('Get your personal collection link to sell cards (limit 5/day).')
-    .addStringOption(opt =>
-      opt
-        .setName('token')
-        .setDescription('(Optional) Provide a specific player token to use/persist')
-        .setRequired(false)
-    );
+    .setDescription('Get your personal collection link to sell cards (limit 5/day).');
 
   client.slashData.push(commandData.toJSON());
 
@@ -109,7 +122,6 @@ export default async function registerSellCard(client) {
 
       const userId = interaction.user.id;
       const username = interaction.user.username;
-      const providedToken = interaction.options.getString('token');
 
       // Ensure profile
       const linked = await readJson(linkedDecksPath, {});
@@ -125,13 +137,47 @@ export default async function registerSellCard(client) {
         linked[userId].discordName = username;
       }
 
-      // Token logic: accept provided token if valid, else auto-use/mint stored token
-      if (isTokenValid(providedToken)) {
-        linked[userId].token = providedToken.trim();
-      } else if (!isTokenValid(linked[userId].token)) {
+      // Ensure token (no user input)
+      if (!isTokenValid(linked[userId].token)) {
         linked[userId].token = randomToken(24);
       }
 
+      // Check daily sell limit window (advisory only; UI/back-end must enforce)
+      const now = Date.now();
+      const stats = linked[userId].sellStats || {};
+      let windowStart = stats.windowStartISO ? Date.parse(stats.windowStartISO) : 0;
+      let sellsInWindow = Number.isFinite(stats.sellsInWindow) ? Number(stats.sellsInWindow) : 0;
+
+      // If window missing/stale, reset it
+      if (!windowStart || (now - windowStart) >= WINDOW_MS) {
+        windowStart = now;
+        sellsInWindow = 0;
+        linked[userId].sellStats = { windowStartISO: new Date(windowStart).toISOString(), sellsInWindow };
+        await writeJson(linkedDecksPath, linked);
+      }
+
+      // If limit already hit, return warning embed with countdown (no link)
+      if (sellsInWindow >= DAILY_SELL_LIMIT) {
+        const waitMs = WINDOW_MS - (now - windowStart);
+        const warn = new EmbedBuilder()
+          .setTitle('⏳ Daily Sell Limit Reached')
+          .setDescription(
+            [
+              `You’ve already sold **${DAILY_SELL_LIMIT} cards** in the last 24 hours.`,
+              `Please come back in **${fmtHMS(waitMs)}** to continue selling.`,
+              '',
+              '_Tip: You can still browse your collection, but further sales are blocked until the timer resets._'
+            ].join('\n')
+          )
+          .setColor(0xff9900);
+
+        return interaction.reply({
+          embeds: [warn],
+          ephemeral: true
+        });
+      }
+
+      // Otherwise, return Collection link + selling instructions
       await writeJson(linkedDecksPath, linked);
 
       const token = linked[userId].token;
