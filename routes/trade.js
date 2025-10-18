@@ -6,6 +6,8 @@
 //   POST /trade/:session/select
 //   POST /trade/:session/decision
 //   GET  /me/:token/trade/limits
+//   NEW: GET /trade/:session/collections?token=...   (session-gated view of both collections)
+//   NEW: GET /trade/:session/summary?token=...       (summary of both selections with metadata)
 //
 // Factory router so we can DM via Discord client from server.js
 
@@ -21,6 +23,7 @@ import {
 const linkedDecksPath   = path.resolve('./data/linked_decks.json');
 const tradesPath        = path.resolve('./data/trades.json');
 const tradeLimitsPath   = path.resolve('./data/trade_limits.json');
+const cardListPath      = path.resolve('./logic/CoreMasterReference.json');
 
 const MAX_PER_DAY = 3;
 const SESSION_TTL_HOURS = 24;
@@ -76,6 +79,46 @@ function buildUiLink({ base, token, apiBase, sessionId, role, stage, partnerName
   if (partnerName) qp.set('partner', partnerName);
   qp.set('ts', String(ts));
   return `${String(base || '').replace(/\/+$/, '')}/index.html?${qp.toString()}`;
+}
+
+/* ---------------- Card metadata helpers (for thumbnails/labels) ---------------- */
+let __cardIndex = null;
+async function loadCardIndex() {
+  if (__cardIndex) return __cardIndex;
+  const raw = await readJson(cardListPath, []);
+  const list = Array.isArray(raw) ? raw : (raw.cards || []);
+  const index = {};
+  for (const c of list) {
+    const id = pad3(c.card_id);
+    index[id] = {
+      name: c.name,
+      rarity: c.rarity || 'Common',
+      type: c.type || '',
+      filename: c.filename || `${id}_${String(c.name||'').replace(/[^a-zA-Z0-9._-]/g,'')}_${String(c.type||'').replace(/[^a-zA-Z0-9._-]/g,'')}.png`
+    };
+  }
+  __cardIndex = index;
+  return __cardIndex;
+}
+function metaFor(id, idx) {
+  return idx[id] || { name: `#${id}`, rarity: 'Common', type: '', filename: `${id}.png` };
+}
+function collectionToArray(collection = {}, idx = {}) {
+  const out = [];
+  for (const [id, qtyRaw] of Object.entries(collection)) {
+    const qty = Number(qtyRaw || 0);
+    if (qty <= 0) continue;
+    const m = metaFor(id, idx);
+    out.push({ card_id: `#${id}`, id, qty, name: m.name, rarity: m.rarity, filename: m.filename });
+  }
+  // sort nicely: rarity then id
+  out.sort((a, b) => {
+    const rOrder = { Legendary: 3, Rare: 2, Uncommon: 1, Common: 0 };
+    const dr = (rOrder[b.rarity]||0) - (rOrder[a.rarity]||0);
+    if (dr) return dr;
+    return a.id.localeCompare(b.id);
+  });
+  return out;
 }
 
 export default function createTradeRouter(bot) {
@@ -146,13 +189,13 @@ export default function createTradeRouter(bot) {
           userId: initiatorId,
           token: iniProfile.token,
           name: iniProfile.discordName || initiatorId,
-          selection: [],            // up to 3
+          selection: [],            // up to 3 (ids)
         },
         partner: {
           userId: partnerId,
           token: parProfile.token,
           name: parProfile.discordName || partnerId,
-          selection: [],            // up to 3
+          selection: [],            // up to 3 (ids)
         }
       };
 
@@ -239,6 +282,89 @@ export default function createTradeRouter(bot) {
       return res.json(payload);
     } catch (e) {
       console.error('[trade/state] error:', e);
+      return res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  // NEW: GET /trade/:session/collections?token=...
+  // Returns role + both collections (with metadata) for session-gated viewing in UI.
+  router.get('/trade/:session/collections', async (req, res) => {
+    try {
+      const { session } = req.params;
+      const { token } = req.query || {};
+      if (!token) return res.status(400).json({ error: 'Missing token' });
+
+      const trades = await readJson(tradesPath, {});
+      const s = trades[session];
+      if (!s) return res.status(404).json({ error: 'Session not found' });
+
+      // Identify which side is requesting
+      let role = null;
+      if (token === s.initiator.token) role = 'initiator';
+      else if (token === s.partner.token) role = 'partner';
+      else return res.status(403).json({ error: 'Invalid session token' });
+
+      // Load profiles and card metadata
+      const [linked, idx] = await Promise.all([readJson(linkedDecksPath, {}), loadCardIndex()]);
+      const A = linked[s.initiator.userId] || {};
+      const B = linked[s.partner.userId] || {};
+
+      const myCol      = role === 'initiator' ? A.collection : B.collection;
+      const partnerCol = role === 'initiator' ? B.collection : A.collection;
+
+      return res.json({
+        ok: true,
+        role,
+        status: s.status,
+        stage: s.stage,
+        me: collectionToArray(myCol || {}, idx),
+        partner: collectionToArray(partnerCol || {}, idx)
+      });
+    } catch (e) {
+      console.error('[trade/collections] error:', e);
+      return res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  // NEW: GET /trade/:session/summary?token=...
+  // Returns both sides’ selections with metadata for a confirmation screen.
+  router.get('/trade/:session/summary', async (req, res) => {
+    try {
+      const { session } = req.params;
+      const { token } = req.query || {};
+      if (!token) return res.status(400).json({ error: 'Missing token' });
+
+      const trades = await readJson(tradesPath, {});
+      const s = trades[session];
+      if (!s) return res.status(404).json({ error: 'Session not found' });
+
+      if (![s.initiator.token, s.partner.token].includes(token)) {
+        return res.status(403).json({ error: 'Invalid session token' });
+      }
+
+      const idx = await loadCardIndex();
+      const mapSel = (arr=[]) => arr.map(id => {
+        const m = metaFor(id, idx);
+        return { card_id: `#${id}`, id, name: m.name, rarity: m.rarity, filename: m.filename };
+      });
+
+      return res.json({
+        ok: true,
+        status: s.status,
+        stage: s.stage,
+        initiator: {
+          userId: s.initiator.userId,
+          name: s.initiator.name,
+          selection: mapSel(s.initiator.selection)
+        },
+        partner: {
+          userId: s.partner.userId,
+          name: s.partner.name,
+          selection: mapSel(s.partner.selection)
+        }
+      });
+    } catch (e) {
+      console.error('[trade/summary] error:', e);
       return res.status(500).json({ error: 'Internal error' });
     }
   });
