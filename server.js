@@ -60,8 +60,10 @@ const envClient = process.env.CLIENT_ID;  // may be undefined; we’ll fallback 
 const guildId   = process.env.GUILD_ID;
 const SAFE_MODE = process.env.SAFE_MODE === 'true';
 const SYNC_SCOPE = (process.env.SYNC_SCOPE || 'guild').toLowerCase(); // 'guild' (default) or 'global'
+const LAST_RESORT_GLOBAL = String(process.env.LAST_RESORT_GLOBAL || 'false').toLowerCase() === 'true';
+const DEBUG_KEY = process.env.X_BOT_KEY || process.env.BOT_KEY || process.env.ADMIN_KEY || ''; // for /debug endpoints
 
-console.log('🔍 ENV CHECK:', { hasToken: !!token, clientId: envClient, guildId, SAFE_MODE, SYNC_SCOPE });
+console.log('🔍 ENV CHECK:', { hasToken: !!token, clientId: envClient, guildId, SAFE_MODE, SYNC_SCOPE, LAST_RESORT_GLOBAL });
 
 if (!token || !guildId) {
   console.error('❌ Missing required env: DISCORD_TOKEN or GUILD_ID');
@@ -121,13 +123,9 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
   console.time('⏱️ Slash Sync Duration');
 
   // 1) Try bulk overwrite (fast path) with 60s cap
-  let bulkOk = false;
   try {
     const result = await Promise.race([
-      (async () => {
-        const res = await rest.put(routeBulk, { body: slashData });
-        return res;
-      })(),
+      rest.put(routeBulk, { body: slashData }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ bulk PUT timeout after 60s')), 60000))
     ]);
     if (Array.isArray(result)) {
@@ -135,40 +133,41 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
       console.log(`✅ ${upper} bulk overwrite OK (${result.length})`);
       return { ok: true, total: result.length, mode: 'bulk' };
     }
-    bulkOk = false;
   } catch (e) {
     console.warn(`⚠️ ${upper} bulk overwrite failed:`, e?.message || e);
-    bulkOk = false;
     console.timeEnd('⏱️ Slash Sync Duration');
   }
 
-  // 2) Fallback: sequential upsert (POST each)
+  // 2) Fallback: sequential upsert (POST each) with verbose counters
   console.log(`🛟 Falling back to sequential ${upper} upserts...`);
   const routePost = scope === 'global'
     ? Routes.applicationCommands(clientId)
     : Routes.applicationGuildCommands(clientId, guildId);
 
-  let created = 0;
+  let created = 0, failed = 0;
   for (const cmd of slashData) {
     try {
       const res = await rest.post(routePost, { body: cmd });
       created += res?.id ? 1 : 0;
-      console.log(`  • upserted /${res?.name || cmd?.name}`);
+      console.log(`  • upserted /${res?.name || cmd?.name} (${res?.id || 'no id'})`);
       await sleep(300);
     } catch (e) {
+      failed++;
+      const apiPayload = e?.rawError || e?.response?.data || e?.data || null;
       console.error(`  ✖ upsert failed for /${cmd?.name}:`, e?.status || '', e?.message || e);
+      if (apiPayload) console.error('    ↳ payload:', JSON.stringify(apiPayload, null, 2));
     }
   }
+  console.log(`🧮 Sequential result: created=${created}, failed=${failed}, total=${slashData.length}`);
 
   if (created > 0) {
-    console.log(`✅ Sequential ${upper} upserts complete (${created}/${slashData.length})`);
-    return { ok: true, total: created, mode: 'sequential' };
+    return { ok: true, total: created, failed, mode: 'sequential' };
   }
 
-  // 3) Last-resort (only when scope=guild): register globally so commands still appear
-  if (scope === 'guild') {
+  // 3) Last-resort GLOBAL registration (optional)
+  if (scope === 'guild' && LAST_RESORT_GLOBAL) {
     try {
-      console.warn('🧯 Last-resort: registering as GLOBAL so the commands show up while guild route is flaky…');
+      console.warn('🧯 Last-resort: registering as GLOBAL so commands eventually appear…');
       const res = await rest.put(Routes.applicationCommands(clientId), { body: slashData });
       console.log(`✅ GLOBAL fallback registered (${res?.length ?? 0})`);
       return { ok: true, total: res?.length ?? 0, mode: 'global-fallback' };
@@ -180,7 +179,7 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
   return { ok: false, error: 'All registration strategies failed' };
 }
 
-// Make it callable by cogs (/resync)
+// Make it callable by cogs (/resync) and by debug endpoint
 bot.syncCommands = async () => {
   const clientId = envClient || bot.application?.id;
   if (!clientId) throw new Error('No CLIENT_ID and client.application.id not available.');
@@ -193,7 +192,20 @@ bot.syncCommands = async () => {
   });
 };
 
-// Boot sequence
+// Utility: list what DISCORD currently has (guild + global)
+async function listDiscordCommands(scope, clientId) {
+  const rest = new REST({ version: '10' }).setToken(token);
+  if (scope === 'guild') {
+    const arr = await rest.get(Routes.applicationGuildCommands(clientId, guildId));
+    return arr.map(c => ({ id: c.id, name: c.name, type: c.type, dm_permission: c.dm_permission, default_member_permissions: c.default_member_permissions }));
+  }
+  const arr = await rest.get(Routes.applicationCommands(clientId));
+  return arr.map(c => ({ id: c.id, name: c.name, type: c.type }));
+}
+
+/* ──────────────────────────────────────────────────────────
+ * Boot sequence
+ * ────────────────────────────────────────────────────────── */
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
@@ -263,21 +275,20 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Bot-Key'],
 }));
 app.use(helmet());
-// Slightly higher JSON limit (sell & future trade payloads are small, but this is safe)
 app.use(express.json({ limit: '256kb' }));
 
 // Rate limiter (define before use)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,   // v6
-  limit: 100, // v7 (ignored on v6)
+  max: 100,
+  limit: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '🚫 Too many requests. Please try again later.' }
 });
 
 /* ──────────────────────────────────────────────────────────
- * Health + route inventory
+ * Health + route inventory + debug
  * ────────────────────────────────────────────────────────── */
 app.get('/health', (_req, res) => res.type('text/plain').send('ok'));
 app.get('/_routes', (_req, res) => {
@@ -295,24 +306,47 @@ app.get('/_routes', (_req, res) => {
   res.json(list);
 });
 
-// Optional: small endpoint to show last slashData snapshot (debug)
+// Shows what *we* are trying to register
 app.get('/_slash', (_req, res) => {
   res.json({ count: bot.slashData.length, names: summarizeSlashData(bot.slashData) });
+});
+
+// 🔧 Debug: query DISCORD for what commands exist right now (guild + global)
+app.get('/debug/discord-commands', async (req, res) => {
+  try {
+    if (DEBUG_KEY && req.headers['x-bot-key'] !== DEBUG_KEY) return res.status(403).json({ error: 'forbidden' });
+    const clientId = envClient || bot.application?.id;
+    const guild = await listDiscordCommands('guild', clientId);
+    const global = await listDiscordCommands('global', clientId);
+    res.json({ guildId, guild_count: guild.length, guild, global_count: global.length, global });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// 🔧 Debug: force a resync via HTTP (use X-Bot-Key)
+app.post('/debug/resync', async (req, res) => {
+  try {
+    if (DEBUG_KEY && req.headers['x-bot-key'] !== DEBUG_KEY) return res.status(403).json({ error: 'forbidden' });
+    const out = await bot.syncCommands();
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 /* ──────────────────────────────────────────────────────────
  * Routes
  * ────────────────────────────────────────────────────────── */
-// Apply limiter to API surfaces
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 app.use('/collection', apiLimiter);
 app.use('/reveal', apiLimiter);
-// 🔐 Apply limiter to token-aware endpoints as well
+// 🔐 token-aware
 app.use('/me', apiLimiter);
 app.use('/userStatsToken', apiLimiter);
-// 🔄 Apply limiter to trade endpoints
+// 🔄 trade
 app.use('/trade', apiLimiter);
 
 // Core feature routes
@@ -327,10 +361,6 @@ app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
 // 🔐 Token-aware endpoints mounted at root
-//  - GET /me/:token/collection
-//  - GET /me/:token/stats
-//  - POST /me/:token/sell
-//  - GET  /userStatsToken?token=...
 app.use('/', meTokenRouter);
 
 // 🔄 Trade endpoints mounted at root (need the live Discord client for DMs)
