@@ -13,7 +13,6 @@ import {
 } from 'discord.js';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { config as dotenvConfig } from 'dotenv';
-
 import duelRoutes, { botAlias as botPracticeAlias } from './routes/duel.js';
 
 // Optional routes used elsewhere in your repo
@@ -56,18 +55,16 @@ try {
 /* ──────────────────────────────────────────────────────────
  * Discord client
  * ────────────────────────────────────────────────────────── */
-const token    = process.env.DISCORD_TOKEN;
-const clientId = process.env.CLIENT_ID;
-const guildId  = process.env.GUILD_ID;
-const SAFE_MODE = String(process.env.SAFE_MODE || 'false').toLowerCase() === 'true';
+const token     = process.env.DISCORD_TOKEN;
+const envClient = process.env.CLIENT_ID;  // may be undefined; we’ll fallback to client.application.id after login
+const guildId   = process.env.GUILD_ID;
+const SAFE_MODE = process.env.SAFE_MODE === 'true';
+const SYNC_SCOPE = (process.env.SYNC_SCOPE || 'guild').toLowerCase(); // 'guild' (default) or 'global'
 
-// optional knob if you ever want to flip to global in the future
-const SYNC_SCOPE = (process.env.SYNC_SCOPE || 'guild').toLowerCase();
+console.log('🔍 ENV CHECK:', { hasToken: !!token, clientId: envClient, guildId, SAFE_MODE, SYNC_SCOPE });
 
-console.log('🔍 ENV CHECK:', { hasToken: !!token, clientId, guildId, SAFE_MODE, SYNC_SCOPE });
-
-if (!token || !clientId || !guildId) {
-  console.error('❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID');
+if (!token || !guildId) {
+  console.error('❌ Missing required env: DISCORD_TOKEN or GUILD_ID');
   process.exit(1);
 }
 
@@ -98,27 +95,105 @@ const loadCommands = async () => {
   }
 };
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-/** Pretty-print helper for command inventories */
-function shortList(cmds) {
-  if (!Array.isArray(cmds)) return '[]';
-  return cmds.map(c => {
-    const name = c.name;
-    const type = c.type ?? 1;
-    const perm = c.default_member_permissions ?? 'null';
-    return `${name}{type=${type},perm=${perm}}`;
-  }).join(', ');
+/** Build a human-readable list of the command names we’re syncing. */
+function summarizeSlashData(slashData) {
+  try {
+    return slashData.map(c => c?.name).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
-// --- replace your current "Slash registration + login" IIFE with this one ---
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-function shortList(cmds) {
-  if (!Array.isArray(cmds)) return '[]';
-  return cmds.map(c => c.name).join(', ');
+/** Robust command sync with fallbacks; exposed as bot.syncCommands() and used on boot + /resync. */
+async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'guild' }) {
+  const rest = new REST({ version: '10' }).setToken(token);
+  const names = summarizeSlashData(slashData);
+  const upper = scope.toUpperCase();
+  console.log(`🔁 Syncing ${slashData.length} ${upper} slash commands...`);
+  console.log('   →', names.join(', ') || '(none)');
+
+  const routeBulk = scope === 'global'
+    ? Routes.applicationCommands(clientId)
+    : Routes.applicationGuildCommands(clientId, guildId);
+
+  console.time('⏱️ Slash Sync Duration');
+
+  // 1) Try bulk overwrite (fast path) with 60s cap
+  let bulkOk = false;
+  try {
+    const result = await Promise.race([
+      (async () => {
+        const res = await rest.put(routeBulk, { body: slashData });
+        return res;
+      })(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ bulk PUT timeout after 60s')), 60000))
+    ]);
+    if (Array.isArray(result)) {
+      console.timeEnd('⏱️ Slash Sync Duration');
+      console.log(`✅ ${upper} bulk overwrite OK (${result.length})`);
+      return { ok: true, total: result.length, mode: 'bulk' };
+    }
+    bulkOk = false;
+  } catch (e) {
+    console.warn(`⚠️ ${upper} bulk overwrite failed:`, e?.message || e);
+    bulkOk = false;
+    console.timeEnd('⏱️ Slash Sync Duration');
+  }
+
+  // 2) Fallback: sequential upsert (POST each)
+  console.log(`🛟 Falling back to sequential ${upper} upserts...`);
+  const routePost = scope === 'global'
+    ? Routes.applicationCommands(clientId)
+    : Routes.applicationGuildCommands(clientId, guildId);
+
+  let created = 0;
+  for (const cmd of slashData) {
+    try {
+      const res = await rest.post(routePost, { body: cmd });
+      created += res?.id ? 1 : 0;
+      console.log(`  • upserted /${res?.name || cmd?.name}`);
+      await sleep(300);
+    } catch (e) {
+      console.error(`  ✖ upsert failed for /${cmd?.name}:`, e?.status || '', e?.message || e);
+    }
+  }
+
+  if (created > 0) {
+    console.log(`✅ Sequential ${upper} upserts complete (${created}/${slashData.length})`);
+    return { ok: true, total: created, mode: 'sequential' };
+  }
+
+  // 3) Last-resort (only when scope=guild): register globally so commands still appear
+  if (scope === 'guild') {
+    try {
+      console.warn('🧯 Last-resort: registering as GLOBAL so the commands show up while guild route is flaky…');
+      const res = await rest.put(Routes.applicationCommands(clientId), { body: slashData });
+      console.log(`✅ GLOBAL fallback registered (${res?.length ?? 0})`);
+      return { ok: true, total: res?.length ?? 0, mode: 'global-fallback' };
+    } catch (e) {
+      console.error('💀 GLOBAL last-resort registration failed:', e?.message || e);
+    }
+  }
+
+  return { ok: false, error: 'All registration strategies failed' };
 }
 
+// Make it callable by cogs (/resync)
+bot.syncCommands = async () => {
+  const clientId = envClient || bot.application?.id;
+  if (!clientId) throw new Error('No CLIENT_ID and client.application.id not available.');
+  return doSyncCommands({
+    token,
+    clientId,
+    guildId,
+    slashData: bot.slashData,
+    scope: SYNC_SCOPE
+  });
+};
+
+// Boot sequence
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
@@ -127,89 +202,27 @@ function shortList(cmds) {
       bot.slashData = [
         new SlashCommandBuilder().setName('ping').setDescription('Test if bot is alive').toJSON()
       ];
+      bot.commands.set('ping', {
+        data: { name: 'ping' },
+        async execute(i) { await i.reply({ content: 'Pong!', ephemeral: true }); }
+      });
     } else {
       await loadCommands();
     }
 
-    const rest = new REST({ version: '10' }).setToken(token);
-
-    // Inventory before cleanup
-    const [existingGlobal, existingGuild] = await Promise.all([
-      rest.get(Routes.applicationCommands(clientId)).catch(() => []),
-      rest.get(Routes.applicationGuildCommands(clientId, guildId)).catch(() => [])
-    ]);
-    console.log(`📦 Existing GLOBAL: ${existingGlobal.length} [${shortList(existingGlobal)}]`);
-    console.log(`📦 Existing GUILD : ${existingGuild.length} [${shortList(existingGuild)}]`);
-
-    // 1) Nuke GLOBAL (old leftovers shadow things)
-    console.log('🧨 Clearing GLOBAL...');
-    await rest.put(Routes.applicationCommands(clientId), { body: [] }).catch(e => {
-      console.warn('⚠️ Clear GLOBAL failed (continuing):', e?.message);
-    });
-    await sleep(800);
-
-    // 2) Nuke GUILD
-    console.log(`🧹 Clearing GUILD ${guildId}...`);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] }).catch(e => {
-      console.warn('⚠️ Clear GUILD failed (continuing):', e?.message);
-    });
-    await sleep(800);
-
-    const payload = bot.slashData;
-    console.log(`🔁 Registering ${payload.length} commands to GUILD via bulk overwrite...`);
-    let guildResult = null;
-    let bulkOk = false;
-
-    // Fast path: bulk PUT with a 60s cap
-    try {
-      guildResult = await Promise.race([
-        rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: payload }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ bulk PUT timeout after 60s')), 60000))
-      ]);
-      bulkOk = Array.isArray(guildResult);
-      console.log(`✅ Bulk GUILD overwrite OK (${guildResult?.length ?? 0})`);
-    } catch (e) {
-      console.warn('⚠️ Bulk GUILD overwrite failed:', e?.message || e);
-    }
-
-    // 3) Fallback: per-command POSTs if bulk failed or returned bad shape
-    if (!bulkOk) {
-      console.log('🛟 Falling back to sequential GUILD upserts...');
-      const route = Routes.applicationGuildCommands(clientId, guildId);
-      const created = [];
-      for (const cmd of payload) {
-        try {
-          const res = await rest.post(route, { body: cmd });
-          created.push(res?.name);
-          console.log(`  • upserted /${res?.name || cmd?.name}`);
-          await sleep(350); // gentle backoff
-        } catch (e) {
-          console.error(`  ✖ upsert failed for /${cmd?.name}:`, e?.status || '', e?.message || e);
-        }
-      }
-      if (!created.length) {
-        console.error('❌ No commands could be registered to the guild (sequential). Trying GLOBAL last-resort…');
-        try {
-          const globalRes = await rest.put(Routes.applicationCommands(clientId), { body: payload });
-          console.log(`✅ Registered as GLOBAL (${globalRes?.length ?? 0}). These will appear for everyone.`);
-        } catch (e) {
-          console.error('💀 GLOBAL last-resort registration failed too:', e?.message || e);
-        }
-      } else {
-        console.log(`✅ Sequential GUILD upserts complete (${created.length}/${payload.length}): [${created.join(', ')}]`);
-      }
-    }
-
-    // Post-sync inventory
-    const [postGlobal, postGuild] = await Promise.all([
-      rest.get(Routes.applicationCommands(clientId)).catch(() => []),
-      rest.get(Routes.applicationGuildCommands(clientId, guildId)).catch(() => [])
-    ]);
-    console.log(`🔎 After-sync GLOBAL: ${postGlobal.length} [${shortList(postGlobal)}]`);
-    console.log(`🔎 After-sync GUILD : ${postGuild.length} [${shortList(postGuild)}]`);
-
+    // Login first so we can fall back to client.application.id safely
     await bot.login(token);
-    bot.once(Events.ClientReady, () => console.log(`🤖 Bot is online as ${bot.user.tag}`));
+
+    bot.once(Events.ClientReady, async () => {
+      console.log(`🤖 Bot is online as ${bot.user.tag}`);
+      const clientId = envClient || bot.application?.id;
+      if (!clientId) {
+        console.error('❌ clientId not available; cannot sync commands.');
+        return;
+      }
+      const res = await bot.syncCommands();
+      console.log('[boot] Slash sync result:', res);
+    });
   } catch (err) {
     console.error('❌ Bot startup failed:', err);
   }
@@ -224,7 +237,7 @@ bot.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: '❌ Unknown command.', ephemeral: true });
   }
   try {
-    await command.execute(interaction);
+    await command.execute(interaction, bot);
   } catch (err) {
     console.error(`❌ Error executing /${interaction.commandName}:`, err);
     const replyMethod = interaction.deferred || interaction.replied ? 'followUp' : 'reply';
@@ -243,18 +256,21 @@ app.use(cors({
   origin: [
     /localhost:5173$/,
     /duel-ui-production\.up\.railway\.app$/,
-    /madv313\.github\.io$/
+    /madv313\.github\.io$/ // ✅ allow Card-Collection-UI & Pack-Reveal-UI on GitHub Pages
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
+  // 🔑 include X-Bot-Key for /trade/start
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Bot-Key'],
 }));
 app.use(helmet());
+// Slightly higher JSON limit (sell & future trade payloads are small, but this is safe)
 app.use(express.json({ limit: '256kb' }));
 
+// Rate limiter (define before use)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
-  limit: 100,
+  max: 100,   // v6
+  limit: 100, // v7 (ignored on v6)
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '🚫 Too many requests. Please try again later.' }
@@ -279,20 +295,29 @@ app.get('/_routes', (_req, res) => {
   res.json(list);
 });
 
+// Optional: small endpoint to show last slashData snapshot (debug)
+app.get('/_slash', (_req, res) => {
+  res.json({ count: bot.slashData.length, names: summarizeSlashData(bot.slashData) });
+});
+
 /* ──────────────────────────────────────────────────────────
  * Routes
  * ────────────────────────────────────────────────────────── */
+// Apply limiter to API surfaces
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 app.use('/collection', apiLimiter);
 app.use('/reveal', apiLimiter);
+// 🔐 Apply limiter to token-aware endpoints as well
 app.use('/me', apiLimiter);
 app.use('/userStatsToken', apiLimiter);
+// 🔄 Apply limiter to trade endpoints
 app.use('/trade', apiLimiter);
 
-app.use('/duel', duelRoutes);
-app.use('/bot', botPracticeAlias);
+// Core feature routes
+app.use('/duel', duelRoutes);              // /duel/practice, /duel/turn, /duel/status, /duel/state
+app.use('/bot', botPracticeAlias);         // /bot/practice, /bot/status
 app.use('/duel/live', liveRoutes);
 app.use('/duel', duelStartRoutes);
 app.use('/summary', summaryRoutes);
@@ -301,11 +326,19 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
+// 🔐 Token-aware endpoints mounted at root
+//  - GET /me/:token/collection
+//  - GET /me/:token/stats
+//  - POST /me/:token/sell
+//  - GET  /userStatsToken?token=...
 app.use('/', meTokenRouter);
+
+// 🔄 Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
 
 app.use('/public', express.static('public'));
 
+// Route table log after mounts
 (function printRoutes(appRef) {
   const list = [];
   appRef._router?.stack?.forEach(layer => {
