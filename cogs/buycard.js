@@ -1,23 +1,10 @@
 // cogs/buycard.js — Player command to buy a 3-card pack for 3 coins.
 // - Confined to #manage-cards channel
-// - Shows a "not linked" warning if the user hasn't run /linkdeck yet
-// - Checks coin balance (>=3), decrements on success, enforces 247-card cap
-// - Enforces 1 purchase per 24 hours (cooldown)
-// - Uses player's stored token automatically (mints if missing)
-// - Updates linked_decks.json collection + lastPackPurchasedAt
-// - Generates tokenized reveal JSON (by userId and by token) for Pack Reveal UI
-// - DMs the buyer with the tokenized Pack Reveal URL
-//
-// Config keys used (ENV CONFIG_JSON or config.json fallback):
-//   manage_cards_channel_id
-//   pack_reveal_ui / frontend_url / ui_base / UI_BASE
-//   collection_ui / ui_urls.card_collection_ui / frontend_url / ui_base / UI_BASE
-//   api_base / API_BASE
-//
-// Files used:
-//   ./data/linked_decks.json
-//   ./logic/CoreMasterReference.json
-//   ./public/data/reveal_<userId>.json and reveal_<token>.json
+// - Warns if not linked
+// - 24h cooldown, 247-cap guard, 3-coin price
+// - Ensures/stores player token automatically
+// - Writes tokenized reveal JSON and DMs reveal link
+// - Small extra logging
 
 import fs from 'fs/promises';
 import path from 'path';
@@ -121,9 +108,9 @@ function makeWeightedPicker(cards, weightsByRarity) {
 }
 
 /* ---------------- constants ---------------- */
-const PACK_COST_COINS = 3;             // confirmed rule
-const MAX_COLLECTION_BEFORE_BUY = 247; // must have <= 247 to buy more
-const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+const PACK_COST_COINS = 3;              // confirmed rule
+const MAX_COLLECTION_BEFORE_BUY = 247;  // must have <= 247 to buy more
+const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /* ---------------- command registration ---------------- */
 export default async function registerBuyCard(client) {
@@ -138,13 +125,17 @@ export default async function registerBuyCard(client) {
 
   const commandData = new SlashCommandBuilder()
     .setName('buycard')
-    .setDescription(`Buy a 3-card pack for ${PACK_COST_COINS} coins (1 per 24h).`);
+    .setDescription(`Buy a 3-card pack for ${PACK_COST_COINS} coins (1 per 24h).`)
+    .setDMPermission(false); // ✅ guild only
 
   client.slashData.push(commandData.toJSON());
 
   client.commands.set('buycard', {
     data: commandData,
     async execute(interaction) {
+      // Tiny audit breadcrumb
+      console.log(`[buycard] invoked by ${interaction.user?.tag} (${interaction.user?.id}) in #${interaction.channelId}`);
+
       // Channel guard
       if (interaction.channelId !== MANAGE_CARDS_CHANNEL_ID) {
         return interaction.reply({
@@ -282,6 +273,7 @@ export default async function registerBuyCard(client) {
       await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
 
       // Build URLs
+      const API_BASE = resolveBaseUrl(loadConfig().api_base || process.env.API_BASE || '');
       const apiQP  = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
       const ts     = Date.now();
       const newCsv = newIds.join(',');
