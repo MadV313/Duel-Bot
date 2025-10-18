@@ -1,5 +1,6 @@
 // cogs/buycard.js — Player command to buy a 3-card pack for 3 coins.
 // - Confined to #manage-cards channel
+// - Shows a "not linked" warning if the user hasn't run /linkdeck yet
 // - Checks coin balance (>=3), decrements on success, enforces 247-card cap
 // - Enforces 1 purchase per 24 hours (cooldown)
 // - Uses player's stored token automatically (mints if missing)
@@ -174,20 +175,30 @@ export default async function registerBuyCard(client) {
 
       // Load player profile
       const linked = await readJson(linkedDecksPath, {});
-      if (!linked[buyerId]) {
-        // Initialize a profile if missing (0 coins by default)
-        linked[buyerId] = {
-          discordName: buyer.username,
-          coins: 0,
-          deck: [],
-          collection: {},
-          createdAt: new Date().toISOString()
-        };
-      } else if (linked[buyerId].discordName !== buyer.username) {
-        linked[buyerId].discordName = buyer.username; // keep fresh
+      const profile = linked[buyerId];
+
+      // If player is not linked, warn and exit
+      if (!profile) {
+        const warn = new EmbedBuilder()
+          .setTitle('⚠️ Player Not Linked')
+          .setDescription(
+            [
+              'You are not yet linked to the Duel Bot system.',
+              '',
+              'Please run **`/linkdeck`** in the **#manage-cards** channel before using Duel Bot commands (including buying packs).',
+              '',
+              'Once linked, you’ll be able to buy packs, build decks, and participate in duels.'
+            ].join('\n')
+          )
+          .setColor(0xff9900);
+        return interaction.reply({ embeds: [warn], ephemeral: true });
       }
 
-      const profile = linked[buyerId];
+      // Keep Discord display name fresh
+      if (profile.discordName !== buyer.username) {
+        profile.discordName = buyer.username;
+      }
+
       const currentCoins = Number(profile.coins || 0);
 
       // Enforce 24h cooldown
