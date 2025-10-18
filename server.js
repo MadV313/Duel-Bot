@@ -87,7 +87,7 @@ const loadCommands = async () => {
       if (typeof cog === 'function') {
         await cog(bot);
         const lastCmd = bot.slashData.at(-1);
-        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)');
+        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)`);
       } else {
         console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
@@ -108,6 +108,24 @@ function summarizeSlashData(slashData) {
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+/** Sanitize a SlashCommand JSON for the target scope. */
+function sanitizeCommandForScope(cmd, scope) {
+  const c = JSON.parse(JSON.stringify(cmd)); // deep clone plain object
+
+  // Discord limits: name 1–32, desc 1–100 (we’ll trim description if needed)
+  if (typeof c.description === 'string' && c.description.length > 100) {
+    console.warn(`✂️ Trimming overlong description for /${c.name} from ${c.description.length} → 100 chars`);
+    c.description = c.description.slice(0, 100);
+  }
+
+  // Guild commands cannot include dm_permission
+  if (scope === 'guild' && 'dm_permission' in c) {
+    delete c.dm_permission;
+  }
+
+  return c;
+}
+
 /** Robust command sync with fallbacks; exposed as bot.syncCommands() and used on boot + /resync. */
 async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'guild' }) {
   const rest = new REST({ version: '10' }).setToken(token);
@@ -115,6 +133,9 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
   const upper = scope.toUpperCase();
   console.log(`🔁 Syncing ${slashData.length} ${upper} slash commands...`);
   console.log('   →', names.join(', ') || '(none)');
+
+  // Sanitize per-scope to avoid invalid form body
+  const body = slashData.map(cmd => sanitizeCommandForScope(cmd, scope));
 
   const routeBulk = scope === 'global'
     ? Routes.applicationCommands(clientId)
@@ -125,7 +146,7 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
   // 1) Try bulk overwrite (fast path) with 60s cap
   try {
     const result = await Promise.race([
-      rest.put(routeBulk, { body: slashData }),
+      rest.put(routeBulk, { body }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ bulk PUT timeout after 60s')), 60000))
     ]);
     if (Array.isArray(result)) {
@@ -135,6 +156,8 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
     }
   } catch (e) {
     console.warn(`⚠️ ${upper} bulk overwrite failed:`, e?.message || e);
+    const apiPayload = e?.rawError || e?.response?.data || e?.data || null;
+    if (apiPayload) console.warn('   ↳ payload:', JSON.stringify(apiPayload, null, 2));
     console.timeEnd('⏱️ Slash Sync Duration');
   }
 
@@ -145,7 +168,7 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
     : Routes.applicationGuildCommands(clientId, guildId);
 
   let created = 0, failed = 0;
-  for (const cmd of slashData) {
+  for (const cmd of body) {
     try {
       const res = await rest.post(routePost, { body: cmd });
       created += res?.id ? 1 : 0;
@@ -158,7 +181,7 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
       if (apiPayload) console.error('    ↳ payload:', JSON.stringify(apiPayload, null, 2));
     }
   }
-  console.log(`🧮 Sequential result: created=${created}, failed=${failed}, total=${slashData.length}`);
+  console.log(`🧮 Sequential result: created=${created}, failed=${failed}, total=${body.length}`);
 
   if (created > 0) {
     return { ok: true, total: created, failed, mode: 'sequential' };
@@ -168,7 +191,7 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
   if (scope === 'guild' && LAST_RESORT_GLOBAL) {
     try {
       console.warn('🧯 Last-resort: registering as GLOBAL so commands eventually appear…');
-      const res = await rest.put(Routes.applicationCommands(clientId), { body: slashData });
+      const res = await rest.put(Routes.applicationCommands(clientId), { body });
       console.log(`✅ GLOBAL fallback registered (${res?.length ?? 0})`);
       return { ok: true, total: res?.length ?? 0, mode: 'global-fallback' };
     } catch (e) {
@@ -268,16 +291,15 @@ app.use(cors({
   origin: [
     /localhost:5173$/,
     /duel-ui-production\.up\.railway\.app$/,
-    /madv313\.github\.io$/ // ✅ allow Card-Collection-UI & Pack-Reveal-UI on GitHub Pages
+    /madv313\.github\.io$/
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
-  // 🔑 include X-Bot-Key for /trade/start
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Bot-Key'],
 }));
 app.use(helmet());
 app.use(express.json({ limit: '256kb' }));
 
-// Rate limiter (define before use)
+// Rate limiter
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -306,7 +328,7 @@ app.get('/_routes', (_req, res) => {
   res.json(list);
 });
 
-// Shows what *we* are trying to register
+// Our local view of commands we’re trying to register
 app.get('/_slash', (_req, res) => {
   res.json({ count: bot.slashData.length, names: summarizeSlashData(bot.slashData) });
 });
@@ -343,15 +365,13 @@ app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
 app.use('/collection', apiLimiter);
 app.use('/reveal', apiLimiter);
-// 🔐 token-aware
 app.use('/me', apiLimiter);
 app.use('/userStatsToken', apiLimiter);
-// 🔄 trade
 app.use('/trade', apiLimiter);
 
 // Core feature routes
-app.use('/duel', duelRoutes);              // /duel/practice, /duel/turn, /duel/status, /duel/state
-app.use('/bot', botPracticeAlias);         // /bot/practice, /bot/status
+app.use('/duel', duelRoutes);
+app.use('/bot', botPracticeAlias);
 app.use('/duel/live', liveRoutes);
 app.use('/duel', duelStartRoutes);
 app.use('/summary', summaryRoutes);
@@ -360,10 +380,10 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
-// 🔐 Token-aware endpoints mounted at root
+// Token-aware endpoints mounted at root
 app.use('/', meTokenRouter);
 
-// 🔄 Trade endpoints mounted at root (need the live Discord client for DMs)
+// Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
 
 app.use('/public', express.static('public'));
