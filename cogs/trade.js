@@ -1,8 +1,48 @@
-// cogs/trade.js — Start a trade with another linked player.
-// Creates a trade session and DMs you a tokenized link to pick your cards.
+// cogs/tradecard.js — Start a trade with another linked player (renamed from /trade to /tradecard).
+// - Confined to #manage-cards channel (warns if used elsewhere)
+// - Warns if player is not linked (must run /linkdeck first)
+// - Shows ONLY linked players in the picker
+// - Creates a backend trade session and DMs the initiator a tokenized link to pick cards
+// - (Optional) Webhook listener: backend notifies the bot when initiator submits;
+//    bot DMs the partner with proposal thumbnails + Accept / Deny buttons.
+//    Accept => swap cards in linked_decks.json; Deny => notify both.
+//
+// Config (ENV CONFIG_JSON or config.json fallback):
+//   manage_cards_channel_id
+//   collection_ui / ui_urls.card_collection_ui / frontend_url / ui_base / UI_BASE
+//   api_base / API_BASE                 (backend base for trade API)
+//   image_base / IMAGE_BASE            (base for card images; e.g., https://.../images/cards)
+//   trade_webhook_port                 (optional: enable webhook listener; or TRADE_WEBHOOK_PORT env)
+//   trade_webhook_secret               (optional: shared secret; or TRADE_WEBHOOK_SECRET env)
+//   (env) BOT_API_KEY                  (required for calling backend /trade/start)
+//
+// Files:
+//   ./data/linked_decks.json
+//
+// Backend endpoints (assumed):
+//   POST {API_BASE}/trade/start  -> { sessionId, urlInitiator? }  (requires {initiatorToken, partnerId})
+//
+// Webhook (optional, from backend/UI -> bot):
+//   POST /trade/notify  with JSON:
+//     {
+//       "secret": "<must match trade_webhook_secret>",
+//       "sessionId": "abc123",
+//       "initiatorId": "<discord id>",
+//       "partnerId": "<discord id>",
+//       "initiatorName": "Alice",
+//       "partnerName": "Bob",
+//       "initiatorPicks": [
+//         { "card_id":"#042", "name":"Frost Wolf", "rarity":"Uncommon", "filename":"042_Frost_Wolf_Beast.png", "qty":2 }
+//       ],
+//       "partnerPicks": [
+//         { "card_id":"#017", "name":"Fire Imp", "rarity":"Common", "filename":"017_Fire_Imp_Demon.png", "qty":1 }
+//       ]
+//     }
+//   Bot will DM partner with Accept / Deny buttons. On Accept, it updates linked_decks.json collections.
 
 import fs from 'fs/promises';
 import path from 'path';
+import http from 'http';
 import {
   SlashCommandBuilder,
   ActionRowBuilder,
@@ -10,15 +50,12 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ComponentType,
+  EmbedBuilder
 } from 'discord.js';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
-// Channel restriction (same as /linkdeck)
-const MANAGE_CARDS_CHANNEL_ID = String(process.env.MANAGE_CARDS_CHANNEL_ID || '1367977677658656868');
-
-function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
-
+/* ---------------- config helpers ---------------- */
 function loadConfig() {
   try {
     const raw = process.env.CONFIG_JSON;
@@ -29,15 +66,163 @@ function loadConfig() {
     return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
   } catch { return {}; }
 }
+function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
+function resolveBaseUrl(s) { return (s || '').toString().trim().replace(/\/+$/, ''); }
+function isTokenValid(t) { return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t); }
 
-export default async function registerTrade(bot) {
+/* ---------------- runtime state (for Accept/Deny collectors) ---------------- */
+const tradeSessionCache = new Map(); // sessionId -> { initiatorId, partnerId, initiatorPicks, partnerPicks }
+
+/* ---------------- file helpers ---------------- */
+async function readJson(file, fallback = {}) {
+  try { return JSON.parse(await fs.readFile(file, 'utf-8')); } catch { return fallback; }
+}
+async function writeJson(file, data) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(data, null, 2));
+}
+
+/* ---------------- thumbnail helper ---------------- */
+function cardThumbUrl(filename, CONFIG) {
+  const base = CONFIG.image_base || CONFIG.IMAGE_BASE || '';
+  if (!base) return null;
+  return `${trimBase(base)}/${filename}`;
+}
+
+/* ---------------- apply trade to collections ---------------- */
+function applySwap(profileA, profileB, picksA = [], picksB = []) {
+  // For each pickA (initiator gives to partner): decrement A, increment B
+  for (const p of picksA) {
+    const id = String(p.card_id).replace(/^#/, '').padStart(3, '0');
+    const q = Math.max(0, Number(p.qty || 0));
+    if (!q) continue;
+    profileA.collection[id] = Math.max(0, Number(profileA.collection?.[id] || 0) - q);
+    profileB.collection[id] = Number(profileB.collection?.[id] || 0) + q;
+  }
+  // For each pickB (partner gives to initiator)
+  for (const p of picksB) {
+    const id = String(p.card_id).replace(/^#/, '').padStart(3, '0');
+    const q = Math.max(0, Number(p.qty || 0));
+    if (!q) continue;
+    profileB.collection[id] = Math.max(0, Number(profileB.collection?.[id] || 0) - q);
+    profileA.collection[id] = Number(profileA.collection?.[id] || 0) + q;
+  }
+}
+
+/* ---------------- optional webhook server ---------------- */
+function startWebhookServerOnce(client, CONFIG) {
+  const PORT = Number(CONFIG.trade_webhook_port || process.env.TRADE_WEBHOOK_PORT || 0);
+  const SECRET = String(CONFIG.trade_webhook_secret || process.env.TRADE_WEBHOOK_SECRET || '');
+  if (!PORT || client.__tradeWebhookStarted) return;
+
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/trade/notify') {
+      res.statusCode = 404; return res.end('Not Found');
+    }
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const json = JSON.parse(body || '{}');
+        if (!SECRET || json.secret !== SECRET) {
+          res.statusCode = 401; res.end('Unauthorized'); return;
+        }
+        const {
+          sessionId, initiatorId, partnerId,
+          initiatorName, partnerName,
+          initiatorPicks = [], partnerPicks = []
+        } = json || {};
+
+        // Cache payload for Accept/Deny handling
+        tradeSessionCache.set(sessionId, { initiatorId, partnerId, initiatorPicks, partnerPicks });
+
+        // Build partner DM embed
+        const CONFIG2 = loadConfig();
+        const thumbs = [];
+        for (const p of initiatorPicks) {
+          const url = cardThumbUrl(p.filename, CONFIG2);
+          thumbs.push(`• **${p.card_id}** ${p.name} (${p.rarity}) × ${p.qty}${url ? ` — [img](${url})` : ''}`);
+        }
+        for (const p of partnerPicks) {
+          // Partner gives these; show as "You give"
+        }
+
+        const offerText = [
+          `**Trade proposal from <@${initiatorId}>**`,
+          '',
+          '**You would receive:**',
+          initiatorPicks.length ? thumbs.join('\n') : '• *(No cards offered)*',
+          '',
+          '**You would give:**',
+          partnerPicks.length
+            ? partnerPicks.map(p => {
+                const url = cardThumbUrl(p.filename, CONFIG2);
+                return `• **${p.card_id}** ${p.name} (${p.rarity}) × ${p.qty}${url ? ` — [img](${url})` : ''}`;
+              }).join('\n')
+            : '• *(No cards requested)*'
+        ].join('\n');
+
+        const embed = new EmbedBuilder()
+          .setTitle('🤝 Trade Proposal')
+          .setDescription(offerText)
+          .setColor(0x00ccff);
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`trade_accept_${sessionId}`).setStyle(ButtonStyle.Success).setLabel('Accept ✅'),
+          new ButtonBuilder().setCustomId(`trade_deny_${sessionId}`).setStyle(ButtonStyle.Danger).setLabel('Deny ❌')
+        );
+
+        try {
+          const partnerUser = await client.users.fetch(partnerId);
+          await partnerUser.send({ embeds: [embed], components: [row] });
+        } catch (e) {
+          // Partner DMs closed; fall back to initiator notify
+          try {
+            const initiatorUser = await client.users.fetch(initiatorId);
+            await initiatorUser.send('⚠️ Could not DM your trade partner. Ask them to enable DMs and resubmit.');
+          } catch {}
+        }
+
+        res.statusCode = 200; res.end('OK');
+      } catch (e) {
+        res.statusCode = 400; res.end('Bad Request');
+      }
+    });
+  });
+
+  server.listen(PORT, () => {
+    client.__tradeWebhookStarted = true;
+    console.log(`[tradecard] Webhook listening on :${PORT}`);
+  });
+}
+
+/* ---------------- command registration ---------------- */
+export default async function registerTradeCard(client) {
+  const CONFIG = loadConfig();
+
+  const MANAGE_CARDS_CHANNEL_ID =
+    String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || '1367977677658656868');
+
+  const UI_BASE  = trimBase(
+    CONFIG.collection_ui ||
+    CONFIG.ui_urls?.card_collection_ui ||
+    CONFIG.frontend_url ||
+    CONFIG.ui_base ||
+    'https://madv313.github.io/Card-Collection-UI'
+  );
+  const API_BASE = trimBase(CONFIG.api_base || process.env.API_BASE || '');
+  const BOT_KEY  = process.env.BOT_API_KEY || '';
+
+  // Optional webhook (for partner Accept/Deny)
+  startWebhookServerOnce(client, CONFIG);
+
   const cmd = new SlashCommandBuilder()
-    .setName('trade')
+    .setName('tradecard')
     .setDescription('Start a card trade with another linked player (3 trades/day).');
 
-  bot.slashData.push(cmd.toJSON());
+  client.slashData.push(cmd.toJSON());
 
-  bot.commands.set('trade', {
+  client.commands.set('tradecard', {
     data: cmd,
     async execute(interaction) {
       // Channel restriction
@@ -48,34 +233,37 @@ export default async function registerTrade(bot) {
         });
       }
 
-      // Load linked profiles to build the list (exclude self)
-      let linked = {};
-      try {
-        linked = JSON.parse(await fs.readFile(linkedDecksPath, 'utf-8'));
-      } catch {
-        return interaction.reply({ content: '⚠️ No linked users found yet.', ephemeral: true });
-      }
-
+      // Load linked profiles
+      const linked = await readJson(linkedDecksPath, {});
       const userId = interaction.user.id;
       const mine = linked[userId];
-      if (!mine?.token) {
-        return interaction.reply({ content: '❌ You must link first: use **/linkdeck** in #manage-cards.', ephemeral: true });
+
+      // Not linked warning
+      if (!mine?.token || !isTokenValid(mine.token)) {
+        return interaction.reply({
+          content: '❌ You are not linked yet. Please run **/linkdeck** in **#manage-cards** first.',
+          ephemeral: true
+        });
       }
 
-      const entries = Object.entries(linked).filter(([id]) => id !== userId);
+      // Build list of OTHER linked players (must have token)
+      const entries = Object.entries(linked)
+        .filter(([id, data]) => id !== userId && isTokenValid(data?.token));
+
       if (!entries.length) {
         return interaction.reply({ content: '⚠️ No other linked users available to trade with.', ephemeral: true });
       }
 
+      // Pagination
       const pageSize = 25;
       let page = 0;
       const pages = Math.ceil(entries.length / pageSize);
 
-      const build = (p) => {
+      const buildPage = (p) => {
         const slice = entries.slice(p * pageSize, (p + 1) * pageSize);
         const row = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(`trade_select_${p}`)
+            .setCustomId(`tradecard_select_${p}`)
             .setPlaceholder('Select a player to trade with')
             .addOptions(slice.map(([id, data]) => ({
               label: data.discordName || id,
@@ -89,7 +277,7 @@ export default async function registerTrade(bot) {
         return { row, buttons, text: `Page ${p + 1} of ${pages}` };
       };
 
-      const first = build(page);
+      const first = buildPage(page);
       const msg = await interaction.reply({
         content: `🔁 Choose a player to trade with\n${first.text}`,
         components: [first.row, first.buttons],
@@ -97,32 +285,29 @@ export default async function registerTrade(bot) {
         fetchReply: true
       });
 
-      const btnCollector = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60_000 });
+      // Pagination controls
+      const btnCollector = msg.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 60_000
+      });
       btnCollector.on('collect', async i => {
         if (i.user.id !== userId) return i.reply({ content: '⚠️ Not your menu.', ephemeral: true });
         if (i.customId === 'prev') page = Math.max(0, page - 1);
         if (i.customId === 'next') page = Math.min(pages - 1, page + 1);
-        const built = build(page);
+        const built = buildPage(page);
         await i.update({ content: `🔁 Choose a player to trade with\n${built.text}`, components: [built.row, built.buttons] });
       });
 
-      const ddCollector = msg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60_000 });
+      // Selection handler
+      const ddCollector = msg.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 60_000
+      });
       ddCollector.on('collect', async i => {
         if (i.user.id !== userId) return i.reply({ content: '⚠️ Not your menu.', ephemeral: true });
         await i.deferUpdate();
 
         const partnerId = i.values[0];
-        const cfg = loadConfig();
-
-        const API_BASE = trimBase(cfg.api_base || process.env.API_BASE || '');
-        const UI_BASE  = trimBase(
-          cfg.collection_ui ||
-          cfg.ui_urls?.card_collection_ui ||
-          cfg.frontend_url ||
-          cfg.ui_base ||
-          'https://madv313.github.io/Card-Collection-UI'
-        );
-        const BOT_KEY  = process.env.BOT_API_KEY || '';
 
         if (!API_BASE || !BOT_KEY) {
           return interaction.editReply({
@@ -131,19 +316,16 @@ export default async function registerTrade(bot) {
           });
         }
 
-        // Create session (bot-only). Prefer initiatorToken per backend contract.
+        // Create backend trade session
         let resp, json;
         try {
           resp = await fetch(`${API_BASE}/trade/start`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Bot-Key': BOT_KEY
-            },
+            headers: { 'Content-Type': 'application/json', 'X-Bot-Key': BOT_KEY },
             body: JSON.stringify({
               initiatorToken: mine.token,
               partnerId,
-              // Optional hints for backend link building:
+              // Hints for UI: allow initiator to "view partner" via session gating (no partner token leak)
               apiBase: API_BASE,
               collectionUiBase: UI_BASE
             })
@@ -152,52 +334,47 @@ export default async function registerTrade(bot) {
         } catch (e) {
           return interaction.editReply({ content: `❌ Failed to contact server: ${String(e)}`, components: [] });
         }
-
         if (!resp.ok) {
-          const msg = json?.error || json?.message || `${resp.status} ${resp.statusText}`;
-          return interaction.editReply({ content: `❌ Could not start trade: ${msg}`, components: [] });
+          const emsg = json?.error || json?.message || `${resp.status} ${resp.statusText}`;
+          return interaction.editReply({ content: `❌ Could not start trade: ${emsg}`, components: [] });
         }
 
         const sessionId = json.sessionId || json.session || '';
-        // Prefer backend-provided URL; otherwise construct client-side
+        // Prefer backend-provided URL; otherwise construct
         const urlInitiator =
           json.urlInitiator ||
           `${UI_BASE}/?mode=trade&tradeSession=${encodeURIComponent(sessionId)}&role=initiator&token=${encodeURIComponent(mine.token)}&api=${encodeURIComponent(API_BASE)}`;
 
-        // Try DM first (clean UX)
+        // DM initiator link
         try {
           await interaction.user.send(
-            `🤝 **Trade started!**\n` +
-            `Partner: <@${partnerId}>\n` +
-            `Session: \`${sessionId}\`\n\n` +
-            `👉 **Open your collection to pick up to 3 cards:** ${urlInitiator}`
+            `🤝 **Trade started!**\nPartner: <@${partnerId}>\nSession: \`${sessionId}\`\n\n` +
+            `👉 **Open your collection to pick cards:** ${urlInitiator}\n\n` +
+            `_Note: You’ll be able to **view your partner’s collection** within the trade interface via this session._`
           );
-        } catch {
-          // DM might be closed; fall back to ephemeral reply only
-        }
+        } catch {}
 
         await interaction.editReply({
           content:
             `✅ Trade session created with <@${partnerId}>.\n` +
             `I’ve sent you a link${
               json.urlInitiator ? '' : ' (constructed)'
-            } to pick your cards.\n` +
+            } to pick cards.\n` +
             `Session: \`${sessionId}\`\n\n` +
             `If you didn’t get a DM, click here: ${urlInitiator}`,
           components: []
         });
 
-        // Stop collectors after success
         try { btnCollector.stop(); } catch {}
         try { ddCollector.stop(); } catch {}
       });
 
-      // Auto-cleanup on timeout
+      // Cleanup on timeout
       const endAll = async () => {
         if (msg.editable) {
           try {
             await interaction.editReply({
-              content: '⏰ Trade partner selection expired. Run **/trade** again to restart.',
+              content: '⏰ Trade partner selection expired. Run **/tradecard** again to restart.',
               components: []
             });
           } catch {}
@@ -205,6 +382,59 @@ export default async function registerTrade(bot) {
       };
       btnCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
       ddCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+    }
+  });
+
+  /* ---------- Button interactions for Accept / Deny (from partner DM) ---------- */
+  client.on('interactionCreate', async (i) => {
+    try {
+      if (!i.isButton()) return;
+      const { customId, user } = i;
+      if (!/^trade_(accept|deny)_/.test(customId)) return;
+      const [, action, sessionId] = customId.split('_'); // trade_accept_<sessionId> or trade_deny_<sessionId>
+      const payload = tradeSessionCache.get(sessionId);
+      if (!payload) return i.reply({ content: '⚠️ Trade session not found or expired.', ephemeral: true });
+
+      const { initiatorId, partnerId, initiatorPicks, partnerPicks } = payload;
+      if (String(user.id) !== String(partnerId)) {
+        return i.reply({ content: '⚠️ Only the selected trade partner can act on this request.', ephemeral: true });
+      }
+
+      // Load profiles
+      const linked = await readJson(linkedDecksPath, {});
+      const initiator = linked[initiatorId];
+      const partner = linked[partnerId];
+      if (!initiator || !partner) {
+        return i.reply({ content: '❌ One or both players are no longer linked. Trade cancelled.', ephemeral: true });
+      }
+
+      if (action === 'deny') {
+        tradeSessionCache.delete(sessionId);
+        await i.update({ content: '❌ Trade denied. Both players have been notified.', components: [] });
+        // Notify both
+        try { (await client.users.fetch(initiatorId)).send(`❌ Your trade with <@${partnerId}> was **denied**.`); } catch {}
+        try { (await client.users.fetch(partnerId)).send(`❌ You **denied** the trade with <@${initiatorId}>.`); } catch {}
+        return;
+      }
+
+      // Accept: swap cards & persist
+      initiator.collection = initiator.collection || {};
+      partner.collection = partner.collection || {};
+      applySwap(initiator, partner, initiatorPicks, partnerPicks);
+      linked[initiatorId] = initiator;
+      linked[partnerId] = partner;
+      await writeJson(linkedDecksPath, linked);
+
+      tradeSessionCache.delete(sessionId);
+
+      await i.update({ content: '✅ Trade accepted! Collections have been updated.', components: [] });
+
+      // DM both players
+      try { (await client.users.fetch(initiatorId)).send(`✅ Your trade with <@${partnerId}> was **accepted**. Collections updated.`); } catch {}
+      try { (await client.users.fetch(partnerId)).send(`✅ You **accepted** the trade with <@${initiatorId}>. Collections updated.`); } catch {}
+
+    } catch (e) {
+      try { await i.reply({ content: `⚠️ Error handling trade: ${String(e)}`, ephemeral: true }); } catch {}
     }
   });
 }
