@@ -1,5 +1,6 @@
 // cogs/sellcard.js — Gives the invoker their personal Card Collection UI link for selling.
 // - Confined to #manage-cards channel
+// - Warns if the player is not yet linked (asks to run /linkdeck first)
 // - Auto-uses/mints the player's token from linked_decks.json
 // - If the player has already sold 5 cards in the last 24h, returns a warning embed
 //   with a countdown until they can sell again (no link shown in that case)
@@ -123,28 +124,39 @@ export default async function registerSellCard(client) {
       const userId = interaction.user.id;
       const username = interaction.user.username;
 
-      // Ensure profile
+      // Load profile; warn if not linked (do NOT auto-create here)
       const linked = await readJson(linkedDecksPath, {});
-      if (!linked[userId]) {
-        linked[userId] = {
-          discordName: username,
-          coins: 0,
-          deck: [],
-          collection: {},
-          createdAt: new Date().toISOString()
-        };
-      } else if (linked[userId].discordName !== username) {
-        linked[userId].discordName = username;
+      const profile = linked[userId];
+
+      if (!profile) {
+        const warn = new EmbedBuilder()
+          .setTitle('⚠️ Player Not Linked')
+          .setDescription(
+            [
+              'You are not yet linked to the Duel Bot system.',
+              '',
+              'Please run **`/linkdeck`** in the **#manage-cards** channel before using Duel Bot commands.',
+              '',
+              'Once linked, you’ll be able to browse your collection, sell cards, and participate in duels.'
+            ].join('\n')
+          )
+          .setColor(0xff9900);
+        return interaction.reply({ embeds: [warn], ephemeral: true });
+      }
+
+      // Keep Discord name fresh
+      if (profile.discordName !== username) {
+        profile.discordName = username;
       }
 
       // Ensure token (no user input)
-      if (!isTokenValid(linked[userId].token)) {
-        linked[userId].token = randomToken(24);
+      if (!isTokenValid(profile.token)) {
+        profile.token = randomToken(24);
       }
 
       // Check daily sell limit window (advisory only; UI/back-end must enforce)
       const now = Date.now();
-      const stats = linked[userId].sellStats || {};
+      const stats = profile.sellStats || {};
       let windowStart = stats.windowStartISO ? Date.parse(stats.windowStartISO) : 0;
       let sellsInWindow = Number.isFinite(stats.sellsInWindow) ? Number(stats.sellsInWindow) : 0;
 
@@ -152,7 +164,8 @@ export default async function registerSellCard(client) {
       if (!windowStart || (now - windowStart) >= WINDOW_MS) {
         windowStart = now;
         sellsInWindow = 0;
-        linked[userId].sellStats = { windowStartISO: new Date(windowStart).toISOString(), sellsInWindow };
+        profile.sellStats = { windowStartISO: new Date(windowStart).toISOString(), sellsInWindow };
+        linked[userId] = profile;
         await writeJson(linkedDecksPath, linked);
       }
 
@@ -166,7 +179,7 @@ export default async function registerSellCard(client) {
               `You’ve already sold **${DAILY_SELL_LIMIT} cards** in the last 24 hours.`,
               `Please come back in **${fmtHMS(waitMs)}** to continue selling.`,
               '',
-              '_Tip: You can still browse your collection using the /mycards command, however further sales are blocked until the timer resets._'
+              '_Tip: You can still browse your collection using the `/mycards` command; further sales are blocked until the timer resets._'
             ].join('\n')
           )
           .setColor(0xff9900);
@@ -178,9 +191,10 @@ export default async function registerSellCard(client) {
       }
 
       // Otherwise, return Collection link + selling instructions
+      linked[userId] = profile;
       await writeJson(linkedDecksPath, linked);
 
-      const token = linked[userId].token;
+      const token = profile.token;
       const ts = Date.now();
       const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
 
@@ -191,7 +205,7 @@ export default async function registerSellCard(client) {
         .setTitle('🧾 Sell Your Cards')
         .setDescription(
           [
-            'Use your personal collection link above. From there you can sell eligible cards.',
+            'Use your personal collection link below. From there you can sell eligible cards.',
             '',
             '**Selling instructions:**',
             '• When selling, make sure you **select the proper amount of each card** before adding it to the queue.',
