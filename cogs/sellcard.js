@@ -166,7 +166,7 @@ export default async function registerSellCard(client) {
               `You’ve already sold **${DAILY_SELL_LIMIT} cards** in the last 24 hours.`,
               `Please come back in **${fmtHMS(waitMs)}** to continue selling.`,
               '',
-              '_Tip: You can still browse your collection, but further sales are blocked until the timer resets._'
+              '_Tip: You can still browse your collection using the /mycards command, however further sales are blocked until the timer resets._'
             ].join('\n')
           )
           .setColor(0xff9900);
@@ -191,7 +191,7 @@ export default async function registerSellCard(client) {
         .setTitle('🧾 Sell Your Cards')
         .setDescription(
           [
-            'Use your personal collection link below. From there you can sell eligible cards.',
+            'Use your personal collection link above. From there you can sell eligible cards.',
             '',
             '**Selling instructions:**',
             '• When selling, make sure you **select the proper amount of each card** before adding it to the queue.',
