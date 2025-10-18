@@ -23,14 +23,8 @@ const log = {
 };
 
 /** ───────────────────────────
- * Role / Channel restrictions
+ * Channel restriction
  * ─────────────────────────── */
-const DEFAULT_ADMIN_ROLE_IDS = ['1173049392371085392']; // Admin only
-const ADMIN_ROLE_IDS = (process.env.ADMIN_ROLE_IDS || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
-const EFFECTIVE_ADMIN_ROLE_IDS =
-  ADMIN_ROLE_IDS.length ? ADMIN_ROLE_IDS : DEFAULT_ADMIN_ROLE_IDS;
-
 const DEFAULT_BATTLEFIELD_CHANNEL_ID = '1367986446232719484';
 const EFFECTIVE_BATTLEFIELD_CHANNEL_ID =
   process.env.BATTLEFIELD_CHANNEL_ID || DEFAULT_BATTLEFIELD_CHANNEL_ID;
@@ -70,7 +64,7 @@ const PORT = process.env.PORT || '8080';
 const PUBLIC_BACKEND_URL = pick(
   ['DUEL_BACKEND_URL', 'BACKEND_URL'],
   ['duel_backend_base_url'],
-  IS_RAILWAY ? `https://example.invalid` : `http://localhost:${PORT}` // placeholder if not set on Railway
+  IS_RAILWAY ? `https://example.invalid` : `http://localhost:${PORT}`
 );
 
 // INTERNAL URL: used by the bot (server → server). 127.0.0.1 avoids Railway edge.
@@ -88,11 +82,10 @@ const DUEL_UI_URL = pick(
 );
 
 // Whether to append &api=<public-backend> to the UI link.
-// 🔄 Default changed to TRUE so the UI link always carries the API unless you turn it off in env/config.
 const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?? 'true').toLowerCase() === 'true';
 
 /** ───────────────────────────
- * Token + profile helpers (ensure invoking admin has a token)
+ * Token + profile helpers (ensure token if linked)
  * ─────────────────────────── */
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
@@ -111,31 +104,26 @@ const writeJson = async (file, data) => {
 const randomToken = (len = 24) =>
   crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 
-/** Ensure a linked profile + token exists for a given Discord user ID. */
-async function ensureUserToken(userId, userName) {
+/** Return linked profile or null (does NOT create). */
+async function getLinkedProfile(userId) {
   const linked = await readJson(linkedDecksPath, {});
+  return linked[userId] || null;
+}
+
+/** Ensure token exists on an already-linked profile (mint if missing). */
+async function ensureTokenIfLinked(userId, userName) {
+  const linked = await readJson(linkedDecksPath, {});
+  if (!linked[userId]) return null; // not linked
+
   let changed = false;
-
-  if (!linked[userId]) {
-    linked[userId] = {
-      discordName: userName,
-      deck: [],
-      collection: {},
-      createdAt: new Date().toISOString(),
-    };
+  if (linked[userId].discordName !== userName) {
+    linked[userId].discordName = userName;
     changed = true;
-  } else {
-    if (linked[userId].discordName !== userName) {
-      linked[userId].discordName = userName;
-      changed = true;
-    }
   }
-
   if (!linked[userId].token || typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
     linked[userId].token = randomToken(24);
     changed = true;
   }
-
   if (changed) {
     try {
       await writeJson(linkedDecksPath, linked);
@@ -152,7 +140,7 @@ async function ensureUserToken(userId, userName) {
 export default async function registerPractice(bot) {
   const data = new SlashCommandBuilder()
     .setName('practice')
-    .setDescription('(Admin only) Start a practice duel vs the bot and get a private link to open the Duel UI.')
+    .setDescription('Start a practice duel vs the bot and get a private link to open the Duel UI.')
     .setDMPermission(false);
 
   bot.slashData.push(data.toJSON());
@@ -160,26 +148,18 @@ export default async function registerPractice(bot) {
   bot.commands.set('practice', {
     name: 'practice',
     execute: async (interaction) => {
-      // Correlation ID for logs (Discord interaction snowflake)
       const traceId = interaction.id;
 
-      // Gather context for logs
       const guild = interaction.guild;
       const channel = interaction.channel;
-      const member = interaction.member; // GuildMember
+      const member = interaction.member;
       const user = interaction.user;
-
-      const roleList = [];
-      try {
-        member?.roles?.cache?.forEach(r => roleList.push({ id: r.id, name: r.name }));
-      } catch { /* ignore */ }
 
       log.info('invoke', {
         traceId,
         user: { id: user?.id, tag: user?.tag || `${user?.username}#${user?.discriminator}` },
         guild: { id: guild?.id, name: guild?.name },
         channel: { id: channel?.id, name: channel?.name },
-        roles: roleList,
         config: {
           IS_RAILWAY,
           PORT,
@@ -187,7 +167,6 @@ export default async function registerPractice(bot) {
           PUBLIC_BACKEND_URL,
           DUEL_UI_URL,
           PASS_API_QUERY,
-          adminRoleIds: EFFECTIVE_ADMIN_ROLE_IDS,
           battlefieldChannelId: EFFECTIVE_BATTLEFIELD_CHANNEL_ID,
         }
       });
@@ -203,27 +182,25 @@ export default async function registerPractice(bot) {
         return;
       }
 
-      // Role restriction
-      const hasAdminRole = member?.roles?.cache?.some(r =>
-        EFFECTIVE_ADMIN_ROLE_IDS.includes(r.id)
-      );
-      if (!hasAdminRole) {
-        log.warn('role.blocked', { traceId, userId: user?.id, roles: roleList.map(r => r.id) });
+      // Must be linked first (do NOT auto-create here)
+      const profile = await getLinkedProfile(user.id);
+      if (!profile) {
         await interaction.reply({
-          content: `❌ You must have the **Admin** role to use this command.\n(Trace: ${traceId})`,
+          content:
+            '⚠️ You are not linked yet. Please run **/linkdeck** in **#manage-cards** before using Duel Bot commands.',
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
-      // Defer ephemerally (use flags; fall back to boolean if needed)
+      // Defer ephemerally (prefer flags)
       try {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       } catch {
         await interaction.deferReply({ ephemeral: true });
       }
 
-      // Initialize practice duel via INTERNAL URL (never hits Railway edge)
+      // Initialize practice duel via INTERNAL URL
       let httpStatus = 0;
       let durationMs = 0;
       try {
@@ -243,8 +220,6 @@ export default async function registerPractice(bot) {
         if (!res.ok) {
           throw new Error(`Backend responded ${httpStatus}: ${textPeek.slice(0, 300)} (INTERNAL_BACKEND_URL=${INTERNAL_BACKEND_URL})`);
         }
-        // Optionally parse duel state:
-        // const duelState = JSON.parse(textPeek);
       } catch (err) {
         log.error('init.fail', { traceId, err: String(err), status: httpStatus, durationMs });
         await interaction.editReply({
@@ -256,32 +231,40 @@ export default async function registerPractice(bot) {
         return;
       }
 
-      // Ensure invoking admin has a token for UI deep-linking
-      let token = '';
+      // Ensure token on existing profile (mint only if missing)
+      let token = profile.token;
       try {
-        token = await ensureUserToken(user.id, user.username);
+        token = await ensureTokenIfLinked(user.id, user.username);
       } catch (e) {
         log.warn('token.ensure.fail', { traceId, userId: user.id, err: String(e) });
       }
 
-      // Build UI link — always include token; include api by default (can disable via env/config)
-      const qp = new URLSearchParams();
-      qp.set('mode', 'practice');
-      qp.set('token', token || ''); // carry user’s token for downstream Hub/Collection/etc
+      // Build two personalized Practice UI links:
+      //  - Saved Deck   → practiceDeck=saved
+      //  - Random Deck  → practiceDeck=random
+      const baseParams = new URLSearchParams();
+      baseParams.set('mode', 'practice');
+      baseParams.set('token', token || '');
 
-      if (PASS_API_QUERY) {
-        qp.set('api', PUBLIC_BACKEND_URL);
-      }
+      if (PASS_API_QUERY) baseParams.set('api', PUBLIC_BACKEND_URL);
 
-      // Optional: pass image base to the UI if configured (keeps images consistent across UIs)
       const imageBase =
         cfg.image_base ||
         cfg.IMAGE_BASE ||
         'https://madv313.github.io/Card-Collection-UI/images/cards';
-      if (imageBase) qp.set('imgbase', trim(imageBase));
-      qp.set('ts', String(Date.now())); // bust caches
+      if (imageBase) baseParams.set('imgbase', trim(imageBase));
 
-      const duelUrl = `${DUEL_UI_URL}?${qp.toString()}`;
+      // Saved Deck link
+      const savedParams = new URLSearchParams(baseParams);
+      savedParams.set('practiceDeck', 'saved');
+      savedParams.set('ts', String(Date.now()));
+      const duelUrlSaved = `${DUEL_UI_URL}?${savedParams.toString()}`;
+
+      // Random Deck link
+      const randomParams = new URLSearchParams(baseParams);
+      randomParams.set('practiceDeck', 'random');
+      randomParams.set('ts', String(Date.now() + 1));
+      const duelUrlRandom = `${DUEL_UI_URL}?${randomParams.toString()}`;
 
       const embed = new EmbedBuilder()
         .setTitle('Practice Duel Ready')
@@ -293,7 +276,11 @@ export default async function registerPractice(bot) {
             '• Each draws **3 cards**',
             '• **Coin flip** decides who goes first',
             '',
-            `Click the button below to open the Duel UI.\n\nTrace: \`${traceId}\``
+            '**Choose how you want to practice:**',
+            '• **Use Saved Deck**: your current saved deck from the Deck Builder.',
+            '• **Use Random Deck**: a randomized premade deck for quick practice.',
+            '',
+            `Trace: \`${traceId}\``
           ].join('\n')
         )
         .setColor(0x2ecc71)
@@ -301,9 +288,13 @@ export default async function registerPractice(bot) {
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setLabel('Open Duel UI')
+          .setLabel('Use Saved Deck')
           .setStyle(ButtonStyle.Link)
-          .setURL(duelUrl),
+          .setURL(duelUrlSaved),
+        new ButtonBuilder()
+          .setLabel('Use Random Deck')
+          .setStyle(ButtonStyle.Link)
+          .setURL(duelUrlRandom),
         new ButtonBuilder()
           .setLabel('API Status')
           .setStyle(ButtonStyle.Link)
