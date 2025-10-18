@@ -111,7 +111,14 @@ function shortList(cmds) {
   }).join(', ');
 }
 
-// Slash registration + login
+// --- replace your current "Slash registration + login" IIFE with this one ---
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function shortList(cmds) {
+  if (!Array.isArray(cmds)) return '[]';
+  return cmds.map(c => c.name).join(', ');
+}
+
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
@@ -126,57 +133,80 @@ function shortList(cmds) {
 
     const rest = new REST({ version: '10' }).setToken(token);
 
-    // ── 1) Inventory before cleanup
+    // Inventory before cleanup
     const [existingGlobal, existingGuild] = await Promise.all([
       rest.get(Routes.applicationCommands(clientId)).catch(() => []),
       rest.get(Routes.applicationGuildCommands(clientId, guildId)).catch(() => [])
     ]);
-    console.log(`📦 Existing GLOBAL commands: ${existingGlobal.length} [${shortList(existingGlobal)}]`);
-    console.log(`📦 Existing GUILD  commands: ${existingGuild.length} [${shortList(existingGuild)}]`);
+    console.log(`📦 Existing GLOBAL: ${existingGlobal.length} [${shortList(existingGlobal)}]`);
+    console.log(`📦 Existing GUILD : ${existingGuild.length} [${shortList(existingGuild)}]`);
 
-    // ── 2) Always nuke GLOBAL commands first (prevents “shadowing” / stale perms)
-    console.log('🧨 Clearing existing GLOBAL commands…');
-    await rest.put(Routes.applicationCommands(clientId), { body: [] });
-    // small grace period for Discord to settle
-    await sleep(1000);
+    // 1) Nuke GLOBAL (old leftovers shadow things)
+    console.log('🧨 Clearing GLOBAL...');
+    await rest.put(Routes.applicationCommands(clientId), { body: [] }).catch(e => {
+      console.warn('⚠️ Clear GLOBAL failed (continuing):', e?.message);
+    });
+    await sleep(800);
 
-    // ── 3) Then nuke this guild’s commands
-    console.log(`🧹 Clearing existing GUILD commands for ${guildId}…`);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-    await sleep(1000);
+    // 2) Nuke GUILD
+    console.log(`🧹 Clearing GUILD ${guildId}...`);
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] }).catch(e => {
+      console.warn('⚠️ Clear GUILD failed (continuing):', e?.message);
+    });
+    await sleep(800);
 
-    // ── 4) Register fresh
     const payload = bot.slashData;
-    console.log(`🔁 Syncing ${payload.length} GUILD slash commands…`);
-    console.time('⏱️ Slash Sync Duration');
+    console.log(`🔁 Registering ${payload.length} commands to GUILD via bulk overwrite...`);
+    let guildResult = null;
+    let bulkOk = false;
 
-    const putGuild = () => rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
-      { body: payload }
-    );
-
-    let result;
+    // Fast path: bulk PUT with a 60s cap
     try {
-      result = await Promise.race([
-        putGuild(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ Guild command sync timeout after 60s')), 60000))
+      guildResult = await Promise.race([
+        rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: payload }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ bulk PUT timeout after 60s')), 60000))
       ]);
+      bulkOk = Array.isArray(guildResult);
+      console.log(`✅ Bulk GUILD overwrite OK (${guildResult?.length ?? 0})`);
     } catch (e) {
-      console.warn('⚠️ First guild sync attempt failed, retrying once...', e.message);
-      result = await putGuild();
+      console.warn('⚠️ Bulk GUILD overwrite failed:', e?.message || e);
     }
 
-    console.timeEnd('⏱️ Slash Sync Duration');
-    console.log(`✅ Guild slash commands registered. (${result.length} total)`);
-    console.log(`✅ Registered: [${shortList(result)}]`);
+    // 3) Fallback: per-command POSTs if bulk failed or returned bad shape
+    if (!bulkOk) {
+      console.log('🛟 Falling back to sequential GUILD upserts...');
+      const route = Routes.applicationGuildCommands(clientId, guildId);
+      const created = [];
+      for (const cmd of payload) {
+        try {
+          const res = await rest.post(route, { body: cmd });
+          created.push(res?.name);
+          console.log(`  • upserted /${res?.name || cmd?.name}`);
+          await sleep(350); // gentle backoff
+        } catch (e) {
+          console.error(`  ✖ upsert failed for /${cmd?.name}:`, e?.status || '', e?.message || e);
+        }
+      }
+      if (!created.length) {
+        console.error('❌ No commands could be registered to the guild (sequential). Trying GLOBAL last-resort…');
+        try {
+          const globalRes = await rest.put(Routes.applicationCommands(clientId), { body: payload });
+          console.log(`✅ Registered as GLOBAL (${globalRes?.length ?? 0}). These will appear for everyone.`);
+        } catch (e) {
+          console.error('💀 GLOBAL last-resort registration failed too:', e?.message || e);
+        }
+      } else {
+        console.log(`✅ Sequential GUILD upserts complete (${created.length}/${payload.length}): [${created.join(', ')}]`);
+      }
+    }
 
-    // ── 5) Double-check after
+    // Post-sync inventory
     const [postGlobal, postGuild] = await Promise.all([
       rest.get(Routes.applicationCommands(clientId)).catch(() => []),
       rest.get(Routes.applicationGuildCommands(clientId, guildId)).catch(() => [])
     ]);
-    console.log(`🔎 After-sync GLOBAL: ${postGlobal.length}`);
-    console.log(`🔎 After-sync GUILD : ${postGuild.length}`);
+    console.log(`🔎 After-sync GLOBAL: ${postGlobal.length} [${shortList(postGlobal)}]`);
+    console.log(`🔎 After-sync GUILD : ${postGuild.length} [${shortList(postGuild)}]`);
 
     await bot.login(token);
     bot.once(Events.ClientReady, () => console.log(`🤖 Bot is online as ${bot.user.tag}`));
