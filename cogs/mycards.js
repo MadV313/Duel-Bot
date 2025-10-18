@@ -1,7 +1,7 @@
 // cogs/mycards.js
 // /mycards — Posts an EPHEMERAL embed with a tokenized link to the player’s personal Card Collection UI.
 // Restrictions:
-//  • Can only be used in channel ID 1367977677658656868 (#manage-cards)
+//  • Can only be used in #manage-cards (from config.manage_cards_channel_id or fallback to 1367977677658656868)
 //  • User must have linked a profile via /linkdeck (or they’ll be prompted to do so)
 // Updates:
 //  • Keeps all existing behavior
@@ -14,7 +14,8 @@ import path from 'path';
 import crypto from 'crypto';
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 
-const MANAGE_CARDS_CHANNEL_ID = '1367977677658656868';
+// Fallback channel ID constant (used if not provided in config)
+const FALLBACK_MANAGE_CARDS_CHANNEL_ID = '1367977677658656868';
 
 const linkedDecksPath = path.resolve('./data/linked_decks.json');
 
@@ -76,6 +77,10 @@ export default async function registerMyCards(client) {
   client.commands.set('mycards', {
     data: commandData,
     async execute(interaction) {
+      const CONFIG = loadConfig();
+      const MANAGE_CARDS_CHANNEL_ID =
+        String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || FALLBACK_MANAGE_CARDS_CHANNEL_ID);
+
       const channelId = interaction.channelId;
       const userId = interaction.user.id;
       const userName = interaction.user.username;
@@ -83,7 +88,7 @@ export default async function registerMyCards(client) {
       // Channel restriction
       if (String(channelId) !== MANAGE_CARDS_CHANNEL_ID) {
         return interaction.reply({
-          content: '⚠️ This command can only be used in <#1367977677658656868>.',
+          content: `⚠️ This command can only be used in <#${MANAGE_CARDS_CHANNEL_ID}>.`,
           ephemeral: true
         });
       }
@@ -119,7 +124,6 @@ export default async function registerMyCards(client) {
         console.warn('[mycards] Failed to persist profile updates:', e?.message || e);
       }
 
-      const CONFIG = loadConfig();
       const BASE = resolveCollectionBase(CONFIG);
 
       // If the base already points to an HTML page, append ?token=...
