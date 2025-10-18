@@ -105,27 +105,39 @@ export default async function registerMyDeck(client) {
       const userId = interaction.user.id;
       const username = interaction.user.username;
 
-      // Ensure profile + token
+      // Load profile; warn if not linked (do NOT auto-create here)
       const linked = await readJson(linkedDecksPath, {});
-      if (!linked[userId]) {
-        linked[userId] = {
-          discordName: username,
-          coins: 0,
-          deck: [],
-          collection: {},
-          createdAt: new Date().toISOString()
-        };
-      } else if (linked[userId].discordName !== username) {
-        linked[userId].discordName = username;
+      const profile = linked[userId];
+
+      if (!profile) {
+        const warn = new EmbedBuilder()
+          .setTitle('⚠️ Player Not Linked')
+          .setDescription(
+            [
+              'You are not yet linked to the Duel Bot system.',
+              '',
+              'Please run **`/linkdeck`** in the **#manage-cards** channel before using Duel Bot commands.',
+              '',
+              'Once linked, you’ll be able to build decks, earn coins, and participate in duels.'
+            ].join('\n')
+          )
+          .setColor(0xff9900);
+        return interaction.reply({ embeds: [warn], ephemeral: true });
       }
 
-      if (!isTokenValid(linked[userId].token)) {
-        linked[userId].token = randomToken(24);
+      // Keep display name fresh
+      if (profile.discordName !== username) {
+        profile.discordName = username;
+      }
+
+      // Ensure token
+      if (!isTokenValid(profile.token)) {
+        profile.token = randomToken(24);
       }
 
       await writeJson(linkedDecksPath, linked);
 
-      const token = linked[userId].token;
+      const token = profile.token;
       const ts = Date.now();
       const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
 
@@ -136,7 +148,7 @@ export default async function registerMyDeck(client) {
         .setTitle('🧩 Deck Builder')
         .setDescription(
           [
-            'Open your personal Deck Builder using the link below.',
+            'Open your personal Deck Builder using the link above.',
             '',
             '**How to use the Deck Builder UI:**',
             'Once you’ve arrived at your Deck Builder UI, please select between **20–40 cards maximum** to complete your deck.',
