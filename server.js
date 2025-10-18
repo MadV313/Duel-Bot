@@ -27,7 +27,7 @@ import revealRoute from './routes/reveal.js';
 // 🔐 Token-aware routes (/me/:token/collection, /me/:token/stats, POST /me/:token/sell)
 import meTokenRouter from './routes/meToken.js';
 
-// 🔄 Trade routes (POST /trade/start, GET /trade/:session/state, POST /trade/:session/select, POST /trade/:session/decision, GET /me/:token/trade/limits)
+// 🔄 Trade routes
 import createTradeRouter from './routes/trade.js';
 
 dotenvConfig();
@@ -55,15 +55,16 @@ try {
 /* ──────────────────────────────────────────────────────────
  * Discord client
  * ────────────────────────────────────────────────────────── */
-const token    = process.env.DISCORD_TOKEN;
-const clientId = process.env.CLIENT_ID;
-const guildId  = process.env.GUILD_ID;
+const token     = process.env.DISCORD_TOKEN;
+const envClient = process.env.CLIENT_ID;  // may be undefined; we’ll fallback to client.application.id after login
+const guildId   = process.env.GUILD_ID;
 const SAFE_MODE = process.env.SAFE_MODE === 'true';
+const SYNC_SCOPE = (process.env.SYNC_SCOPE || 'guild').toLowerCase(); // 'guild' (default) or 'global'
 
-console.log('🔍 ENV CHECK:', { token: !!token, clientId, guildId, SAFE_MODE });
+console.log('🔍 ENV CHECK:', { hasToken: !!token, clientId: envClient, guildId, SAFE_MODE, SYNC_SCOPE });
 
-if (!token || !clientId || !guildId) {
-  console.error('❌ Missing required env: DISCORD_TOKEN, CLIENT_ID, or GUILD_ID');
+if (!token || !guildId) {
+  console.error('❌ Missing required env: DISCORD_TOKEN or GUILD_ID');
   process.exit(1);
 }
 
@@ -94,7 +95,60 @@ const loadCommands = async () => {
   }
 };
 
-// Slash registration + login
+/** Build a human-readable list of the command names we’re syncing. */
+function summarizeSlashData(slashData) {
+  try {
+    return slashData.map(c => c?.name).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Robust command sync; exposed on bot as bot.syncCommands() for /resync cog. */
+async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'guild' }) {
+  const rest = new REST({ version: '10' }).setToken(token);
+  const names = summarizeSlashData(slashData);
+  console.log(`🔁 Syncing ${slashData.length} ${scope.toUpperCase()} slash commands...`);
+  console.log('   →', names.join(', ') || '(none)');
+
+  const route = scope === 'global'
+    ? Routes.applicationCommands(clientId)
+    : Routes.applicationGuildCommands(clientId, guildId);
+
+  console.time('⏱️ Slash Sync Duration');
+
+  // Single PUT with final body; no pre-clear (reduces chance of timeouts)
+  try {
+    const result = await rest.put(route, { body: slashData });
+    console.timeEnd('⏱️ Slash Sync Duration');
+    console.log(`✅ ${scope.toUpperCase()} commands registered. (${result.length} total)`);
+    return { ok: true, total: result.length };
+  } catch (e) {
+    console.timeEnd('⏱️ Slash Sync Duration');
+    // Try to extract API payload if present
+    const apiPayload = e?.rawError || e?.response?.data || e?.data || null;
+    console.error('❌ Command sync failed:', e?.message || e);
+    if (apiPayload) {
+      console.error('📦 Discord API error payload:', JSON.stringify(apiPayload, null, 2));
+    }
+    return { ok: false, error: e?.message || String(e), payload: apiPayload };
+  }
+}
+
+// Make it callable by cogs (/resync)
+bot.syncCommands = async () => {
+  const clientId = envClient || bot.application?.id;
+  if (!clientId) throw new Error('No CLIENT_ID and client.application.id not available.');
+  return doSyncCommands({
+    token,
+    clientId,
+    guildId,
+    slashData: bot.slashData,
+    scope: SYNC_SCOPE
+  });
+};
+
+// Boot sequence
 (async () => {
   try {
     console.log('🟡 Loading cogs...');
@@ -103,40 +157,27 @@ const loadCommands = async () => {
       bot.slashData = [
         new SlashCommandBuilder().setName('ping').setDescription('Test if bot is alive').toJSON()
       ];
+      bot.commands.set('ping', {
+        data: { name: 'ping' },
+        async execute(i) { await i.reply({ content: 'Pong!', ephemeral: true }); }
+      });
     } else {
       await loadCommands();
     }
 
-    const rest = new REST({ version: '10' }).setToken(token);
-
-    console.log(`🧹 Clearing existing GUILD commands for ${guildId}...`);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-    await new Promise(r => setTimeout(r, 1000));
-
-    console.log(`🔁 Syncing ${bot.slashData.length} GUILD slash commands...`);
-    console.time('⏱️ Slash Sync Duration');
-
-    const putGuild = () => rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
-      { body: bot.slashData }
-    );
-
-    let result;
-    try {
-      result = await Promise.race([
-        putGuild(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('⏳ Guild command sync timeout after 60s')), 60000))
-      ]);
-    } catch (e) {
-      console.warn('⚠️ First guild sync attempt failed, retrying once...', e.message);
-      result = await putGuild();
-    }
-
-    console.timeEnd('⏱️ Slash Sync Duration');
-    console.log(`✅ Guild slash commands registered. (${result.length} total)`);
-
+    // Login first so we can fall back to client.application.id safely
     await bot.login(token);
-    bot.once(Events.ClientReady, () => console.log(`🤖 Bot is online as ${bot.user.tag}`));
+
+    bot.once(Events.ClientReady, async () => {
+      console.log(`🤖 Bot is online as ${bot.user.tag}`);
+      const clientId = envClient || bot.application?.id;
+      if (!clientId) {
+        console.error('❌ clientId not available; cannot sync commands.');
+        return;
+      }
+      const res = await bot.syncCommands();
+      console.log('[boot] Guild sync result:', res);
+    });
   } catch (err) {
     console.error('❌ Bot startup failed:', err);
   }
@@ -151,7 +192,7 @@ bot.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: '❌ Unknown command.', ephemeral: true });
   }
   try {
-    await command.execute(interaction);
+    await command.execute(interaction, bot);
   } catch (err) {
     console.error(`❌ Error executing /${interaction.commandName}:`, err);
     const replyMethod = interaction.deferred || interaction.replied ? 'followUp' : 'reply';
@@ -207,6 +248,11 @@ app.get('/_routes', (_req, res) => {
     }
   });
   res.json(list);
+});
+
+// Optional: small endpoint to show last slashData snapshot (debug)
+app.get('/_slash', (_req, res) => {
+  res.json({ count: bot.slashData.length, names: summarizeSlashData(bot.slashData) });
 });
 
 /* ──────────────────────────────────────────────────────────
