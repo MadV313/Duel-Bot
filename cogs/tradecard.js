@@ -5,7 +5,7 @@
 // - Creates a backend trade session and DMs the initiator a tokenized link to pick cards
 // - (Optional) Webhook listener: backend notifies the bot when initiator submits;
 //    bot DMs the partner with proposal thumbnails + Accept / Deny buttons.
-//    Accept => swap cards in linked_decks.json; Deny => notify both.
+//    Accept => swap cards in linked_decks.json (REMOTE via storageClient); Deny => notify both.
 //
 // Config (ENV CONFIG_JSON or config.json fallback):
 //   manage_cards_channel_id
@@ -16,31 +16,17 @@
 //   trade_webhook_secret               (optional: shared secret; or TRADE_WEBHOOK_SECRET env)
 //   (env) BOT_API_KEY                  (required for calling backend /trade/start)
 //
-// Files:
-//   ./data/linked_decks.json
+// Remote files:
+//   linked_decks.json (via storageClient)
 //
 // Backend endpoints (assumed):
 //   POST {API_BASE}/trade/start  -> { sessionId, urlInitiator? }  (requires {initiatorToken, partnerId})
 //
 // Webhook (optional, from backend/UI -> bot):
 //   POST /trade/notify  with JSON:
-//     {
-//       "secret": "<must match trade_webhook_secret>",
-//       "sessionId": "abc123",
-//       "initiatorId": "<discord id>",
-//       "partnerId": "<discord id>",
-//       "initiatorName": "Alice",
-//       "partnerName": "Bob",
-//       "initiatorPicks": [
-//         { "card_id":"#042", "name":"Frost Wolf", "rarity":"Uncommon", "filename":"042_Frost_Wolf_Beast.png", "qty":2 }
-//       ],
-//       "partnerPicks": [
-//         { "card_id":"#017", "name":"Fire Imp", "rarity":"Common", "filename":"017_Fire_Imp_Demon.png", "qty":1 }
-//       ]
-//     }
-//   Bot will DM partner with Accept / Deny buttons. On Accept, it updates linked_decks.json collections.
+//     { secret, sessionId, initiatorId, partnerId, initiatorName, partnerName, initiatorPicks:[...], partnerPicks:[...] }
 
-import fs from 'fs/promises';
+import fs from 'fs/promises'; // kept only for config.json fallback read
 import path from 'path';
 import http from 'http';
 import {
@@ -53,7 +39,9 @@ import {
   EmbedBuilder
 } from 'discord.js';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
 
 /* ---------------- config helpers ---------------- */
 function loadConfig() {
@@ -72,15 +60,6 @@ function isTokenValid(t) { return typeof t === 'string' && /^[A-Za-z0-9_-]{12,12
 
 /* ---------------- runtime state (for Accept/Deny collectors) ---------------- */
 const tradeSessionCache = new Map(); // sessionId -> { initiatorId, partnerId, initiatorPicks, partnerPicks }
-
-/* ---------------- file helpers ---------------- */
-async function readJson(file, fallback = {}) {
-  try { return JSON.parse(await fs.readFile(file, 'utf-8')); } catch { return fallback; }
-}
-async function writeJson(file, data) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
-}
 
 /* ---------------- thumbnail helper ---------------- */
 function cardThumbUrl(filename, CONFIG) {
@@ -106,6 +85,19 @@ function applySwap(profileA, profileB, picksA = [], picksB = []) {
     if (!q) continue;
     profileB.collection[id] = Math.max(0, Number(profileB.collection?.[id] || 0) - q);
     profileA.collection[id] = Number(profileA.collection?.[id] || 0) + q;
+  }
+}
+
+/* ---------------- remote storage wrappers ---------------- */
+async function _loadJSONSafe(name) {
+  try { return await loadJSON(name); }
+  catch (e) { L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client) {
+  try { await saveJSON(name, data); }
+  catch (e) {
+    await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`);
+    throw e;
   }
 }
 
@@ -142,9 +134,6 @@ function startWebhookServerOnce(client, CONFIG) {
         for (const p of initiatorPicks) {
           const url = cardThumbUrl(p.filename, CONFIG2);
           thumbs.push(`• **${p.card_id}** ${p.name} (${p.rarity}) × ${p.qty}${url ? ` — [img](${url})` : ''}`);
-        }
-        for (const p of partnerPicks) {
-          // Partner gives these; show as "You give"
         }
 
         const offerText = [
@@ -233,8 +222,14 @@ export default async function registerTradeCard(client) {
         });
       }
 
-      // Load linked profiles
-      const linked = await readJson(linkedDecksPath, {});
+      // Load linked profiles (REMOTE)
+      let linked = {};
+      try {
+        linked = await _loadJSONSafe(PATHS.linkedDecks);
+      } catch {
+        return interaction.reply({ content: '❌ Could not load linked profiles (storage error).', ephemeral: true });
+      }
+
       const userId = interaction.user.id;
       const mine = linked[userId];
 
@@ -400,8 +395,14 @@ export default async function registerTradeCard(client) {
         return i.reply({ content: '⚠️ Only the selected trade partner can act on this request.', ephemeral: true });
       }
 
-      // Load profiles
-      const linked = await readJson(linkedDecksPath, {});
+      // Load profiles (REMOTE)
+      let linked = {};
+      try {
+        linked = await _loadJSONSafe(PATHS.linkedDecks);
+      } catch {
+        return i.reply({ content: '❌ Storage error: could not load player collections.', ephemeral: true });
+      }
+
       const initiator = linked[initiatorId];
       const partner = linked[partnerId];
       if (!initiator || !partner) {
@@ -417,13 +418,18 @@ export default async function registerTradeCard(client) {
         return;
       }
 
-      // Accept: swap cards & persist
+      // Accept: swap cards & persist (REMOTE)
       initiator.collection = initiator.collection || {};
       partner.collection = partner.collection || {};
       applySwap(initiator, partner, initiatorPicks, partnerPicks);
       linked[initiatorId] = initiator;
       linked[partnerId] = partner;
-      await writeJson(linkedDecksPath, linked);
+
+      try {
+        await _saveJSONSafe(PATHS.linkedDecks, linked, client);
+      } catch {
+        return i.reply({ content: '❌ Failed to persist trade to storage. Please try again.', ephemeral: true });
+      }
 
       tradeSessionCache.delete(sessionId);
 
