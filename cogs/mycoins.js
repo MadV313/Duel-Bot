@@ -1,8 +1,6 @@
 // cogs/mycoins.js — Shows the invoker's current coin balance in an ephemeral embed.
 // - Confined to #manage-cards channel (warns if used elsewhere)
-// - Auto-uses/mints the player's token from linked_decks.json
 // - Warns if the player is not yet linked (asks to run /linkdeck)
-// - ALSO accepts optional `token` to pass/persist a specific player token (not displayed)
 // - Replies with a minimal balance readout
 //
 // Config keys used (ENV CONFIG_JSON or config.json fallback):
@@ -13,7 +11,6 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import crypto from 'crypto';
 import {
   SlashCommandBuilder,
   EmbedBuilder
@@ -51,11 +48,11 @@ async function writeJson(file, data) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
-function randomToken(len = 24) {
-  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
-}
-function isTokenValid(t) {
-  return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
+
+/** Format coins with up to 2 decimals, trimming trailing zeros (supports 0.5, 1, 2.5, etc.) */
+function formatCoins(n) {
+  const s = Number(n).toFixed(2);
+  return s.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
 }
 
 /* ---------------- command registration ---------------- */
@@ -67,13 +64,7 @@ export default async function registerMyCoins(client) {
 
   const commandData = new SlashCommandBuilder()
     .setName('mycoins')
-    .setDescription('Check your current coin balance.')
-    .addStringOption(opt =>
-      opt
-        .setName('token')
-        .setDescription('(Optional) Provide a specific player token to use/persist')
-        .setRequired(false)
-    );
+    .setDescription('Check your current coin balance.');
 
   client.slashData.push(commandData.toJSON());
 
@@ -90,11 +81,10 @@ export default async function registerMyCoins(client) {
 
       const userId = interaction.user.id;
       const username = interaction.user.username;
-      const providedToken = interaction.options.getString('token');
 
       // Load player data
       const linked = await readJson(linkedDecksPath, {});
-      const playerProfile = linked[userId];
+      let playerProfile = linked[userId];
 
       // If player is not yet linked, show warning
       if (!playerProfile) {
@@ -113,25 +103,30 @@ export default async function registerMyCoins(client) {
         return interaction.reply({ embeds: [warn], ephemeral: true });
       }
 
-      // Refresh Discord name
+      // Ensure coins prop exists and is numeric
+      if (typeof playerProfile.coins !== 'number' || Number.isNaN(playerProfile.coins)) {
+        playerProfile.coins = 0;
+      }
+
+      // Refresh Discord name if changed
+      let changed = false;
       if (playerProfile.discordName !== username) {
         playerProfile.discordName = username;
+        changed = true;
       }
 
-      // Token logic
-      if (isTokenValid(providedToken)) {
-        playerProfile.token = providedToken.trim();
-      } else if (!isTokenValid(playerProfile.token)) {
-        playerProfile.token = randomToken(24);
+      // Persist any fixes (e.g., missing coins field or name refresh)
+      if (changed) {
+        linked[userId] = playerProfile;
+        await writeJson(linkedDecksPath, linked);
       }
-
-      await writeJson(linkedDecksPath, linked);
 
       const balance = Number(playerProfile.coins || 0);
+      const pretty = formatCoins(balance);
 
       const embed = new EmbedBuilder()
         .setTitle('💰 My Coins')
-        .setDescription(`Your current coin balance is:\n\n**${balance}** coin${balance === 1 ? '' : 's'}.`)
+        .setDescription(`Your current coin balance is:\n\n**${pretty}** coin${balance === 1 ? '' : 's'}.`)
         .setColor(0x00cc66);
 
       return interaction.reply({
