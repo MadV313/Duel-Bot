@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/duelcoin.js — Admin-only coin adjuster with full debug logging
 // Additions:
 //  • Token-aware collection link in confirmations (&ts=...)
@@ -5,8 +18,6 @@
 //  • Syncs coin balance into linked_decks.json as well as coin_bank.json
 //  • DMs the target user their new balance + collection link (graceful failure handling)
 
-import fs from 'fs/promises';
-import path from 'path';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -25,7 +36,7 @@ import crypto from 'crypto';
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 const coinBankPath    = path.resolve('./data/coin_bank.json');
 
 /* ---------------- config helpers (mirrors duelcard style) ---------------- */
@@ -125,7 +136,7 @@ export default async function registerDuelCoin(client) {
 
       let linkedData = {};
       try {
-        const raw = await fs.readFile(linkedDecksPath, 'utf-8');
+        const raw = await loadJSON(PATHS.linkedDecks);
         linkedData = JSON.parse(raw);
       } catch {
         console.error(`[${timestamp}] ⚠️ Failed to read linked_decks.json`);
@@ -243,7 +254,7 @@ export default async function registerDuelCoin(client) {
         // Read coin bank (legacy store)
         let coinData = {};
         try {
-          const raw = await fs.readFile(coinBankPath, 'utf-8');
+          const raw = await loadJSON(PATHS.linkedDecks);
           coinData = JSON.parse(raw);
         } catch {
           console.warn(`[${modalTimestamp}] ⚠️ Could not read coin bank file (will create).`);
@@ -252,7 +263,7 @@ export default async function registerDuelCoin(client) {
         // Ensure linked decks is available & player entry exists
         let linked = {};
         try {
-          const raw = await fs.readFile(linkedDecksPath, 'utf-8');
+          const raw = await loadJSON(PATHS.linkedDecks);
           linked = JSON.parse(raw);
         } catch {
           console.warn(`[${modalTimestamp}] ⚠️ Could not read linked_decks.json (will create).`);
@@ -290,8 +301,8 @@ export default async function registerDuelCoin(client) {
 
         console.log(`[${modalTimestamp}] 💼 Admin ${adminUsername} executed: ${mode.toUpperCase()} ${amount} coins ${mode === 'give' ? 'to' : 'from'} ${targetName} (${userId}) — New Balance: ${newBalance}`);
 
-        await fs.writeFile(coinBankPath, JSON.stringify(coinData, null, 2));
-        await fs.writeFile(linkedDecksPath, JSON.stringify(linked, null, 2));
+        await saveJSON(PATHS.linkedDecks));
+        await saveJSON(PATHS.linkedDecks));
 
         // Build tokenized collection URL (with &ts= for cache-bust; fromPackReveal=false here)
         const ts = Date.now();
