@@ -1,14 +1,14 @@
 // routes/userStats.js
 
 import express from 'express';
-import fs from 'fs/promises';
-import path from 'path';
+import { load_file } from '../utils/storageClient.js';
 
 const router = express.Router();
 
-const decksPath = path.resolve('./data/linked_decks.json');
-const coinsPath = path.resolve('./data/coin_bank.json');
-const statsPath = path.resolve('./data/player_data.json');
+// Persistent storage keys
+const LINKED_DECKS_FILE = 'linked_decks.json';
+const COIN_BANK_FILE    = 'coin_bank.json';
+const PLAYER_DATA_FILE  = 'player_data.json';
 
 /**
  * GET /userStats/:id
@@ -19,15 +19,16 @@ router.get('/:id', async (req, res) => {
   console.log(`📥 API call: /userStats/${userId}`);
 
   try {
+    // Load from persistent storage (graceful fallbacks)
     const [deckRaw, coinRaw, statsRaw] = await Promise.all([
-      fs.readFile(decksPath, 'utf-8'),
-      fs.readFile(coinsPath, 'utf-8'),
-      fs.readFile(statsPath, 'utf-8'),
+      load_file(LINKED_DECKS_FILE).catch(() => null),
+      load_file(COIN_BANK_FILE).catch(() => null),
+      load_file(PLAYER_DATA_FILE).catch(() => null),
     ]);
 
-    const decks = JSON.parse(deckRaw);
-    const coins = JSON.parse(coinRaw);
-    const stats = JSON.parse(statsRaw);
+    const decks = deckRaw ? JSON.parse(deckRaw) : {};
+    const coins = coinRaw ? JSON.parse(coinRaw) : {};
+    const stats = statsRaw ? JSON.parse(statsRaw) : {};
 
     const player = decks[userId];
     if (!player) {
@@ -41,7 +42,7 @@ router.get('/:id', async (req, res) => {
     const lossCount = stats[userId]?.losses ?? 0;
 
     const collection = player.collection || {};
-    const cardsOwned = Object.values(collection).reduce((sum, qty) => sum + qty, 0);
+    const cardsOwned = Object.values(collection).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
     const cardsCollected = Object.keys(collection)
       .filter(id => {
         const parsed = parseInt(id, 10);
@@ -61,7 +62,7 @@ router.get('/:id', async (req, res) => {
     return res.status(200).json(result);
 
   } catch (err) {
-    console.error(`❌ Error in /userStats/${userId}:`, err);
+    console.error(`❌ Error in /userStats/${userId}:`, err?.message || err);
     return res.status(500).json({ error: 'Unable to retrieve user statistics.' });
   }
 });
