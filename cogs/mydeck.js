@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/mydeck.js — Sends the invoker to their personal Deck Builder UI.
 // - Confined to #manage-cards channel (warns if used elsewhere)
 // - Auto-uses/mints the player's token from linked_decks.json (no extra field)
@@ -10,10 +23,8 @@
 //   api_base / API_BASE
 //
 // Files used:
-//   ./data/linked_decks.json
+//   PATHS.linkedDecks
 
-import fs from 'fs/promises';
-import path from 'path';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
@@ -21,7 +32,7 @@ import {
 } from 'discord.js';
 
 /* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 
 /* ---------------- config helpers ---------------- */
 function loadConfig() {
@@ -56,17 +67,17 @@ function resolveDeckBuilderBase(cfg) {
 }
 
 /* ---------------- small utils ---------------- */
-async function readJson(file, fallback = {}) {
+async function await _loadJSONSafe(PATHS.linkedDecks) {
   try {
-    const raw = await fs.readFile(file, 'utf-8');
+    const raw = await loadJSON(PATHS.linkedDecks);
     return JSON.parse(raw);
   } catch {
     return fallback;
   }
 }
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
@@ -106,7 +117,7 @@ export default async function registerMyDeck(client) {
       const username = interaction.user.username;
 
       // Load profile; warn if not linked (do NOT auto-create here)
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
       const profile = linked[userId];
 
       if (!profile) {
@@ -135,7 +146,7 @@ export default async function registerMyDeck(client) {
         profile.token = randomToken(24);
       }
 
-      await writeJson(linkedDecksPath, linked);
+      await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
 
       const token = profile.token;
       const ts = Date.now();
