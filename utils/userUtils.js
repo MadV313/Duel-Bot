@@ -1,24 +1,75 @@
 // utils/userUtils.js
+//
+// Persistent user profile helpers backed by storageClient.
+// Keeps prior function names but makes them async-safe.
+// - getUserData(userId)    -> Promise<object|null>
+// - updateUserData(userId, update) -> Promise<void>
+//
+// Compatibility: supports either an array of users [{id,...}] or an object map { [id]: {...} } on disk.
+// Will always WRITE BACK as an array to preserve legacy expectations.
 
-import fs from 'fs';
-import path from 'path';
+import { loadJSON, saveJSON } from './storageClient.js';
+import { L } from './logs.js';
 
-const userDataPath = path.resolve('./data/users.json');
+const USERS_FILE = 'users.json';
+
+/** Normalize arbitrary loaded shape into an array of { id, ... } objects. */
+function toArrayShape(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) return data.filter(u => u && typeof u.id !== 'undefined');
+  if (typeof data === 'object') {
+    return Object.entries(data).map(([id, obj]) => ({ id, ...(obj || {}) }));
+  }
+  return [];
+}
+
+/** Quick index from an array shape. */
+function toMap(arr) {
+  const m = {};
+  for (const u of arr) {
+    if (!u || typeof u.id === 'undefined') continue;
+    const id = String(u.id);
+    m[id] = u;
+  }
+  return m;
+}
+
+/** Load users.json from persistent storage (always returns array shape). */
+async function loadUsersArray() {
+  try {
+    const raw = await loadJSON(USERS_FILE); // {} or [] or undefined
+    const arr = toArrayShape(raw);
+    L.storage(`[userUtils] Loaded ${arr.length} users from ${USERS_FILE}`);
+    return arr;
+  } catch (e) {
+    L.err(`[userUtils] Failed to load ${USERS_FILE}: ${e.message}`);
+    return [];
+  }
+}
+
+/** Save users back as an array shape to preserve legacy expectations. */
+async function saveUsersArray(arr) {
+  try {
+    await saveJSON(USERS_FILE, Array.isArray(arr) ? arr : []);
+    L.storage(`[userUtils] Saved ${Array.isArray(arr) ? arr.length : 0} users to ${USERS_FILE}`);
+  } catch (e) {
+    L.err(`[userUtils] Failed to save ${USERS_FILE}: ${e.message}`);
+    throw e;
+  }
+}
 
 /**
  * Fetch user data for a given user ID.
  * @param {string} userId - Discord user ID
- * @returns {object|null} The user data object or null if not found
+ * @returns {Promise<object|null>} User object or null
  */
-export function getUserData(userId) {
-  try {
-    const data = fs.readFileSync(userDataPath, 'utf-8');
-    const users = JSON.parse(data);
-    return users.find(user => user.id === userId) || null;
-  } catch (err) {
-    console.error('❌ Error fetching user data:', err.message);
-    return null;
-  }
+export async function getUserData(userId) {
+  const id = String(userId || '');
+  if (!id) return null;
+
+  const users = await loadUsersArray();
+  const found = users.find(u => String(u.id) === id) || null;
+  return found;
 }
 
 /**
@@ -26,27 +77,27 @@ export function getUserData(userId) {
  * Merges fields if user exists, otherwise adds a new user entry.
  * @param {string} userId - Discord user ID
  * @param {object} update - Object containing fields to update
+ * @returns {Promise<void>}
  */
-export function updateUserData(userId, update) {
-  try {
-    let users = [];
-
-    if (fs.existsSync(userDataPath)) {
-      const data = fs.readFileSync(userDataPath, 'utf-8');
-      users = JSON.parse(data);
-    }
-
-    const userIndex = users.findIndex(user => user.id === userId);
-
-    if (userIndex !== -1) {
-      users[userIndex] = { ...users[userIndex], ...update };
-    } else {
-      users.push({ id: userId, ...update });
-    }
-
-    fs.writeFileSync(userDataPath, JSON.stringify(users, null, 2));
-    console.log(`✅ User data updated for ID: ${userId}`);
-  } catch (err) {
-    console.error('❌ Error updating user data:', err.message);
+export async function updateUserData(userId, update) {
+  const id = String(userId || '');
+  if (!id) {
+    L.err('[userUtils] updateUserData called without userId');
+    return;
   }
+  if (!update || typeof update !== 'object') {
+    L.err('[userUtils] updateUserData called with invalid update payload');
+    return;
+  }
+
+  const users = await loadUsersArray();
+  const idx = users.findIndex(u => String(u.id) === id);
+
+  if (idx !== -1) {
+    users[idx] = { ...users[idx], ...update, id }; // preserve id
+  } else {
+    users.push({ id, ...update });
+  }
+
+  await saveUsersArray(users);
 }
