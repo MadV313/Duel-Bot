@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/viewlinked.js — Paginated with synced dropdown and profile viewer
 // Additions:
 //  • Token-aware deep link to the Card Collection UI for the selected user
@@ -5,8 +18,6 @@
 //  • Prefers coins from linked_decks.json (fallback to coin_bank.json)
 //  • Adds a "View Cards" LINK button next to the profile info
 
-import fs from 'fs/promises';
-import path from 'path';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -22,9 +33,9 @@ import crypto from 'crypto';
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 const coinBankPath    = path.resolve('./data/coin_bank.json');
-const playerDataPath  = path.resolve('./data/player_data.json');
+const playerDataPath  = path.resolve('PATHS.playerData');
 
 /* ---------------- config helpers (matches duelcard/duelcoin style) ---------------- */
 function loadConfig() {
@@ -95,7 +106,7 @@ export default async function registerViewLinked(client) {
 
       let linkedData = {};
       try {
-        const raw = await fs.readFile(linkedDecksPath, 'utf-8');
+        const raw = await loadJSON(PATHS.linkedDecks);
         linkedData = JSON.parse(raw);
       } catch {
         return interaction.reply({
@@ -187,7 +198,7 @@ export default async function registerViewLinked(client) {
         // Re-read latest to reduce race conditions when tokens/coins change elsewhere
         let latestLinked = {};
         try {
-          latestLinked = JSON.parse(await fs.readFile(linkedDecksPath, 'utf-8'));
+          latestLinked = JSON.parse(await loadJSON(PATHS.linkedDecks));
         } catch {
           latestLinked = linkedData;
         }
@@ -204,7 +215,7 @@ export default async function registerViewLinked(client) {
           latestLinked[selectedId] = profile;
           // Persist token for future deep links
           try {
-            await fs.writeFile(linkedDecksPath, JSON.stringify(latestLinked, null, 2));
+            await saveJSON(PATHS.linkedDecks));
           } catch (e) {
             console.warn('[viewlinked] Failed to persist token mint:', e?.message || e);
           }
@@ -215,7 +226,7 @@ export default async function registerViewLinked(client) {
         if (!Number.isFinite(coin) || coin < 0) coin = 0;
         if (coin === 0) {
           try {
-            const coinData = JSON.parse(await fs.readFile(coinBankPath, 'utf-8'));
+            const coinData = JSON.parse(await loadJSON(PATHS.linkedDecks));
             coin = Number(coinData[selectedId] ?? 0) || coin;
           } catch {}
         }
@@ -223,7 +234,7 @@ export default async function registerViewLinked(client) {
         // Wins / Losses (optional)
         let wins = 0, losses = 0;
         try {
-          const statsData = JSON.parse(await fs.readFile(playerDataPath, 'utf-8'));
+          const statsData = JSON.parse(await loadJSON(PATHS.linkedDecks));
           if (statsData[selectedId]) {
             wins   = Number(statsData[selectedId].wins   ?? 0) || 0;
             losses = Number(statsData[selectedId].losses ?? 0) || 0;
