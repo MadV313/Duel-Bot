@@ -1,3 +1,17 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { requireSupporter } from '../utils/roleGuard.js';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/buycard.js — Player command to buy a 3-card pack for 3 coins.
 // - Confined to #manage-cards channel
 // - Warns if not linked
@@ -6,8 +20,6 @@
 // - Writes tokenized reveal JSON and DMs reveal link
 // - Small extra logging
 
-import fs from 'fs/promises';
-import path from 'path';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
@@ -15,7 +27,7 @@ import {
 } from 'discord.js';
 
 /* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 const cardListPath    = path.resolve('./logic/CoreMasterReference.json');
 const revealOutputDir = path.resolve('./public/data');
 
@@ -52,17 +64,17 @@ function resolveCollectionBase(cfg) {
 }
 
 /* ---------------- small utils ---------------- */
-async function readJson(file, fallback = {}) {
+async function await _loadJSONSafe(PATHS.linkedDecks) {
   try {
-    const raw = await fs.readFile(file, 'utf-8');
+    const raw = await loadJSON(PATHS.linkedDecks);
     return JSON.parse(raw);
   } catch {
     return fallback;
   }
 }
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
@@ -132,7 +144,11 @@ export default async function registerBuyCard(client) {
 
   client.commands.set('buycard', {
     data: commandData,
-    async execute(interaction) {
+    \1
+      if (!requireSupporter(interaction.member)) {
+        return interaction.reply({ ephemeral: true, content: "❌ You need the Supporter or Elite Collector role to use this command. Join on Ko-fi to unlock full access." });
+      }
+
       // Tiny audit breadcrumb
       console.log(`[buycard] invoked by ${interaction.user?.tag} (${interaction.user?.id}) in #${interaction.channelId}`);
 
@@ -150,7 +166,7 @@ export default async function registerBuyCard(client) {
       // Load cards (skip #000 back)
       let allCards = [];
       try {
-        const raw = await fs.readFile(cardListPath, 'utf-8');
+        const raw = await loadJSON(PATHS.linkedDecks);
         const parsed = JSON.parse(raw);
         const source = Array.isArray(parsed) ? parsed : (parsed.cards || []);
         allCards = source
@@ -165,7 +181,7 @@ export default async function registerBuyCard(client) {
       }
 
       // Load player profile
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
       const profile = linked[buyerId];
 
       // If player is not linked, warn and exit
@@ -267,13 +283,13 @@ export default async function registerBuyCard(client) {
       profile.lastPackPurchasedAt = new Date().toISOString();
 
       // Persist profile + reveal files
-      await writeJson(linkedDecksPath, linked);
+      await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
 
       await fs.mkdir(revealOutputDir, { recursive: true });
       const userRevealPath  = path.join(revealOutputDir, `reveal_${buyerId}.json`);
       const tokenRevealPath = path.join(revealOutputDir, `reveal_${profile.token}.json`);
-      await fs.writeFile(userRevealPath,  JSON.stringify(revealJson, null, 2));
-      await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
+      await saveJSON(PATHS.linkedDecks));
+      await saveJSON(PATHS.linkedDecks));
 
       // Build URLs
       const API_BASE = resolveBaseUrl(loadConfig().api_base || process.env.API_BASE || '');
