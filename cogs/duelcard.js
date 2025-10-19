@@ -7,8 +7,9 @@
 //  • Defaults image base to Card-Collection-UI/images/cards (front-end) and keeps messages NON-EPHEMERAL
 //  • NEW: Add &new=<cardId3>&ts=<now> to the collection link on GIVE
 //  • NEW: DM the target user with the same embed+link; notify admins if DM fails
+//  • PERSISTENCE: linked_decks.json is loaded/saved REMOTELY via storageClient with [STORAGE] logs + adminAlert
 
-import fs from 'fs/promises';
+import fs from 'fs/promises';              // kept for local CoreMasterReference read
 import path from 'path';
 import {
   SlashCommandBuilder,
@@ -22,13 +23,16 @@ import {
 } from 'discord.js';
 import crypto from 'crypto';
 
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
 const cardListPath = path.resolve('./logic/CoreMasterReference.json');
 
-// ------------ Config helpers ------------
+/* ---------------- Config helpers ---------------- */
 function loadConfig() {
   try {
     const raw = process.env.CONFIG_JSON;
@@ -62,7 +66,7 @@ function resolveImageBase(cfg) {
   return trimBase(cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards');
 }
 
-// ------------ Utility helpers ------------
+/* ---------------- Utility helpers ---------------- */
 function pad3(n) {
   return String(n).padStart(3, '0');
 }
@@ -88,18 +92,17 @@ function isAbsoluteUrl(u) {
   return /^https?:\/\//i.test(String(u || ''));
 }
 
-// ------------ File I/O helpers ------------
-async function readJson(file, fallback = {}) {
-  try {
-    const raw = await fs.readFile(file, 'utf-8');
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
+/* ---------------- Remote storage wrappers ---------------- */
+async function _loadJSONSafe(name) {
+  try { return await loadJSON(name); }
+  catch (e) { L.storage(`load fail ${name}: ${e.message}`); throw e; }
 }
-async function writeJson(file, data) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+async function _saveJSONSafe(name, data, client) {
+  try { await saveJSON(name, data); }
+  catch (e) {
+    await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`);
+    throw e;
+  }
 }
 
 export default async function registerDuelCard(client) {
@@ -168,9 +171,10 @@ export default async function registerDuelCard(client) {
         const actionMode = modeSelect.values[0];
         await interaction.editReply({ content: '✅ Mode selected. Loading players...', components: [] });
 
+        // REMOTE read linked profiles
         let linkedData = {};
         try {
-          linkedData = await readJson(linkedDecksPath, {});
+          linkedData = await _loadJSONSafe(PATHS.linkedDecks);
         } catch {
           return interaction.editReply({ content: '⚠️ Could not load linked users.' });
         }
@@ -256,10 +260,11 @@ export default async function registerDuelCard(client) {
           // Ensure token for the player (for collection UI deep link)
           if (!playerProfile.token || typeof playerProfile.token !== 'string' || playerProfile.token.length < 12) {
             playerProfile.token = randomToken(24);
-            await writeJson(linkedDecksPath, linkedData);
+            try { await _saveJSONSafe(PATHS.linkedDecks, linkedData, client); }
+            catch { return interaction.editReply({ content: '⚠️ Failed to persist player token.' }); }
           }
 
-          // Load card data
+          // Load card data (LOCAL read OK)
           let cardData = [];
           try {
             const raw = await fs.readFile(cardListPath, 'utf-8');
@@ -382,13 +387,18 @@ export default async function registerDuelCard(client) {
               player.token = randomToken(24);
             }
 
-            await writeJson(linkedDecksPath, linkedData);
+            // REMOTE save linked decks
+            try {
+              await _saveJSONSafe(PATHS.linkedDecks, linkedData, client);
+            } catch {
+              return cardSelect.reply({ content: '⚠️ Failed to persist update to linked_decks.json.', ephemeral: true });
+            }
 
             const verb = actionMode === 'give' ? 'given to' : 'taken from';
             const adminTag = `<@${interaction.user.id}>`;
             const targetTag = `<@${targetId}>`;
 
-            // 🔽 Build the correct image URL for the selected card
+            // Build the correct image URL for the selected card
             const fileFromMaster = selectedCard?.image || selectedCard?.filename;
             const file = fileFromMaster || makeFilename(cardId3, selectedCard?.name, selectedCard?.type);
             const imageUrl = isAbsoluteUrl(file) ? file : `${IMAGE_BASE}/${file}`;
@@ -413,7 +423,7 @@ export default async function registerDuelCard(client) {
               ephemeral: false
             });
 
-            // NEW: DM the user on GIVE with the same embed + link; catch errors and notify admins
+            // DM the user on GIVE with the same embed + link; catch errors and notify admins
             if (actionMode === 'give') {
               try {
                 const user = await client.users.fetch(targetId);
@@ -423,7 +433,6 @@ export default async function registerDuelCard(client) {
                 });
               } catch (dmErr) {
                 console.warn(`[duelcard] Failed to DM user ${targetId}:`, dmErr?.message || dmErr);
-                // Notify admins in the same channel/thread
                 await interaction.followUp({
                   content: `⚠️ Could not DM ${targetTag} about the gifted card. They may have DMs disabled.`,
                   ephemeral: false
