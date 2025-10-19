@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/mycards.js
 // /mycards — Posts an EPHEMERAL embed with a tokenized link to the player’s personal Card Collection UI.
 // Restrictions:
@@ -9,15 +22,13 @@
 //  • Builds link with ?token= plus optional &api=, &imgbase=, and cache-busting &ts=
 //  • Uses config.collection_ui (or ui_urls.card_collection_ui/front end base) consistently
 
-import fs from 'fs/promises';
-import path from 'path';
 import crypto from 'crypto';
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 
 // Fallback channel ID constant (used if not provided in config)
 const FALLBACK_MANAGE_CARDS_CHANNEL_ID = '1367977677658656868';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 
 /* ---------------- config loader (ENV first, then config.json) ---------------- */
 function loadConfig() {
@@ -53,18 +64,18 @@ function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
 
-async function readJson(file, fallback = {}) {
+async function await _loadJSONSafe(PATHS.linkedDecks) {
   try {
-    const raw = await fs.readFile(file, 'utf-8');
+    const raw = await loadJSON(PATHS.linkedDecks);
     return JSON.parse(raw);
   } catch {
     return fallback;
   }
 }
 
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 
 export default async function registerMyCards(client) {
@@ -94,7 +105,7 @@ export default async function registerMyCards(client) {
       }
 
       // Load linked profiles
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
       const profile = linked[userId];
 
       if (!profile) {
@@ -119,7 +130,7 @@ export default async function registerMyCards(client) {
       // Persist any self-heal updates quietly
       try {
         linked[userId] = profile;
-        await writeJson(linkedDecksPath, linked);
+        await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
       } catch (e) {
         console.warn('[mycards] Failed to persist profile updates:', e?.message || e);
       }
