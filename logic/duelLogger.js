@@ -1,55 +1,57 @@
 // logic/duelLogger.js
 
-import fs from 'fs';
-import path from 'path';
+// ⬇️ switched from local fs to remote storage client
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
 
-const logsDir = path.resolve('./data/logs');
-const currentLogPath = path.join(logsDir, 'current_duel_log.json');
-
-// 🧱 Ensure logs directory exists
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
-  console.log('🗂️ Created logs directory:', logsDir);
-}
+const currentLogPath = PATHS.duelLogCurrent;
 
 /**
  * Logs a duel event to the current duel log.
- * @param {Object} entry - Event details (action, player, detail)
- * Example: { action: 'play_card', player: 'player1', detail: '045' }
+ * @param {object} event - { at: ISO string, type: string, payload: any }
  */
-export function logDuelEvent(entry) {
-  const timestamp = new Date().toISOString();
-  const logEntry = { timestamp, ...entry };
+export async function logDuelEvent(event) {
+  const entry = {
+    at: event?.at || new Date().toISOString(),
+    type: event?.type || 'unknown',
+    payload: event?.payload ?? null
+  };
 
   let log = [];
-
   try {
-    if (fs.existsSync(currentLogPath)) {
-      const raw = fs.readFileSync(currentLogPath, 'utf-8');
-      log = JSON.parse(raw);
-    }
+    log = await loadJSON(currentLogPath);
+    if (!Array.isArray(log)) log = [];
   } catch (err) {
-    console.error('❌ Failed to read duel log:', err);
+    // If load fails, start a new log
+    console.warn('⚠️ Failed to read current duel log, starting fresh:', err?.message);
+    log = [];
   }
 
-  log.push(logEntry);
+  log.push(entry);
 
   try {
-    fs.writeFileSync(currentLogPath, JSON.stringify(log, null, 2));
-    console.log(`📝 Logged event: ${entry.action} — ${entry.detail || 'no detail'} by ${entry.player}`);
+    await saveJSON(currentLogPath, log);
+    L.storage(`Appended duel log entry (${entry.type}).`);
   } catch (err) {
-    console.error('❌ Failed to write duel log:', err);
+    console.error('❌ Failed to write to current duel log:', err);
+    try {
+      await adminAlert(globalThis.client || null, process.env.PAYOUTS_CHANNEL_ID, `logs/current_duel_log.json save failed: ${err.message}`);
+    } catch {}
   }
 }
 
 /**
  * Clears the duel log file (used after duel ends).
  */
-export function clearDuelLog() {
+export async function clearDuelLog() {
   try {
-    fs.writeFileSync(currentLogPath, JSON.stringify([], null, 2));
+    await saveJSON(currentLogPath, []);
     console.log('🧹 Duel log cleared.');
   } catch (err) {
     console.error('❌ Failed to clear duel log:', err);
+    try {
+      await adminAlert(globalThis.client || null, process.env.PAYOUTS_CHANNEL_ID, `logs/current_duel_log.json clear failed: ${err.message}`);
+    } catch {}
   }
 }
