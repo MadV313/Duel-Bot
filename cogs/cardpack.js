@@ -1,11 +1,12 @@
 // cogs/cardpack.js — Admin-only command to grant a 3-card pack, persist to player collection,
 // and generate a reveal JSON keyed by USER and TOKEN (for tokenized per-player Pack Reveal links)
-// UPDATED:
-//  • Recipient selection now shows ONLY linked users (paginated StringSelect like /duelcard)
-//  • Preserves token minting, reveal JSON writes, and DM with tokenized Pack Reveal URL
-//  • After reveal, Pack UI can redirect to Collection UI with &fromPackReveal, &new=, &ts= cache-buster
+// UPDATED FOR REMOTE PERSISTENCE:
+//  • linked_decks.json loaded/saved via storageClient (remote)
+//  • reveal JSONs saved remotely at public/data/reveal_<userId>.json and public/data/reveal_<token>.json
+//  • [STORAGE] logs + adminAlert on failed saves
+//  • All existing logic/UX retained (pagination, token mint, DM link, etc.)
 
-import fs from 'fs/promises';
+import fs from 'fs/promises';             // kept ONLY for reading CoreMasterReference.json
 import path from 'path';
 import crypto from 'crypto';
 import {
@@ -19,9 +20,13 @@ import {
   EmbedBuilder
 } from 'discord.js';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
-const cardListPath    = path.resolve('./logic/CoreMasterReference.json');
-const revealOutputDir = path.resolve('./public/data');
+import { loadJSON, saveJSON } from '../utils/storageClient.js';
+import { PATHS } from '../utils/storageClient.js';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+
+/* ---------------- local-only file (card list) ---------------- */
+const cardListPath = path.resolve('./logic/CoreMasterReference.json');
 
 /* ---------------- config loader (ENV first, then config.json) ---------------- */
 function loadConfig() {
@@ -61,20 +66,6 @@ function resolveCollectionBase(cfg) {
 }
 
 /* ---------------- helpers ---------------- */
-async function readJson(file, fallback = {}) {
-  try {
-    const raw = await fs.readFile(file, 'utf-8');
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJson(file, data) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
-}
-
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
@@ -108,6 +99,19 @@ function makeWeightedPicker(cards, weightsByRarity) {
   };
 }
 
+/* ---------------- safe storage wrappers ---------------- */
+async function _loadJSONSafe(name) {
+  try { return await loadJSON(name); }
+  catch (e) { L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client) {
+  try { await saveJSON(name, data); }
+  catch (e) {
+    await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`);
+    throw e;
+  }
+}
+
 /* ---------------- command registration ---------------- */
 export default async function registerCardPack(client) {
   const CONFIG = loadConfig();
@@ -139,7 +143,7 @@ export default async function registerCardPack(client) {
       }
 
       // --- Load linked users for dropdown (ONLY linked users are eligible) ---
-      const linkedData = await readJson(linkedDecksPath, {});
+      const linkedData = await _loadJSONSafe(PATHS.linkedDecks);  // REMOTE
       const entries = Object.entries(linkedData);
       if (!entries.length) {
         return interaction.reply({ content: '⚠️ No linked users found.', ephemeral: true });
@@ -217,7 +221,7 @@ export default async function registerCardPack(client) {
           return i.update({ content: '⚠️ Could not fetch that user.', embeds: [], components: [] });
         }
 
-        // --- Load cards (skip #000 / back) ---
+        // --- Load cards (skip #000 / back) — LOCAL READ OK ---
         let allCards = [];
         try {
           const raw = await fs.readFile(cardListPath, 'utf-8');
@@ -239,8 +243,8 @@ export default async function registerCardPack(client) {
         const pickCard = makeWeightedPicker(allCards, rarityWeights);
         const drawnCards = [pickCard(), pickCard(), pickCard()];
 
-        // --- Ensure profile exists & token minted ---
-        const latestLinked = await readJson(linkedDecksPath, {});
+        // --- Ensure profile exists & token minted (REMOTE) ---
+        const latestLinked = await _loadJSONSafe(PATHS.linkedDecks);
         const username = targetUser.username;
 
         if (!latestLinked[userId]) {
@@ -287,14 +291,23 @@ export default async function registerCardPack(client) {
           });
         }
 
-        // --- Persist linked decks & reveal files ---
-        await writeJson(linkedDecksPath, latestLinked);
+        // --- Persist linked decks (REMOTE) ---
+        try {
+          await _saveJSONSafe(PATHS.linkedDecks, latestLinked, client);
+        } catch (e) {
+          return i.update({ content: '⚠️ Failed to save player state (linked decks).', embeds: [], components: [] });
+        }
 
-        await fs.mkdir(revealOutputDir, { recursive: true });
-        const userRevealPath  = path.join(revealOutputDir, `reveal_${userId}.json`);
-        const tokenRevealPath = path.join(revealOutputDir, `reveal_${userProfile.token}.json`);
-        await fs.writeFile(userRevealPath,  JSON.stringify(revealJson, null, 2));
-        await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
+        // --- Persist reveal files (REMOTE) ---
+        const userRevealName  = `public/data/reveal_${userId}.json`;
+        const tokenRevealName = `public/data/reveal_${userProfile.token}.json`;
+
+        try {
+          await _saveJSONSafe(userRevealName, revealJson, client);
+          await _saveJSONSafe(tokenRevealName, revealJson, client);
+        } catch (e) {
+          return i.update({ content: '⚠️ Cards granted, but failed to persist reveal JSON remotely.', embeds: [], components: [] });
+        }
 
         // --- Compose URLs (Pack Reveal + Collection with highlights) ---
         const apiQP  = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
