@@ -1,39 +1,35 @@
 {
+  /* 🔐 TOKEN & AUTH */
   "token_env": "DISCORD_TOKEN",
   "admin_api_key": "YOUR_SECRET_ADMIN_KEY_HERE",
-
-  /* New: optional—used by /trade/start auth if you prefer config over env */
   "bot_api_key": "YOUR_SECRET_BOT_API_KEY_HERE",
 
+  /* 🧑‍💼 ADMIN SETTINGS */
   "admin_payout_channel_id": "1368023977519222895",
   "admin_role_ids": [
     "1173049392371085392",
     "1184921037830373468"
   ],
-
-  "battlefield_channel_id": "1367986446232719484",
-  "economy_channel_id": "1173028001085145198",
   "founder_role_id": "1173052585830264832",
 
-  "linked_decks_file": "./data/linked_decks.json",
-  "duel_summary_file": "./public/data/duel_summary.json",
-
+  /* ⚔️ CHANNELS */
+  "battlefield_channel_id": "1367986446232719484",
+  "economy_channel_id": "1173028001085145198",
   "manage_cards_channel_id": "1367977677658656868",
   "manage_deck_channel_id": "1368023905964658760",
 
-  /* UI bases (used in deep links and DMs) */
-  "collection_ui": "https://madv313.github.io/Card-Collection-UI/",
-  "pack_reveal_ui": "https://madv313.github.io/Pack-Reveal-UI/",
+  /* 💾 DATA PATHS (local fallbacks, live data stored remotely) */
+  "linked_decks_file": "./data/linked_decks.json",
+  "duel_summary_file": "./public/data/duel_summary.json",
+
+  /* 🌐 BACKEND ENDPOINTS */
+  "api_base": "https://duel-bot-backend-production.up.railway.app",
+  "duel_backend_base_url": "https://duel-bot-backend-production.up.railway.app",
   "frontend_url": "https://madv313.github.io/",
   "ui_base": "https://madv313.github.io/",
-  "api_base": "https://duel-bot-production.up.railway.app",
-
-  /* Optional: practice cog looks for this key name, too */
-  "duel_backend_base_url": "https://duel-bot-production.up.railway.app",
-
-  /* Optional: if true, append &api=<backend> to UI links created by bot */
   "pass_api_query": false,
 
+  /* 🎴 UI ROUTES */
   "ui_urls": {
     "hub_ui": "https://madv313.github.io/HUB-UI/",
     "card_collection_ui": "https://madv313.github.io/Card-Collection-UI/",
@@ -45,6 +41,7 @@
     "duel_ui": "https://madv313.github.io/Duel-UI/"
   },
 
+  /* 💰 ECONOMY CONFIG */
   "coin_system": {
     "card_pack_cost": 3,
     "card_sell_values": {
@@ -65,9 +62,25 @@
     "buycard_message": "Your new card pack is ready! View it here: https://madv313.github.io/Pack-Reveal-UI/"
   },
 
-  /* New: trade system knobs used by new routes (defaults exist in code) */
+  /* 🔁 TRADE SYSTEM */
   "trade_system": {
     "trade_limit_per_day": 3,
     "session_ttl_hours": 24
-  }
+  },
+
+  /* 🧠 FUTURE EXPANSION HOOKS */
+  "tournament_mode": {
+    "enabled": false,
+    "bracket_sync_url": ""
+  },
+  "crafting_system": {
+    "enabled": false,
+    "fusion_cost": 5
+  },
+
+  /* ⚙️ META */
+  "project_name": "SV13 CCG Duel Bot Backend",
+  "version": "1.2.0",
+  "maintainer": "SV13 Development Team",
+  "last_updated": "2025-10-19"
 }
