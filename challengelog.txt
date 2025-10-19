@@ -1,15 +1,71 @@
-SV13 CCG Bot - Changelog
+SV13 CCG Bot — Changelog
 ========================
 
-v1.0.0 - May 6, 2025
-- Finalized duelState tracking with turn count and duration
-- Integrated Pack Reveal UI with toast and rarity animations
-- Slash commands fully registered via registerCommands.js
-- Admin trading, spectator logging, and payout systems active
-- Server.js secured with rate limiting, helmet, and error guards
-- Practice bot and PvP duels now share a unified backend state
+Version 1.2.0 — October 2025
+-----------------------------
+🔥 Major Feature Expansion
+- Migrated all player and duel data to persistent remote storage with retry + timeout logic.
+- Completed integration of ALL frontend UIs (Hub, Deck Builder, Collection, Pack Reveal, Duel, Summary, Stats, Spectator).
+- Unified backend duel engine for PvP, Practice Bot, and Spectator View.
+- Added role-based gating for /buycard, /sellcard, /viewdeck, and /challenge commands.
+- Enhanced Duel Summary Writer with event history, damage logs, and wager display.
+- Added rotating duel log archiver with timestamped backups.
+- Updated `/givecard` and `/buycard` commands to trigger full animated Pack Reveal flow.
+- Implemented coin economy safeguards: 5-per-day buy/sell limits and max 250-card cap.
+- Added `/link deck` persistent binding between Discord ID and saved deck profile.
+- Implemented daily cron reset job for player limits and maintenance.
+- Integrated admin alert handler for persistent write failures.
+- Enhanced security and rate-limiting in `server.js` (helmet, limiter, async error guards).
+- All routes now validated with unified config + structured logging (`utils/logger.js`).
 
-Upcoming:
-- Tournament Mode
-- Card crafting system
-- Third expansion deck: Environmental Event Cards
+🧠 Duel Engine Improvements
+- Traps now trigger with proper timing and visual overlays.
+- Multi-trap conflict resolution fixed.
+- Added SFX layers for hit markers and bot turns.
+- Unified combo system logic with animation banner support.
+- Added end-of-duel summary transitions returning stolen cards.
+- Improved practice bot logic and enforced deck validation (20–40 cards).
+
+🎨 Frontend Polish
+- Finalized Pack Reveal intro animation (drop + flip sequence, rarity glow, “New!” badge).
+- Toast messages only appear for new card unlocks.
+- Duel UI and Summary UI audio fully functional with background/FX toggle.
+- Leaderboard UI refined to display wins/losses and top coin holders.
+- Improved Duel UI turn pacing and SFX sync.
+
+---
+
+Version 1.1.0 — August 2025
+-----------------------------
+- Introduced player coin banking system with persistent coin tracking.
+- Added leaderboard route + UI integration.
+- Finalized `/practice` and `/challenge` duel flow with coin wager system.
+- Added `/save` deck validation and eligibility checks.
+- Pack Reveal UI separated from Collection UI with its own animations.
+- Added Admin RewardBot integration for payouts and confirmations.
+
+---
+
+Version 1.0.0 — May 6, 2025
+-----------------------------
+- Finalized duelState tracking with turn count and duration.
+- Integrated Pack Reveal UI with toast and rarity animations.
+- Slash commands fully registered via `registerCommands.js`.
+- Admin trading, spectator logging, and payout systems active.
+- `server.js` secured with rate limiting, helmet, and error guards.
+- Practice Bot and PvP duels now share a unified backend state.
+
+---
+
+🧭 Upcoming Roadmap
+-------------------
+- 🏆 **Tournament Mode** — bracketed elimination with live scoreboard.
+- ⚗️ **Card Crafting System** — fuse duplicates into upgraded rarities.
+- 🌪️ **Third Expansion Deck: Environmental Event Cards.**
+- 🧬 **Dynamic AI Behavior** — smarter reactions and difficulty scaling.
+- 💾 **Cross-Server Data Sync** — shared leaderboards and tournaments across multiple servers.
+
+---
+
+© 2025 SV13 — All Rights Reserved
+"Play. Collect. Survive."
