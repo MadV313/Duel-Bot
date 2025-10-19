@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/mycoins.js — Shows the invoker's current coin balance in an ephemeral embed.
 // - Confined to #manage-cards channel (warns if used elsewhere)
 // - Warns if the player is not yet linked (asks to run /linkdeck)
@@ -7,17 +20,15 @@
 //   manage_cards_channel_id
 //
 // Files used:
-//   ./data/linked_decks.json
+//   PATHS.linkedDecks
 
-import fs from 'fs/promises';
-import path from 'path';
 import {
   SlashCommandBuilder,
   EmbedBuilder
 } from 'discord.js';
 
 /* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 
 /* ---------------- config helpers ---------------- */
 function loadConfig() {
@@ -36,17 +47,17 @@ function loadConfig() {
 }
 
 /* ---------------- small utils ---------------- */
-async function readJson(file, fallback = {}) {
+async function await _loadJSONSafe(PATHS.linkedDecks) {
   try {
-    const raw = await fs.readFile(file, 'utf-8');
+    const raw = await loadJSON(PATHS.linkedDecks);
     return JSON.parse(raw);
   } catch {
     return fallback;
   }
 }
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 
 /** Format coins with up to 2 decimals, trimming trailing zeros (supports 0.5, 1, 2.5, etc.) */
@@ -83,7 +94,7 @@ export default async function registerMyCoins(client) {
       const username = interaction.user.username;
 
       // Load player data
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
       let playerProfile = linked[userId];
 
       // If player is not yet linked, show warning
@@ -118,7 +129,7 @@ export default async function registerMyCoins(client) {
       // Persist any fixes (e.g., missing coins field or name refresh)
       if (changed) {
         linked[userId] = playerProfile;
-        await writeJson(linkedDecksPath, linked);
+        await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
       }
 
       const balance = Number(playerProfile.coins || 0);
