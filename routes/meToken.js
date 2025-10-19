@@ -272,18 +272,27 @@ router.post('/me/:token/sell', async (req, res) => {
 
     // Persist collection & coin bank & daily counter
     profile.collection = collection;
-    linked[userId] = profile;
-
-    const prevBalance = Number(bank[userId] || 0);
+    // 🔁 Keep coins in sync across BOTH stores so /mycoins & /me/:token/stats agree
+    const prevBalance = Number((await readJson(coinBankPath, {}))[userId] || 0);
     const newBalance = prevBalance + credited;
-    bank[userId] = newBalance;
+
+    const bankUpdate = await readJson(coinBankPath, {});
+    bankUpdate[userId] = newBalance;
+
+    // mirror to profile for UIs that read from linked_decks.json
+    profile.coins = newBalance;
+    profile.lastCoinsUpdatedAt = new Date().toISOString();
+    // ensure discordId is present (handy for other routes)
+    if (!profile.discordId) profile.discordId = userId;
+
+    linked[userId] = profile;
 
     userSellMap[dayKey] = soldToday + requestedTotal;
     sellsByDay[userId] = userSellMap;
 
     await Promise.all([
       writeJson(linkedDecksPath, linked),
-      writeJson(coinBankPath, bank),
+      writeJson(coinBankPath, bankUpdate),
       writeJson(sellsByDayPath, sellsByDay),
     ]);
 
