@@ -1,8 +1,7 @@
 // routes/summaryRoute.js
 
 import express from 'express';
-import fs from 'fs/promises';
-import path from 'path';
+import { load_file } from '../utils/storageClient.js';
 
 const router = express.Router();
 
@@ -18,13 +17,14 @@ router.get('/summary/:duelId', async (req, res) => {
   }
 
   try {
-    const summaryPath = path.join(process.cwd(), 'data', 'summaries', `${duelId}.json`);
-    const raw = await fs.readFile(summaryPath, 'utf-8');
+    // Load from persistent storage instead of local fs
+    const key = `data/summaries/${duelId}.json`;
+    const raw = await load_file(key);
     const summary = JSON.parse(raw);
 
     res.status(200).json(summary);
   } catch (err) {
-    console.error(`❌ Failed to load summary for duelId "${duelId}":`, err.message);
+    console.error(`❌ Failed to load summary for duelId "${duelId}":`, err?.message || err);
     res.status(404).json({ error: 'Summary not found.' });
   }
 });
