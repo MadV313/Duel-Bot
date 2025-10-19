@@ -20,14 +20,14 @@ This backend serves as the live controller for:
 
 ## ✨ Core Features
 
-- 🎮 **Discord Slash Commands** — `/challenge`, `/practice`, `/trade`, `/buycard`, `/sellcard`, `/viewdeck`, `/coin`, `/leaderboard`, and more  
+- 🎮 **Discord Slash Commands** — `/linkdeck`, `/challenge`, `/practice`, `/tradecard`, `/buycard`, `/sellcard`, `/mydeck`, `/mycoin`, `/tradecard`, and more  
 - 🧠 **Full Duel Engine** — PvP or Practice vs. AI with real card logic, traps, buffs, and combo systems  
 - 🎴 **Rarity-Based Pack System** — weighted draws (Common → Legendary) with animated **Pack Reveal UI**  
 - 🧱 **Deck Builder UI** — build 20–40 card decks from your personal collection  
 - 💰 **Coin Economy** — buy/sell limits, rarity values, wagers, and automated coin persistence  
 - 🧾 **Duel Summary Screen** — displays events, damage logs, and wager results  
 - 👁️ **Spectator Mode** — live rotation of duel logs for viewers  
-- 🧑‍💼 **Admin Toolkit** — `/givecard`, `/takecard`, `/clear`, `/forfeit`, `/save`, `/link deck`, and payout notifications  
+- 🧑‍💼 **Admin Toolkit** — `/duelcard`, `/duelcoin`, `/cardpack`, `/viewlinked`, `/unlinkdeck`, and payout notifications  
 - 🔁 **Persistent Data System** — JSON-based remote storage with retry logic, caching, and cron maintenance  
 
 ---
