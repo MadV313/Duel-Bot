@@ -1,38 +1,40 @@
-# Environment files
+# === Environment & Config ===
 .env
+.env.*            # any variant (.env.local, .env.production, etc.)
+config.json       # contains sensitive tokens/URLs
 
-# Config (contains sensitive info)
-config.json
-
-# Node dependencies
+# === Dependencies ===
 node_modules/
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-
-# Build outputs
-dist/
-build/
-
-# Duel & Pack log data
-/data/*.json
-/public/data/*.json
-.commands_registered
-
-# Lock files (optional)
 package-lock.json
 yarn.lock
 
-# OS files
-.DS_Store
-Thumbs.db
+# === Logs & Runtime Data ===
+logs/
+*.log
+npm-debug.log*
+data/*.log
+data/logs/
+public/data/*.json   # duel summaries, pack reveal, etc.
+data/*.json          # local or cache data
+.commands_registered
 
-# Temp/Swap files
+# === Build Outputs ===
+dist/
+build/
+tmp/
+.cache/
+
+# === IDE / Editor ===
+.idea/
+.vscode/
 *.swp
 *.swo
 
-# IDE files
-.idea/
-.vscode/
+# === OS Artifacts ===
+.DS_Store
+Thumbs.db
+
+# === Railway / Docker ===
+Dockerfile
+.dockerignore
+railway.toml
