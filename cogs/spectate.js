@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/spectate.js — Browse & join active duels as a spectator.
 // - Restricted to Battlefield channel (warns otherwise)
 // - Requires the invoker to be linked (warns to /linkdeck otherwise)
@@ -15,10 +28,6 @@
 // Notes:
 // - We resolve Discord display names using linked_decks.json when possible.
 // - Dropdown is ephemeral and supports up to 25 options per page; nav with Prev/Next buttons.
-
-import fs from 'fs/promises';
-import fssync from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
@@ -93,14 +102,14 @@ const BOT_API_KEY = process.env.BOT_API_KEY || '';
 
 /* ───────────── Files & small helpers ───────────── */
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 
-async function readJson(file, fb = {}) {
-  try { return JSON.parse(await fs.readFile(file, 'utf-8')); } catch { return fb; }
+async function await _loadJSONSafe(PATHS.linkedDecks) {
+  try { return JSON.parse(await loadJSON(PATHS.linkedDecks)); } catch { return fb; }
 }
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
@@ -111,7 +120,7 @@ function isTokenValid(t) {
 
 /** Ensure a token exists for an already-linked user. Returns token or null if not linked. */
 async function ensureTokenIfLinked(userId, userName) {
-  const linked = await readJson(linkedDecksPath, {});
+  const linked = await await _loadJSONSafe(PATHS.linkedDecks);
   if (!linked[userId]) return null;
   let changed = false;
   if (linked[userId].discordName !== userName) {
@@ -122,7 +131,7 @@ async function ensureTokenIfLinked(userId, userName) {
     linked[userId].token = randomToken(24);
     changed = true;
   }
-  if (changed) await writeJson(linkedDecksPath, linked);
+  if (changed) await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
   return linked[userId].token;
 }
 
@@ -227,7 +236,7 @@ export default async function registerSpectate(bot) {
       }
 
       // Load linked names to render labels
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
       const duelsRaw = await fetchActiveDuels();
       const duels = duelsRaw
         .map(d => normalizeDuel(d, linked))
