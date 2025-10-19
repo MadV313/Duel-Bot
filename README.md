@@ -1,20 +1,36 @@
-# SV13 Duel Bot Backend
+# 🎴 SV13 Duel Bot Backend
 
-This is the official backend for the **SV13 DayZ-Themed CCG Duel Bot**, powering Discord duels, deck management, card trading, pack reveals, and more.
+> The official backend powering the **SV13 DayZ-Themed Collectible Card Game (CCG)** — built for the SV13 community’s Discord server and connected to a suite of live UIs, persistent data storage, and cinematic gameplay systems.
 
-## Features
+---
 
-- Fully interactive Discord slash command system
-- PvP and Practice duels with animated frontend UI
-- Card collection and rarity-based pack opening
-- Custom deck builder and validation system
-- Spectator mode with rotating logs
-- Admin tools for payout, card distribution, and duel tracking
+## 🚀 Overview
 
-## Setup Instructions
+The **SV13 Duel Bot** is a full-stack collectible card game framework that brings DayZ-inspired tactical combat into Discord.  
+Players can **collect cards, build decks, challenge opponents, trade, sell, and open animated packs** — all seamlessly integrated with live web UIs and persistent data storage.
 
-### 1. Clone and Install
-```bash
-git clone https://github.com/your-repo/sv13-duel-bot.git
-cd sv13-duel-bot
-npm install
+This backend serves as the live controller for:
+- Duel logic and real-time state synchronization  
+- Card collection and rarity management  
+- Persistent player data (decks, coins, stats)  
+- Web UI endpoints for duels, summaries, and reveals  
+- Admin tools for reward payouts, economy, and leaderboard management  
+
+---
+
+## ✨ Core Features
+
+- 🎮 **Discord Slash Commands** — `/challenge`, `/practice`, `/trade`, `/buycard`, `/sellcard`, `/viewdeck`, `/coin`, `/leaderboard`, and more  
+- 🧠 **Full Duel Engine** — PvP or Practice vs. AI with real card logic, traps, buffs, and combo systems  
+- 🎴 **Rarity-Based Pack System** — weighted draws (Common → Legendary) with animated **Pack Reveal UI**  
+- 🧱 **Deck Builder UI** — build 20–40 card decks from your personal collection  
+- 💰 **Coin Economy** — buy/sell limits, rarity values, wagers, and automated coin persistence  
+- 🧾 **Duel Summary Screen** — displays events, damage logs, and wager results  
+- 👁️ **Spectator Mode** — live rotation of duel logs for viewers  
+- 🧑‍💼 **Admin Toolkit** — `/givecard`, `/takecard`, `/clear`, `/forfeit`, `/save`, `/link deck`, and payout notifications  
+- 🔁 **Persistent Data System** — JSON-based remote storage with retry logic, caching, and cron maintenance  
+
+---
+
+## 🗂️ Repository Structure
+
