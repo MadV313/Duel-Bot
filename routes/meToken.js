@@ -4,8 +4,6 @@
 // Adds: POST /me/:token/sell   (sell up to 5 cards per 24h, decrements collection, credits coins)
 
 import express from 'express';
-import path from 'path';
-import fs from 'fs/promises';
 import {
   resolveUserIdByToken,
   getPlayerCollectionMap,
@@ -15,12 +13,15 @@ import {
   pad3,
 } from '../utils/deckUtils.js';
 
+import { load_file, save_file } from '../utils/storageClient.js';
+
 const router = express.Router();
 
 /* ---------------------------------- helpers ---------------------------------- */
-const linkedDecksPath  = path.resolve('data', 'linked_decks.json');
-const coinBankPath     = path.resolve('data', 'coin_bank.json');
-const sellsByDayPath   = path.resolve('data', 'sells_by_day.json'); // { [userId]: { 'YYYY-MM-DD': numberSold } }
+// Remote JSON filenames (persistent storage)
+const LINKED_DECKS_FILE = 'linked_decks.json';
+const COIN_BANK_FILE    = 'coin_bank.json';
+const SELLS_BY_DAY_FILE = 'sells_by_day.json'; // { [userId]: { 'YYYY-MM-DD': numberSold } }
 
 // Default coin values per rarity (tweak as you like or later move to config)
 const SELL_VALUES = {
@@ -31,17 +32,17 @@ const SELL_VALUES = {
   Unique: 8,
 };
 
-async function readJson(file, fallback) {
+// Remote I/O wrappers (preserve shapes; add safe fallbacks)
+async function readJsonRemote(name, fallback) {
   try {
-    const raw = await fs.readFile(file, 'utf-8');
-    return JSON.parse(raw);
+    const raw = await load_file(name);
+    return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
   }
 }
-async function writeJson(file, data) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+async function writeJsonRemote(name, data) {
+  await save_file(name, JSON.stringify(data, null, 2));
 }
 
 function todayKeyUTC(d = new Date()) {
@@ -214,9 +215,9 @@ router.post('/me/:token/sell', async (req, res) => {
     const resetAtISO = nextUTCmidnightISO();
 
     const [linked, bank, sellsByDay, master] = await Promise.all([
-      readJson(linkedDecksPath, {}),
-      readJson(coinBankPath, {}),
-      readJson(sellsByDayPath, {}),
+      readJsonRemote(LINKED_DECKS_FILE, {}),
+      readJsonRemote(COIN_BANK_FILE, {}),
+      readJsonRemote(SELLS_BY_DAY_FILE, {}),
       loadMaster()
     ]);
 
@@ -272,11 +273,12 @@ router.post('/me/:token/sell', async (req, res) => {
 
     // Persist collection & coin bank & daily counter
     profile.collection = collection;
+
     // 🔁 Keep coins in sync across BOTH stores so /mycoins & /me/:token/stats agree
-    const prevBalance = Number((await readJson(coinBankPath, {}))[userId] || 0);
+    const prevBalance = Number((await readJsonRemote(COIN_BANK_FILE, {}))[userId] || 0);
     const newBalance = prevBalance + credited;
 
-    const bankUpdate = await readJson(coinBankPath, {});
+    const bankUpdate = await readJsonRemote(COIN_BANK_FILE, {});
     bankUpdate[userId] = newBalance;
 
     // mirror to profile for UIs that read from linked_decks.json
@@ -291,9 +293,9 @@ router.post('/me/:token/sell', async (req, res) => {
     sellsByDay[userId] = userSellMap;
 
     await Promise.all([
-      writeJson(linkedDecksPath, linked),
-      writeJson(coinBankPath, bankUpdate),
-      writeJson(sellsByDayPath, sellsByDay),
+      writeJsonRemote(LINKED_DECKS_FILE, linked),
+      writeJsonRemote(COIN_BANK_FILE, bankUpdate),
+      writeJsonRemote(SELLS_BY_DAY_FILE, sellsByDay),
     ]);
 
     // Respond with updated state
