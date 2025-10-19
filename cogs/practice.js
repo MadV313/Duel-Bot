@@ -1,6 +1,17 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/practice.js
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
@@ -87,7 +98,7 @@ const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?
 /** ───────────────────────────
  * Token + profile helpers (ensure token if linked)
  * ─────────────────────────── */
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 
 const readJson = async (file, fallback = {}) => {
   try {
@@ -106,13 +117,13 @@ const randomToken = (len = 24) =>
 
 /** Return linked profile or null (does NOT create). */
 async function getLinkedProfile(userId) {
-  const linked = await readJson(linkedDecksPath, {});
+  const linked = await await _loadJSONSafe(PATHS.linkedDecks);
   return linked[userId] || null;
 }
 
 /** Ensure token exists on an already-linked profile (mint if missing). */
 async function ensureTokenIfLinked(userId, userName) {
-  const linked = await readJson(linkedDecksPath, {});
+  const linked = await await _loadJSONSafe(PATHS.linkedDecks);
   if (!linked[userId]) return null; // not linked
 
   let changed = false;
@@ -126,7 +137,7 @@ async function ensureTokenIfLinked(userId, userName) {
   }
   if (changed) {
     try {
-      await writeJson(linkedDecksPath, linked);
+      await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
     } catch (e) {
       log.warn('token.persist.fail', { userId, err: String(e) });
     }
