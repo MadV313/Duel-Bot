@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/unlinkdeck.js — Paginated version synced with dropdown
 // Updates:
 // • Keeps existing UX/logic intact
@@ -5,8 +18,6 @@
 // • EXTRA: Wipes related player data in trade_limits.json, trades.json, and duel_sessions.json (if present)
 // • Extra logging + safe error handling around file I/O
 
-import fs from 'fs/promises';
-import path from 'path';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -21,21 +32,21 @@ import {
 const ADMIN_ROLE_ID = '1173049392371085392';
 const ADMIN_CHANNEL_ID = '1368023977519222895';
 
-const linkedDecksPath   = path.resolve('./data/linked_decks.json');
+const linkedDecksPath   = path.resolve('PATHS.linkedDecks');
 const coinBankPath      = path.resolve('./data/coin_bank.json');
-const playerDataPath    = path.resolve('./data/player_data.json');
+const playerDataPath    = path.resolve('PATHS.playerData');
 const tradeLimitsPath   = path.resolve('./data/trade_limits.json'); // NEW: wipe per-user counters
 const tradesPath        = path.resolve('./data/trades.json');       // NEW: purge sessions with this user
 const duelSessionsPath  = path.resolve('./data/duel_sessions.json'); // NEW: optional, purge duels with this user
 const revealOutputDir   = path.resolve('./public/data'); // where cardpack writes reveal_<id>.json
 
-async function readJson(file, fallback = {}) {
-  try { return JSON.parse(await fs.readFile(file, 'utf-8')); }
+async function await _loadJSONSafe(PATHS.linkedDecks) {
+  try { return JSON.parse(await loadJSON(PATHS.linkedDecks)); }
   catch { return fallback; }
 }
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 
 export default async function registerUnlinkDeck(client) {
@@ -70,7 +81,7 @@ export default async function registerUnlinkDeck(client) {
       // Load linked users
       let linkedData = {};
       try {
-        linkedData = await readJson(linkedDecksPath, {});
+        linkedData = await await _loadJSONSafe(PATHS.linkedDecks);
       } catch {
         console.warn('📁 [unlinkdeck] No linked_decks.json found.');
         return interaction.reply({
@@ -162,7 +173,7 @@ export default async function registerUnlinkDeck(client) {
         // 1) Remove from linked_decks.json
         try {
           delete linkedData[selectedId];
-          await writeJson(linkedDecksPath, linkedData);
+          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
           console.log(`🗑 [unlinkdeck] Removed profile for ${selectedId}`);
         } catch (e) {
           console.warn('⚠️ [unlinkdeck] Failed to update linked_decks.json:', e?.message || e);
@@ -170,10 +181,10 @@ export default async function registerUnlinkDeck(client) {
 
         // 2) Remove from coin_bank.json
         try {
-          const coinData = await readJson(coinBankPath, {});
+          const coinData = await await _loadJSONSafe(PATHS.linkedDecks);
           if (coinData && Object.prototype.hasOwnProperty.call(coinData, selectedId)) {
             delete coinData[selectedId];
-            await writeJson(coinBankPath, coinData);
+            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
             console.log(`💰 [unlinkdeck] Removed coin data for ${selectedId}`);
           }
         } catch (e) {
@@ -182,10 +193,10 @@ export default async function registerUnlinkDeck(client) {
 
         // 3) Remove from player_data.json
         try {
-          const playerData = await readJson(playerDataPath, {});
+          const playerData = await await _loadJSONSafe(PATHS.linkedDecks);
           if (playerData && Object.prototype.hasOwnProperty.call(playerData, selectedId)) {
             delete playerData[selectedId];
-            await writeJson(playerDataPath, playerData);
+            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
             console.log(`📊 [unlinkdeck] Removed player data for ${selectedId}`);
           }
         } catch (e) {
@@ -194,10 +205,10 @@ export default async function registerUnlinkDeck(client) {
 
         // 4) NEW: Remove from trade_limits.json
         try {
-          const limits = await readJson(tradeLimitsPath, {});
+          const limits = await await _loadJSONSafe(PATHS.linkedDecks);
           if (limits && Object.prototype.hasOwnProperty.call(limits, selectedId)) {
             delete limits[selectedId];
-            await writeJson(tradeLimitsPath, limits);
+            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
             console.log(`🔁 [unlinkdeck] Cleared trade limits for ${selectedId}`);
           }
         } catch (e) {
@@ -206,7 +217,7 @@ export default async function registerUnlinkDeck(client) {
 
         // 5) NEW: Purge any trade sessions in trades.json involving this user
         try {
-          const trades = await readJson(tradesPath, {});
+          const trades = await await _loadJSONSafe(PATHS.linkedDecks);
           let changed = false;
           for (const [sid, sess] of Object.entries(trades)) {
             const a = sess?.initiator?.userId;
@@ -217,7 +228,7 @@ export default async function registerUnlinkDeck(client) {
             }
           }
           if (changed) {
-            await writeJson(tradesPath, trades);
+            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
             console.log(`🔄 [unlinkdeck] Purged trade sessions for ${selectedId}`);
           }
         } catch (e) {
@@ -226,7 +237,7 @@ export default async function registerUnlinkDeck(client) {
 
         // 6) NEW: Purge any duel sessions in duel_sessions.json involving this user (if file exists)
         try {
-          const duels = await readJson(duelSessionsPath, {});
+          const duels = await await _loadJSONSafe(PATHS.linkedDecks);
           let changed = false;
           // Format-agnostic best effort: remove any session where players array contains user,
           // or any object with .aId/.bId/.players[*].userId equal to selectedId
@@ -241,7 +252,7 @@ export default async function registerUnlinkDeck(client) {
             }
           }
           if (changed) {
-            await writeJson(duelSessionsPath, duels);
+            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
             console.log(`⚔️ [unlinkdeck] Purged duel sessions for ${selectedId}`);
           }
         } catch (e) {
