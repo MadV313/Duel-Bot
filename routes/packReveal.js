@@ -9,15 +9,11 @@
 //  • Slightly clearer error handling while preserving the same public shape
 
 import express from 'express';
-import path from 'path';
-import fs from 'fs/promises';
 import { weightedRandomCards } from '../utils/cardPicker.js';  // Core logic for rarity-weighted pulls
 import { resolveUserIdByToken } from '../utils/deckUtils.js';
+import { load_file } from '../utils/storageClient.js';
 
 const router = express.Router();
-
-// Where /cardpack writes the reveal files, e.g. public/data/reveal_<userId>.json and reveal_<token>.json
-const REVEAL_DIR = path.resolve('./public/data');
 
 function jsonNoStore(res, code, body) {
   res.set('Cache-Control', 'no-store');
@@ -43,7 +39,7 @@ router.get('/reveal', async (req, res) => {
     if (!userId && token) {
       try {
         userId = await resolveUserIdByToken(String(token));
-      } catch (e) {
+      } catch {
         // fall through; we'll still try reading token-based file below
       }
     }
@@ -52,18 +48,18 @@ router.get('/reveal', async (req, res) => {
       return jsonNoStore(res, 400, { error: 'Missing token or uid.' });
     }
 
-    // 2) We support both reveal_<token>.json and reveal_<userId>.json.
+    // 2) We support both reveal_<token>.json and reveal_<userId>.json (stored persistently).
     //    Try token file first (more specific), then user file.
     const tryFiles = [];
-    if (token)  tryFiles.push(path.join(REVEAL_DIR, `reveal_${String(token)}.json`));
-    if (userId) tryFiles.push(path.join(REVEAL_DIR, `reveal_${String(userId)}.json`));
+    if (token)  tryFiles.push(`public/data/reveal_${String(token)}.json`);
+    if (userId) tryFiles.push(`public/data/reveal_${String(userId)}.json`);
 
     let raw = null;
     let lastErr = null;
 
-    for (const filePath of tryFiles) {
+    for (const key of tryFiles) {
       try {
-        raw = await fs.readFile(filePath, 'utf-8');
+        raw = await load_file(key); // persistent storage
         if (raw) break;
       } catch (err) {
         lastErr = err;
