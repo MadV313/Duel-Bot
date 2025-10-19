@@ -20,7 +20,7 @@ function showToast(message) {
     borderRadius: '6px',
     fontSize: '14px',
     zIndex: '9999',
-    boxShadow: '0 0 10px rgba(0,0,0,0.5)',
+    boxShadow: '0 0 10px rgba(0,0,0,0.5)`,
     opacity: '0',
     transition: 'opacity 0.5s ease-in-out',
   });
@@ -57,6 +57,14 @@ function detectAndStoreDiscordId() {
       localStorage.setItem('discord_id', id);
       showToast(`Discord ID stored: ${id}`);
     }
+    // Optional: if a token is present in URL, persist it for privacy-friendly routes
+    if (params.has('token')) {
+      const token = params.get('token');
+      if (token) {
+        localStorage.setItem('player_token', token);
+        showToast('Player token stored.');
+      }
+    }
   };
 
   clipboardCheck();
@@ -65,27 +73,64 @@ function detectAndStoreDiscordId() {
 
 /**
  * Loads and renders the current user's card and coin stats into the Hub UI.
+ * Prefers token-based stats if available; falls back to /user/:id.
  */
 async function loadPlayerStats() {
-  const userId = localStorage.getItem('discord_id');
+  const cardEl = document.getElementById('cardCount');
+  const coinEl = document.getElementById('coinCount');
 
-  if (!userId) {
-    document.getElementById('cardCount').textContent = 'Link deck to begin';
-    document.getElementById('coinCount').textContent = '-';
+  const setPending = () => {
+    if (cardEl) cardEl.textContent = 'Link deck to begin';
+    if (coinEl) coinEl.textContent = '-';
+  };
+  const setUnavailable = () => {
+    if (cardEl) cardEl.textContent = 'Unavailable';
+    if (coinEl) coinEl.textContent = '-';
+  };
+
+  const API_BASE = String(config.backend_url || '').replace(/\/+$/, '');
+  const userId = localStorage.getItem('discord_id');
+  const token  = localStorage.getItem('player_token');
+  const ts     = Date.now();
+
+  if (!userId && !token) {
+    setPending();
     return;
   }
 
   try {
-    const res = await fetch(`${config.backend_url}/user/${userId}`);
-    if (!res.ok) throw new Error('Player not found');
+    // Prefer token-based stats (privacy) if token exists, else use /user/:id
+    const url = token
+      ? `${API_BASE}/me/${encodeURIComponent(token)}/stats?ts=${ts}`
+      : `${API_BASE}/user/${encodeURIComponent(userId)}?ts=${ts}`;
+
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 
     const data = await res.json();
-    document.getElementById('cardCount').textContent = `${data.cardsOwned} / ${config.max_cards}`;
-    document.getElementById('coinCount').textContent = data.coins;
+
+    // Normalize expected fields for both endpoints
+    // /me/:token/stats => { coins, wins, losses }
+    // /user/:id        => { coins, cardsOwned, wins, losses }
+    const coins = Number(data.coins || 0);
+    const cardsOwned =
+      typeof data.cardsOwned === 'number'
+        ? data.cardsOwned
+        : // If token path, we might not have cardsOwned; show just total known or placeholder
+          (typeof data.cardsCollected === 'number' ? data.cardsCollected : null);
+
+    if (cardEl) {
+      if (cardsOwned !== null) {
+        cardEl.textContent = `${cardsOwned} / ${config.max_cards}`;
+      } else {
+        // If we cannot compute the total owned on token route without collection call, show placeholder
+        cardEl.textContent = `— / ${config.max_cards}`;
+      }
+    }
+    if (coinEl) coinEl.textContent = coins;
   } catch (err) {
     console.error('❌ Failed to load user stats:', err);
-    document.getElementById('cardCount').textContent = 'Unavailable';
-    document.getElementById('coinCount').textContent = '-';
+    setUnavailable();
   }
 }
 
