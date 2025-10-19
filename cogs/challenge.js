@@ -1,3 +1,17 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { requireSupporter } from '../utils/roleGuard.js';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/challenge.js — Challenge another linked player to a duel.
 // - Restricted to Battlefield channel
 // - Requires both players to be linked (has token). Warn otherwise.
@@ -15,10 +29,6 @@
 //
 // If backend URLs aren’t returned, we construct:
 //   {DUEL_UI_URL}?mode=duel&session=<id>&role=<challenger|opponent>&token=<...>&api=<...>&ts=...
-
-import fs from 'fs/promises';
-import fssync from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
@@ -93,14 +103,14 @@ const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?
 const BOT_API_KEY = process.env.BOT_API_KEY || '';
 
 // Linked profiles file
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 
-async function readJson(file, fb = {}) {
-  try { return JSON.parse(await fs.readFile(file, 'utf-8')); } catch { return fb; }
+async function await _loadJSONSafe(PATHS.linkedDecks) {
+  try { return JSON.parse(await loadJSON(PATHS.linkedDecks)); } catch { return fb; }
 }
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
@@ -112,7 +122,7 @@ function nowIso() { return new Date().toISOString(); }
 
 /** Ensure invoker has a token (only if already linked). Returns token or null if not linked. */
 async function ensureTokenIfLinked(userId, userName) {
-  const linked = await readJson(linkedDecksPath, {});
+  const linked = await await _loadJSONSafe(PATHS.linkedDecks);
   if (!linked[userId]) return null;
   let changed = false;
   if (linked[userId].discordName !== userName) {
@@ -123,7 +133,7 @@ async function ensureTokenIfLinked(userId, userName) {
     linked[userId].token = randomToken(24);
     changed = true;
   }
-  if (changed) await writeJson(linkedDecksPath, linked);
+  if (changed) await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
   return linked[userId].token;
 }
 
@@ -139,7 +149,11 @@ export default async function registerChallenge(bot) {
 
   bot.commands.set('challenge', {
     data,
-    async execute(interaction) {
+    \1
+      if (!requireSupporter(interaction.member)) {
+        return interaction.reply({ ephemeral: true, content: "❌ You need the Supporter or Elite Collector role to use this command. Join on Ko-fi to unlock full access." });
+      }
+
       // Channel restriction
       if (String(interaction.channelId) !== String(BATTLEFIELD_CHANNEL_ID)) {
         return interaction.reply({
@@ -152,7 +166,7 @@ export default async function registerChallenge(bot) {
       const invokerName = interaction.user.username;
 
       // Must be linked first (do not auto-link here)
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
       const myProfile = linked[invokerId];
       if (!myProfile) {
         return interaction.reply({
