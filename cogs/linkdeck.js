@@ -1,3 +1,16 @@
+
+async function _loadJSONSafe(name){
+  try { return await loadJSON(name); }
+  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
+}
+async function _saveJSONSafe(name, data, client){
+  try { await saveJSON(name, data); }
+  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
+}
+
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/linkdeck.js
 // /linkdeck — create or ensure a player profile, mint a per-user token,
 // and reply with tokenized links to your static UIs (Card-Collection-UI, etc.)
@@ -9,15 +22,13 @@
 //  • Adds a cache-busting &ts=<epoch> to each link
 //  • Refreshes stored discordName if it changed
 
-import fs from 'fs/promises';
-import path from 'path';
 import crypto from 'crypto';
 import { SlashCommandBuilder } from 'discord.js';
 import { isAllowedChannel } from '../utils/checkChannel.js';
 
-const linkedDecksPath = path.resolve('./data/linked_decks.json');
+const linkedDecksPath = path.resolve('PATHS.linkedDecks');
 const coinBankPath    = path.resolve('./data/coin_bank.json');
-const playerDataPath  = path.resolve('./data/player_data.json');
+const playerDataPath  = path.resolve('PATHS.playerData');
 
 /* ---------------- config loader (ENV first, then config.json) ---------------- */
 function _loadConfig() {
@@ -42,18 +53,18 @@ function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
 
-async function readJson(file, fallback = {}) {
+async function await _loadJSONSafe(PATHS.linkedDecks) {
   try {
-    const raw = await fs.readFile(file, 'utf-8');
+    const raw = await loadJSON(PATHS.linkedDecks);
     return JSON.parse(raw);
   } catch {
     return fallback;
   }
 }
 
-async function writeJson(file, data) {
+async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+  await saveJSON(PATHS.linkedDecks));
 }
 
 function trimSlash(s = '') { return String(s).trim().replace(/\/+$/, ''); }
@@ -131,9 +142,9 @@ export default async function registerLinkDeck(client) {
       const CONFIG = _loadConfig();
 
       // Load or init data files
-      const linked = await readJson(linkedDecksPath, {});
-      const bank   = await readJson(coinBankPath, {});
-      const stats  = await readJson(playerDataPath, {});
+      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
+      const bank   = await await _loadJSONSafe(PATHS.linkedDecks);
+      const stats  = await await _loadJSONSafe(PATHS.linkedDecks);
 
       // Ensure profile record
       let created = false;
@@ -168,7 +179,7 @@ export default async function registerLinkDeck(client) {
 
       // Persist linked profile
       try {
-        await writeJson(linkedDecksPath, linked);
+        await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
       } catch (err) {
         console.error('❌ [linkdeck] Failed to save linked profile:', err);
         return interaction.reply({
@@ -181,7 +192,7 @@ export default async function registerLinkDeck(client) {
       if (typeof bank[userId] !== 'number') {
         bank[userId] = 0;
         try {
-          await writeJson(coinBankPath, bank);
+          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
           console.log(`💰 [linkdeck] Initialized coin bank for ${userName} (${userId})`);
         } catch (err) {
           console.error('❌ [linkdeck] Failed to save coin_bank.json:', err);
@@ -192,7 +203,7 @@ export default async function registerLinkDeck(client) {
       if (!stats[userId]) {
         stats[userId] = { wins: 0, losses: 0 };
         try {
-          await writeJson(playerDataPath, stats);
+          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
           console.log(`📊 [linkdeck] Initialized player stats for ${userName} (${userId})`);
         } catch (err) {
           console.error('❌ [linkdeck] Failed to save player_data.json:', err);
