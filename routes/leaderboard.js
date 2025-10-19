@@ -1,11 +1,9 @@
 // routes/leaderboard.js
 
 import express from 'express';
-import fs from 'fs/promises';
-import path from 'path';
+import { load_file } from '../utils/storageClient.js';
 
 const router = express.Router();
-const statsPath = path.resolve('./data/player_data.json');
 
 /**
  * GET /leaderboard
@@ -13,14 +11,14 @@ const statsPath = path.resolve('./data/player_data.json');
  */
 router.get('/', async (req, res) => {
   try {
-    const raw = await fs.readFile(statsPath, 'utf-8');
-    const stats = JSON.parse(raw);
+    const raw = await load_file('player_data.json'); // persistent storage
+    const stats = JSON.parse(raw || '{}');
 
     const leaderboard = Object.entries(stats)
       .map(([userId, record]) => ({
         userId,
-        wins: record.wins ?? 0,
-        losses: record.losses ?? 0
+        wins: record?.wins ?? 0,
+        losses: record?.losses ?? 0
       }))
       .sort((a, b) => {
         if (b.wins !== a.wins) return b.wins - a.wins;
