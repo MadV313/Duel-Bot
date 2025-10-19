@@ -1,39 +1,45 @@
 // utils/tradeQueue.js
+//
+// Persistent trade queue handler using storageClient instead of local fs.
+// Fully backward-compatible with the original API.
 
-import fs from 'fs';
-import path from 'path';
+import { loadJSON, saveJSON } from './storageClient.js';
+import { L } from './logs.js';
 
-const tradeFile = path.resolve('./data/trade_queue.json');
+const TRADE_FILE = 'trade_queue.json'; // stored remotely via storageClient
 
 /**
- * Load the current trade queue from file.
- * @returns {Array} queue - List of trades
+ * Load the current trade queue from persistent storage.
+ * @returns {Promise<Array>} queue - List of trades
  */
-export function loadQueue() {
+export async function loadQueue() {
   try {
-    if (fs.existsSync(tradeFile)) {
-      const rawData = fs.readFileSync(tradeFile, 'utf8');
-      return JSON.parse(rawData);
+    const queue = await loadJSON(TRADE_FILE);
+    if (Array.isArray(queue)) {
+      L.trade(`📦 Loaded trade queue with ${queue.length} entries.`);
+      return queue;
     }
+    L.trade('⚠️ Trade queue format invalid, resetting.');
+    return [];
   } catch (err) {
-    console.error('❌ Error loading trade queue:', err);
+    L.err(`❌ Error loading trade queue: ${err.message}`);
+    return [];
   }
-  return [];
 }
 
 /**
- * Save the trade queue to disk.
+ * Save the trade queue to persistent storage.
  * @param {Array} queue - The array of trades to store
  */
-export function saveQueue(queue) {
+export async function saveQueue(queue) {
   try {
     if (!Array.isArray(queue)) {
       throw new Error('Queue must be an array.');
     }
-    fs.writeFileSync(tradeFile, JSON.stringify(queue, null, 2));
-    console.log('✅ Trade queue saved successfully.');
+    await saveJSON(TRADE_FILE, queue);
+    L.trade(`✅ Trade queue saved successfully (${queue.length} entries).`);
   } catch (err) {
-    console.error('❌ Error saving trade queue:', err);
+    L.err(`❌ Error saving trade queue: ${err.message}`);
   }
 }
 
@@ -41,56 +47,57 @@ export function saveQueue(queue) {
  * Add a trade to the queue.
  * @param {Object} trade - Trade object containing at least an `id`
  */
-export function enqueueTrade(trade) {
+export async function enqueueTrade(trade) {
   if (!trade || !trade.id) {
-    console.error('❌ Invalid trade object: must contain an id.');
+    L.err('❌ Invalid trade object: must contain an id.');
     return;
   }
 
-  const queue = loadQueue();
+  const queue = await loadQueue();
   queue.push(trade);
-  saveQueue(queue);
-  console.log(`✅ Trade with ID ${trade.id} added to the queue.`);
+  await saveQueue(queue);
+  L.trade(`➕ Trade with ID ${trade.id} added to the queue.`);
 }
 
 /**
  * Remove a trade from the queue by ID.
  * @param {string} tradeId - ID of the trade to remove
  */
-export function removeTradeById(tradeId) {
+export async function removeTradeById(tradeId) {
   if (!tradeId) {
-    console.error('❌ Trade ID is required to remove a trade.');
+    L.err('❌ Trade ID is required to remove a trade.');
     return;
   }
 
-  let queue = loadQueue();
+  let queue = await loadQueue();
+  const before = queue.length;
   queue = queue.filter(t => t.id !== tradeId);
-  saveQueue(queue);
-  console.log(`✅ Trade with ID ${tradeId} removed from the queue.`);
+  await saveQueue(queue);
+  L.trade(`🗑️ Removed trade ${tradeId}. (${before - queue.length} entries removed)`);
 }
 
 /**
  * Retrieve a trade from the queue by ID.
  * @param {string} tradeId - Trade ID to look up
- * @returns {Object|null} - Found trade or null
+ * @returns {Promise<Object|null>} - Found trade or null
  */
-export function getTradeById(tradeId) {
+export async function getTradeById(tradeId) {
   if (!tradeId) {
-    console.error('❌ Trade ID is required to find a trade.');
+    L.err('❌ Trade ID is required to find a trade.');
     return null;
   }
 
-  const queue = loadQueue();
+  const queue = await loadQueue();
   return queue.find(t => t.id === tradeId) || null;
 }
 
 /**
  * Retrieve a trade for a specific user ID (used in accept.js).
  * @param {string} userId - User ID to search
- * @returns {Object|null} - First trade involving this user
+ * @returns {Promise<Object|null>} - First trade involving this user
  */
-export function getTradeOffer(userId) {
-  const queue = loadQueue();
+export async function getTradeOffer(userId) {
+  const queue = await loadQueue();
   return queue.find(t => t.from === userId || t.to === userId) || null;
 }
 
@@ -98,9 +105,10 @@ export function getTradeOffer(userId) {
  * Remove a trade for a specific user ID (used in deny.js or on success).
  * @param {string} userId - User ID to remove trade for
  */
-export function removeTradeOffer(userId) {
-  let queue = loadQueue();
+export async function removeTradeOffer(userId) {
+  let queue = await loadQueue();
+  const before = queue.length;
   queue = queue.filter(t => t.from !== userId && t.to !== userId);
-  saveQueue(queue);
-  console.log(`✅ Trade offer involving user ${userId} removed.`);
+  await saveQueue(queue);
+  L.trade(`🧹 Removed ${before - queue.length} trade(s) involving user ${userId}.`);
 }
