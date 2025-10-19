@@ -19,11 +19,13 @@ import {
   resolveUserIdByToken,
   pad3,
 } from '../utils/deckUtils.js';
+import { load_file, save_file } from '../utils/storageClient.js';
 
-const linkedDecksPath   = path.resolve('./data/linked_decks.json');
-const tradesPath        = path.resolve('./data/trades.json');
-const tradeLimitsPath   = path.resolve('./data/trade_limits.json');
-const cardListPath      = path.resolve('./logic/CoreMasterReference.json');
+const LINKED_DECKS_FILE = 'linked_decks.json';     // persistent
+const TRADES_FILE       = 'trades.json';           // persistent
+const TRADE_LIMITS_FILE = 'trade_limits.json';     // persistent
+
+const cardListPath      = path.resolve('./logic/CoreMasterReference.json'); // static asset
 
 const MAX_PER_DAY = 3;
 const SESSION_TTL_HOURS = 24;
@@ -34,13 +36,29 @@ function todayStr() {
 function randomId(len=24) {
   return crypto.randomBytes(Math.ceil((len*3)/4)).toString('base64url').slice(0, len);
 }
-async function readJson(file, fb) {
-  try { return JSON.parse(await fs.readFile(file, 'utf-8')); } catch { return fb; }
+
+// ---- Persistent storage helpers (remote) ----
+async function readJsonRemote(name, fb) {
+  try {
+    const raw = await load_file(name);
+    return raw ? JSON.parse(raw) : fb;
+  } catch {
+    return fb;
+  }
 }
-async function writeJson(file, data) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2));
+async function writeJsonRemote(name, data) {
+  await save_file(name, JSON.stringify(data, null, 2));
 }
+
+// ---- Local read helper for static card master ----
+async function readJsonLocal(file, fb) {
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf-8'));
+  } catch {
+    return fb;
+  }
+}
+
 function clampCards(cards) {
   const set = new Set();
   const out = [];
@@ -85,7 +103,7 @@ function buildUiLink({ base, token, apiBase, sessionId, role, stage, partnerName
 let __cardIndex = null;
 async function loadCardIndex() {
   if (__cardIndex) return __cardIndex;
-  const raw = await readJson(cardListPath, []);
+  const raw = await readJsonLocal(cardListPath, []);
   const list = Array.isArray(raw) ? raw : (raw.cards || []);
   const index = {};
   for (const c of list) {
@@ -160,8 +178,8 @@ export default function createTradeRouter(bot) {
       }
 
       const [linked, limits] = await Promise.all([
-        readJson(linkedDecksPath, {}),
-        readJson(tradeLimitsPath, {})
+        readJsonRemote(LINKED_DECKS_FILE, {}),
+        readJsonRemote(TRADE_LIMITS_FILE, {})
       ]);
 
       const iniProfile = linked[initiatorId];
@@ -200,13 +218,13 @@ export default function createTradeRouter(bot) {
       };
 
       // Persist
-      const trades = await readJson(tradesPath, {});
+      const trades = await readJsonRemote(TRADES_FILE, {});
       trades[sessionId] = session;
-      await writeJson(tradesPath, trades);
+      await writeJsonRemote(TRADES_FILE, trades);
 
       // Increment initiator daily usage (reserve a slot)
       incLimit(limits, initiatorId, day);
-      await writeJson(tradeLimitsPath, limits);
+      await writeJsonRemote(TRADE_LIMITS_FILE, limits);
 
       // Build link for initiator (role=initiator)
       const uiBase = (collectionUiBase ||
@@ -251,14 +269,14 @@ export default function createTradeRouter(bot) {
   router.get('/trade/:session/state', async (req, res) => {
     try {
       const { session } = req.params;
-      const trades = await readJson(tradesPath, {});
+      const trades = await readJsonRemote(TRADES_FILE, {});
       const s = trades[session];
       if (!s) return res.status(404).json({ error: 'Session not found' });
 
       if (hasExpired(s) && s.status === 'active') {
         s.status = 'expired';
         trades[session] = s;
-        await writeJson(tradesPath, trades);
+        await writeJsonRemote(TRADES_FILE, trades);
       }
 
       // Return safe view
@@ -294,7 +312,7 @@ export default function createTradeRouter(bot) {
       const { token } = req.query || {};
       if (!token) return res.status(400).json({ error: 'Missing token' });
 
-      const trades = await readJson(tradesPath, {});
+      const trades = await readJsonRemote(TRADES_FILE, {});
       const s = trades[session];
       if (!s) return res.status(404).json({ error: 'Session not found' });
 
@@ -305,7 +323,10 @@ export default function createTradeRouter(bot) {
       else return res.status(403).json({ error: 'Invalid session token' });
 
       // Load profiles and card metadata
-      const [linked, idx] = await Promise.all([readJson(linkedDecksPath, {}), loadCardIndex()]);
+      const [linked, idx] = await Promise.all([
+        readJsonRemote(LINKED_DECKS_FILE, {}),
+        loadCardIndex()
+      ]);
       const A = linked[s.initiator.userId] || {};
       const B = linked[s.partner.userId] || {};
 
@@ -334,7 +355,7 @@ export default function createTradeRouter(bot) {
       const { token } = req.query || {};
       if (!token) return res.status(400).json({ error: 'Missing token' });
 
-      const trades = await readJson(tradesPath, {});
+      const trades = await readJsonRemote(TRADES_FILE, {});
       const s = trades[session];
       if (!s) return res.status(404).json({ error: 'Session not found' });
 
@@ -379,13 +400,13 @@ export default function createTradeRouter(bot) {
         return res.status(400).json({ error: 'Missing token or cards' });
       }
 
-      const trades = await readJson(tradesPath, {});
+      const trades = await readJsonRemote(TRADES_FILE, {});
       const s = trades[session];
       if (!s) return res.status(404).json({ error: 'Session not found' });
       if (hasExpired(s) || s.status !== 'active') {
         s.status = 'expired';
         trades[session] = s;
-        await writeJson(tradesPath, trades);
+        await writeJsonRemote(TRADES_FILE, trades);
         return res.status(410).json({ error: 'Session expired' });
       }
 
@@ -402,7 +423,7 @@ export default function createTradeRouter(bot) {
         s.initiator.selection = sel;
         s.stage = 'pickTheirs';
         trades[session] = s;
-        await writeJson(tradesPath, trades);
+        await writeJsonRemote(TRADES_FILE, trades);
 
         // DM partner to review & pick
         try {
@@ -444,7 +465,7 @@ export default function createTradeRouter(bot) {
         s.partner.selection = sel;
         s.stage = 'decision'; // partner will decide accept/deny after viewing summary
         trades[session] = s;
-        await writeJson(tradesPath, trades);
+        await writeJsonRemote(TRADES_FILE, trades);
 
         return res.json({
           ok: true,
@@ -483,13 +504,13 @@ export default function createTradeRouter(bot) {
         return res.status(400).json({ error: 'Invalid decision' });
       }
 
-      const trades = await readJson(tradesPath, {});
+      const trades = await readJsonRemote(TRADES_FILE, {});
       const s = trades[session];
       if (!s) return res.status(404).json({ error: 'Session not found' });
       if (hasExpired(s) || s.status !== 'active') {
         s.status = 'expired';
         trades[session] = s;
-        await writeJson(tradesPath, trades);
+        await writeJsonRemote(TRADES_FILE, trades);
         return res.status(410).json({ error: 'Session expired' });
       }
 
@@ -504,7 +525,7 @@ export default function createTradeRouter(bot) {
       if (decision === 'deny') {
         s.status = 'denied';
         trades[session] = s;
-        await writeJson(tradesPath, trades);
+        await writeJsonRemote(TRADES_FILE, trades);
 
         // DM initiator outcome
         try {
@@ -515,7 +536,7 @@ export default function createTradeRouter(bot) {
       }
 
       // ACCEPT: validate ownership, then swap
-      const linked = await readJson(linkedDecksPath, {});
+      const linked = await readJsonRemote(LINKED_DECKS_FILE, {});
       const A = linked[s.initiator.userId];
       const B = linked[s.partner.userId];
       if (!A?.collection || !B?.collection) {
@@ -555,11 +576,11 @@ export default function createTradeRouter(bot) {
       A.collection = colA;
       B.collection = colB;
 
-      await writeJson(linkedDecksPath, linked);
+      await writeJsonRemote(LINKED_DECKS_FILE, linked);
 
       s.status = 'accepted';
       trades[session] = s;
-      await writeJson(tradesPath, trades);
+      await writeJsonRemote(TRADES_FILE, trades);
 
       // Notify both
       try {
@@ -589,7 +610,7 @@ export default function createTradeRouter(bot) {
       const userId = await resolveUserIdByToken(String(token||''));
       if (!userId) return res.status(404).json({ error: 'Invalid token' });
 
-      const limits = await readJson(tradeLimitsPath, {});
+      const limits = await readJsonRemote(TRADE_LIMITS_FILE, {});
       const day = todayStr();
       const used = getUsed(limits, userId, day);
       const remaining = Math.max(0, MAX_PER_DAY - used);
