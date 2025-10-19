@@ -1,8 +1,32 @@
+# === Version-Control & Metadata ===
 .git
+.gitignore
+npm-debug.log
+.DS_Store
+**/.DS_Store
+
+# === Node / NPM ===
 node_modules
 npm-debug.log
+package-lock.json
+
+# === Build / Cache Artifacts ===
+tmp
+.cache
+dist
+coverage
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# === Docker ===
 Dockerfile
 .dockerignore
-**/.DS_Store
-# big local artifacts you don't need in the image:
-tmp
+
+# === Logs & Runtime ===
+logs
+*.log
+data/*.log
+data/logs
