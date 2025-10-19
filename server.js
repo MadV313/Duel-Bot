@@ -30,6 +30,9 @@ import meTokenRouter from './routes/meToken.js';
 // 🔄 Trade routes
 import createTradeRouter from './routes/trade.js';
 
+// 🧰 Persistent storage client (health check & optional debug endpoint)
+import { loadJSON, saveJSON, PATHS } from './utils/storageClient.js';
+
 dotenvConfig();
 
 /* ──────────────────────────────────────────────────────────
@@ -245,6 +248,18 @@ async function listDiscordCommands(scope, clientId) {
       await loadCommands();
     }
 
+    // 🔎 Persistent storage health check (non-fatal)
+    try {
+      const testRead = await loadJSON(PATHS.linkedDecks).catch(() => ({}));
+      const health = { ok: true, at: new Date().toISOString(), hasLinkedDecks: !!testRead && typeof testRead === 'object' };
+      const stats = await loadJSON(PATHS.duelStats).catch(() => ({}));
+      stats.lastStorageHealth = health;
+      await saveJSON(PATHS.duelStats, stats);
+      console.log('🗄️ [storage] health OK:', health);
+    } catch (e) {
+      console.warn('⚠️ [storage] health check failed:', e?.message || e);
+    }
+
     // Login first so we can fall back to client.application.id safely
     await bot.login(token);
 
@@ -354,6 +369,22 @@ app.post('/debug/resync', async (req, res) => {
     res.json(out);
   } catch (e) {
     res.status(500).json({ error: String(e) });
+  }
+});
+
+// 🧪 Storage status (non-sensitive; OK for basic diagnostics)
+app.get('/_storage', async (_req, res) => {
+  try {
+    const linked = await loadJSON(PATHS.linkedDecks).catch(() => ({}));
+    const stats  = await loadJSON(PATHS.duelStats).catch(() => ({}));
+    res.json({
+      ok: true,
+      keys: Object.keys(PATHS),
+      linked_keys: Object.keys(linked).length,
+      lastStorageHealth: stats.lastStorageHealth || null
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
 
