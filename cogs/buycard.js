@@ -189,6 +189,8 @@ export default async function registerBuyCard(client) {
       if (profile.discordName !== buyer.username) {
         profile.discordName = buyer.username;
       }
+      // Ensure discordId is present for downstream routes like /meCoins
+      if (!profile.discordId) profile.discordId = buyerId;
 
       const currentCoins = Number(profile.coins || 0);
 
@@ -222,6 +224,7 @@ export default async function registerBuyCard(client) {
 
       // Deduct coins
       profile.coins = currentCoins - PACK_COST_COINS;
+      profile.lastCoinsUpdatedAt = new Date().toISOString(); // <— keep balance freshness metadata
 
       // Ensure token automatically (no user input)
       if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
