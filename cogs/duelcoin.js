@@ -1,23 +1,12 @@
+// cogs/duelcoin.js
+// Admin-only coin adjuster with full debug logging.
+// - Syncs coins to BOTH storage files: PATHS.wallet (legacy) + PATHS.linkedDecks (canonical)
+// - Ensures the target has a token to build a collection deep link
+// - DMs the target their new balance (graceful on failure)
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/duelcoin.js — Admin-only coin adjuster with full debug logging
-// Additions:
-//  • Token-aware collection link in confirmations (&ts=...)
-//  • Ensures target player has a token (mint if missing) for deep-linking
-//  • Syncs coin balance into linked_decks.json as well as coin_bank.json
-//  • DMs the target user their new balance + collection link (graceful failure handling)
-
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -29,314 +18,374 @@ import {
   EmbedBuilder,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
 } from 'discord.js';
-import crypto from 'crypto';
 
-const ADMIN_ROLE_ID = '1173049392371085392';
-const ADMIN_CHANNEL_ID = '1368023977519222895';
+import { adminAlert } from '../utils/adminAlert.js';
+import { L } from '../utils/logs.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-const coinBankPath    = path.resolve('./data/coin_bank.json');
+/* ───────────────────────────── Config helpers ───────────────────────────── */
 
-/* ---------------- config helpers (mirrors duelcard style) ---------------- */
-function loadConfig() {
+function readOptionalConfig() {
   try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn(`[duelcoin] CONFIG_JSON parse error: ${e?.message}`);
-  }
-  try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
-  } catch {
-    return {};
-  }
+    if (fs.existsSync('config.json')) {
+      return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {};
+    }
+  } catch { /* noop */ }
+  return {};
 }
-function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
-function resolveCollectionBase(cfg) {
+
+const CFG = readOptionalConfig();
+
+const trimBase = (u = '') => String(u).trim().replace(/\/+$/, '');
+
+function resolveCollectionBase(cfg = {}) {
   return trimBase(
     cfg.collection_ui ||
-    cfg.ui_urls?.card_collection_ui ||
-    cfg.frontend_url ||
-    cfg.ui_base ||
-    cfg.UI_BASE ||
-    'https://madv313.github.io/Card-Collection-UI'
+      cfg.ui_urls?.card_collection_ui ||
+      cfg.frontend_url ||
+      cfg.ui_base ||
+      process.env.COLLECTION_UI ||
+      'https://madv313.github.io/Card-Collection-UI'
   );
 }
-function resolveApiBase(cfg) {
-  return trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+function resolveApiBase(cfg = {}) {
+  return trimBase(cfg.api_base || process.env.API_BASE || '');
 }
+
+const COLLECTION_BASE = resolveCollectionBase(CFG);
+const API_BASE = resolveApiBase(CFG);
+const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+
+/* ───────────────────────────── Admin / Channel gates ───────────────────────────── */
+
+const ADMIN_ROLE_ID =
+  process.env.ADMIN_ROLE_ID ||
+  (Array.isArray(CFG.admin_role_ids) ? CFG.admin_role_ids[0] : '1173049392371085392');
+
+const ADMIN_CHANNEL_ID =
+  process.env.ADMIN_TOOLS_CHANNEL_ID ||
+  CFG.admin_tools_channel_id ||
+  '1368023977519222895';
+
+/* ───────────────────────────── Small utils ───────────────────────────── */
+
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
 
-export default async function registerDuelCoin(client) {
-  const CFG = loadConfig();
-  const COLLECTION_BASE = resolveCollectionBase(CFG);
-  const API_BASE        = resolveApiBase(CFG);
-  const apiQP           = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+async function ensureToken(linked, userId, fallbackName = 'Player') {
+  if (!linked[userId]) {
+    linked[userId] = {
+      discordName: fallbackName,
+      deck: [],
+      collection: {},
+      createdAt: new Date().toISOString(),
+    };
+  }
+  if (!linked[userId].token || String(linked[userId].token).length < 12) {
+    linked[userId].token = randomToken(24);
+  }
+  return linked[userId].token;
+}
 
-  const commandData = new SlashCommandBuilder()
+async function loadLinkedSafe() {
+  try {
+    return await loadJSON(PATHS.linkedDecks);
+  } catch (e) {
+    L.storage(`load fail ${PATHS.linkedDecks}: ${e.message}`);
+    throw e;
+  }
+}
+async function saveLinkedSafe(data, client) {
+  try {
+    await saveJSON(PATHS.linkedDecks, data);
+  } catch (e) {
+    await adminAlert(
+      client,
+      process.env.ADMIN_PAYOUT_CHANNEL_ID || process.env.PAYOUTS_CHANNEL_ID || ADMIN_CHANNEL_ID,
+      `${PATHS.linkedDecks} save failed: ${e.message}`
+    );
+    throw e;
+  }
+}
+async function loadWalletSafe() {
+  try {
+    return await loadJSON(PATHS.wallet);
+  } catch (e) {
+    // create fresh store if missing
+    L.storage(`load fail ${PATHS.wallet}: ${e.message} (will init empty)`);
+    return {};
+  }
+}
+async function saveWalletSafe(data, client) {
+  try {
+    await saveJSON(PATHS.wallet, data);
+  } catch (e) {
+    await adminAlert(
+      client,
+      process.env.ADMIN_PAYOUT_CHANNEL_ID || process.env.PAYOUTS_CHANNEL_ID || ADMIN_CHANNEL_ID,
+      `${PATHS.wallet} save failed: ${e.message}`
+    );
+    throw e;
+  }
+}
+
+/* ───────────────────────────── Command ───────────────────────────── */
+
+export default async function registerDuelCoin(client) {
+  const data = new SlashCommandBuilder()
     .setName('duelcoin')
     .setDescription('Admin only: Give or take coins from a player.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
-  client.slashData.push(commandData.toJSON());
+  client.slashData.push(data.toJSON());
 
   client.commands.set('duelcoin', {
-    data: commandData,
+    data,
     async execute(interaction) {
-      const timestamp = new Date().toISOString();
+      const t0 = new Date().toISOString();
       const executor = `${interaction.user.username} (${interaction.user.id})`;
 
-      console.log(`[${timestamp}] 🔸 /duelcoin triggered by ${executor}`);
+      // Admin gate: either has Administrator perm or specific Admin role ID
+      const hasAdminPerm =
+        interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
+        interaction.member?.roles?.cache?.has(ADMIN_ROLE_ID);
 
-      const userRoles = interaction.member?.roles?.cache;
-      const isAdmin   = userRoles?.has(ADMIN_ROLE_ID);
-      const channelId = interaction.channelId;
-
-      if (!isAdmin) {
-        console.warn(`[${timestamp}] 🚫 Unauthorized attempt by ${executor}`);
-        return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
-      }
-
-      if (channelId !== ADMIN_CHANNEL_ID) {
-        console.warn(`[${timestamp}] ❌ Wrong channel usage by ${executor} in ${channelId}`);
+      if (!hasAdminPerm) {
+        console.warn(`[${t0}] 🚫 /duelcoin unauthorized by ${executor}`);
         return interaction.reply({
-          content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
-          ephemeral: true
+          content: '🚫 You do not have permission to use this command.',
+          ephemeral: true,
         });
       }
 
-      const modeMenu = new StringSelectMenuBuilder()
-        .setCustomId('duelcoin_mode')
-        .setPlaceholder('🔻 Choose action')
-        .addOptions([
-          { label: 'Give Coins', value: 'give' },
-          { label: 'Take Coins', value: 'take' }
-        ]);
+      // Channel lock
+      if (String(interaction.channelId) !== String(ADMIN_CHANNEL_ID)) {
+        console.warn(`[${t0}] ❌ /duelcoin wrong channel by ${executor} in ${interaction.channelId}`);
+        return interaction.reply({
+          content: '❌ This command must be used in the **Admin Tools** channel.',
+          ephemeral: true,
+        });
+      }
 
-      const modeRow = new ActionRowBuilder().addComponents(modeMenu);
-      await interaction.reply({
+      // Mode chooser
+      const modeRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('duelcoin_mode')
+          .setPlaceholder('🔻 Choose action')
+          .addOptions([
+            { label: 'Give Coins', value: 'give' },
+            { label: 'Take Coins', value: 'take' },
+          ])
+      );
+
+      const modeMsg = await interaction.reply({
         content: '🪙 Select whether to give or take coins:',
         components: [modeRow],
         ephemeral: true,
-        fetchReply: true
+        fetchReply: true,
       });
 
-      const modeSelect = await interaction.channel.awaitMessageComponent({
-        componentType: ComponentType.StringSelect,
-        time: 30_000
-      });
+      // Await the first select (scoped to user)
+      const modeSelect = await modeMsg
+        .awaitMessageComponent({
+          componentType: ComponentType.StringSelect,
+          time: 30_000,
+          filter: (i) => i.user.id === interaction.user.id,
+        })
+        .catch(() => null);
 
-      const actionMode = modeSelect.values[0];
-      console.log(`[${timestamp}] ✅ ${executor} selected mode: ${actionMode.toUpperCase()}`);
-
-      let linkedData = {};
-      try {
-        const raw = await loadJSON(PATHS.linkedDecks);
-        linkedData = JSON.parse(raw);
-      } catch {
-        console.error(`[${timestamp}] ⚠️ Failed to read linked_decks.json`);
-        return modeSelect.reply({ content: '⚠️ Could not load linked users.', ephemeral: true });
+      if (!modeSelect) {
+        return interaction.editReply({
+          content: '⏰ Timed out waiting for a selection.',
+          components: [],
+        });
       }
 
-      const entries = Object.entries(linkedData);
-      if (entries.length === 0) {
-        console.warn(`[${timestamp}] ⚠️ No linked profiles found.`);
+      const actionMode = modeSelect.values[0]; // 'give' | 'take'
+
+      // Load linked users
+      const linked = await loadLinkedSafe();
+      const entries = Object.entries(linked);
+      if (!entries.length) {
         return modeSelect.reply({ content: '⚠️ No linked profiles found.', ephemeral: true });
       }
 
+      // Pagination plumbing
       const pageSize = 25;
-      let currentPage = 0;
-      const totalPages = Math.ceil(entries.length / pageSize);
-      let syncDropdown;
-      let paginatedMsg;
+      let page = 0;
+      const pages = Math.ceil(entries.length / pageSize);
 
-      const generatePage = (page) => {
-        const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
-        const options = pageEntries.map(([id, data]) => ({
-          label: data.discordName,
-          value: id
-        }));
+      const makePage = (p) => {
+        const slice = entries.slice(p * pageSize, (p + 1) * pageSize);
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`duelcoin_user_${p}`)
+          .setPlaceholder('Select a player')
+          .addOptions(
+            slice.map(([id, prof]) => ({
+              label: prof.discordName || id,
+              value: id,
+            }))
+          );
 
+        const nav = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('prev').setStyle(ButtonStyle.Secondary).setLabel('⏮ Prev').setDisabled(p === 0),
+          new ButtonBuilder()
+            .setCustomId('next')
+            .setStyle(ButtonStyle.Secondary)
+            .setLabel('Next ⏭')
+            .setDisabled(p === pages - 1)
+        );
+
+        const row = new ActionRowBuilder().addComponents(select);
         const embed = new EmbedBuilder()
-          .setTitle(`<:ID:1391239596112613376> Select User`)
-          .setDescription(`Page ${page + 1} of ${totalPages} — ${entries.length} total users`);
+          .setTitle('👤 Select User')
+          .setDescription(`Page ${p + 1} of ${pages} — ${entries.length} linked users total`);
 
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('prev_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-          new ButtonBuilder().setCustomId('next_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
-        );
-
-        syncDropdown = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`duelcoin_user_select_${page}`)
-            .setPlaceholder('Select a player')
-            .addOptions(options)
-        );
-
-        return { embed, buttons };
+        return { row, nav, embed };
       };
 
-      const updatePagination = async () => {
-        const { embed, buttons } = generatePage(currentPage);
-        console.log(`[${timestamp}] 🔁 Page changed to ${currentPage + 1} by ${executor}`);
-        await paginatedMsg.edit({ embeds: [embed], components: [syncDropdown, buttons] });
-      };
-
-      const { embed, buttons } = generatePage(currentPage);
-      paginatedMsg = await modeSelect.reply({
-        embeds: [embed],
-        components: [syncDropdown, buttons],
+      const first = makePage(page);
+      const listMsg = await modeSelect.reply({
+        embeds: [first.embed],
+        components: [first.row, first.nav],
         ephemeral: true,
-        fetchReply: true
+        fetchReply: true,
       });
 
-      const collector = paginatedMsg.createMessageComponentCollector({
+      // Button paging
+      const btnCollector = listMsg.createMessageComponentCollector({
         componentType: ComponentType.Button,
-        time: 60_000
+        time: 60_000,
+        filter: (i) => i.user.id === interaction.user.id,
       });
 
-      collector.on('collect', async i => {
-        if (i.customId === 'prev_page') currentPage--;
-        if (i.customId === 'next_page') currentPage++;
-        await updatePagination();
-        await i.deferUpdate();
+      btnCollector.on('collect', async (i) => {
+        if (i.customId === 'prev') page = Math.max(0, page - 1);
+        if (i.customId === 'next') page = Math.min(pages - 1, page + 1);
+        const built = makePage(page);
+        await i.update({ embeds: [built.embed], components: [built.row, built.nav] });
       });
 
-      const dropdownCollector = paginatedMsg.createMessageComponentCollector({
+      // Dropdown select → open modal for amount
+      const ddCollector = listMsg.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
-        time: 60_000
+        time: 60_000,
+        filter: (i) => i.user.id === interaction.user.id,
       });
 
-      dropdownCollector.on('collect', async selectInteraction => {
-        const targetId = selectInteraction.values[0];
-        const targetName = linkedData[targetId]?.discordName || 'Unknown';
-        console.log(`[${timestamp}] 🎯 ${executor} selected player: ${targetName} (${targetId})`);
+      ddCollector.on('collect', async (i) => {
+        const targetId = i.values[0];
+        const targetName = linked[targetId]?.discordName || 'Player';
 
         const modal = new ModalBuilder()
           .setCustomId(`duelcoin:amount:${targetId}:${actionMode}`)
-          .setTitle(`${actionMode === 'give' ? 'Give' : 'Take'} Coins from ${targetName}`);
+          .setTitle(`${actionMode === 'give' ? 'Give' : 'Take'} Coins — ${targetName}`);
 
         const input = new TextInputBuilder()
           .setCustomId('coin_amount')
           .setLabel('Enter amount')
           .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setPlaceholder('e.g. 10');
+          .setPlaceholder('e.g., 10')
+          .setRequired(true);
 
-        const modalRow = new ActionRowBuilder().addComponents(input);
-        modal.addComponents(modalRow);
-
-        await selectInteraction.showModal(modal);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        await i.showModal(modal);
       });
 
-      // NOTE: Keep listener as in your original file; scoped filter prevents noise.
-      client.on('interactionCreate', async modalInteraction => {
+      // Modal submit (scoped)
+      const modalListener = async (modalInteraction) => {
         if (!modalInteraction.isModalSubmit()) return;
+        if (modalInteraction.user.id !== interaction.user.id) return;
         if (!modalInteraction.customId.startsWith('duelcoin:amount:')) return;
 
-        const modalTimestamp = new Date().toISOString();
-        const [prefix, formType, userId, mode] = modalInteraction.customId.split(':');
-        if (prefix !== 'duelcoin' || formType !== 'amount') return;
+        const [, , userId, mode] = modalInteraction.customId.split(':'); // duelcoin:amount:<id>:<mode>
+        const raw = modalInteraction.fields.getTextInputValue('coin_amount');
+        const amount = parseInt(raw, 10);
 
-        const amountStr = modalInteraction.fields.getTextInputValue('coin_amount');
-        const amount = parseInt(amountStr, 10);
-
-        if (isNaN(amount) || amount < 1) {
-          console.warn(`[${modalTimestamp}] ⚠️ Invalid amount submitted by ${modalInteraction.user.username}`);
+        if (!Number.isFinite(amount) || amount < 1) {
           return modalInteraction.reply({ content: '⚠️ Invalid amount.', ephemeral: true });
         }
 
-        // Read coin bank (legacy store)
-        let coinData = {};
-        try {
-          const raw = await loadJSON(PATHS.linkedDecks);
-          coinData = JSON.parse(raw);
-        } catch {
-          console.warn(`[${modalTimestamp}] ⚠️ Could not read coin bank file (will create).`);
-        }
+        // Load stores
+        const wallet = await loadWalletSafe();
+        const linkedNow = await loadLinkedSafe();
 
-        // Ensure linked decks is available & player entry exists
-        let linked = {};
-        try {
-          const raw = await loadJSON(PATHS.linkedDecks);
-          linked = JSON.parse(raw);
-        } catch {
-          console.warn(`[${modalTimestamp}] ⚠️ Could not read linked_decks.json (will create).`);
-          linked = {};
-        }
+        // Ensure target + token
+        const discordName =
+          (await modalInteraction.client.users
+            .fetch(userId)
+            .then((u) => u.username)
+            .catch(() => linkedNow[userId]?.discordName || 'Player')) || 'Player';
 
-        if (!linked[userId]) {
-          linked[userId] = {
-            discordName: (await modalInteraction.client.users.fetch(userId).catch(() => null))?.username || 'Unknown',
-            deck: [],
-            collection: {},
-            createdAt: new Date().toISOString()
-          };
-        }
+        await ensureToken(linkedNow, userId, discordName);
 
-        // Ensure player has a token for deep-linking to collection UI
-        if (!linked[userId].token || typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
-          linked[userId].token = randomToken(24);
-        }
+        const current = Number(linkedNow[userId]?.coins ?? wallet[userId] ?? 0) || 0;
+        const newBalance = mode === 'give' ? current + amount : Math.max(0, current - amount);
 
-        const currentLegacy = coinData[userId] ?? 0;
-        const currentLinked = Number(linked[userId].coins ?? currentLegacy ?? 0);
+        // Write both stores
+        linkedNow[userId].coins = newBalance;
+        linkedNow[userId].coinsUpdatedAt = new Date().toISOString();
+        wallet[userId] = newBalance;
 
-        const newBalance = mode === 'give'
-          ? currentLinked + amount
-          : Math.max(0, currentLinked - amount);
+        await saveLinkedSafe(linkedNow, client);
+        await saveWalletSafe(wallet, client);
 
-        // Write both stores to keep backward compat
-        coinData[userId]     = newBalance;
-        linked[userId].coins = newBalance;
-        linked[userId].coinsUpdatedAt = new Date().toISOString();
-
-        const adminUsername = modalInteraction.user.username;
-        const targetName    = linked[userId]?.discordName || 'Unknown';
-
-        console.log(`[${modalTimestamp}] 💼 Admin ${adminUsername} executed: ${mode.toUpperCase()} ${amount} coins ${mode === 'give' ? 'to' : 'from'} ${targetName} (${userId}) — New Balance: ${newBalance}`);
-
-        await saveJSON(PATHS.linkedDecks));
-        await saveJSON(PATHS.linkedDecks));
-
-        // Build tokenized collection URL (with &ts= for cache-bust; fromPackReveal=false here)
+        // Build collection URL
         const ts = Date.now();
-        const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(linked[userId].token)}${apiQP}&ts=${ts}`;
+        const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(
+          linkedNow[userId].token
+        )}${apiQP}&ts=${ts}`;
 
-        // Non-ephemeral channel confirmation (as before)
+        // Confirm in channel (non-ephemeral for audit)
         await modalInteraction.reply({
-          content: `✅ <@${modalInteraction.user.id}> ${mode === 'give' ? 'gave' : 'took'} ${amount} coins ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance 🪙: ${newBalance}\n📒 **View ${targetName}'s Collection:** ${collectionUrl}`,
-          ephemeral: false
+          content: `✅ <@${interaction.user.id}> ${mode === 'give' ? 'gave' : 'took'} **${amount}** coin${
+            amount === 1 ? '' : 's'
+          } ${mode === 'give' ? 'to' : 'from'} <@${userId}>.\nNew balance: **${newBalance}**\n📒 Collection: ${collectionUrl}`,
+          ephemeral: false,
         });
 
-        // DM the user with their updated balance & the collection link (ignore errors, notify admins in console)
+        // DM the target (best-effort)
         try {
-          const user = await modalInteraction.client.users.fetch(userId);
-          const dmEmbed = new EmbedBuilder()
+          const u = await modalInteraction.client.users.fetch(userId);
+          const emb = new EmbedBuilder()
             .setTitle('🪙 Coin Balance Updated')
             .setDescription(`Your new balance is **${newBalance}** coins.`)
             .setColor(0x00ccff);
-
-          await user.send({
-            embeds: [dmEmbed],
-            content: `View your collection: ${collectionUrl}`
-          });
+          await u.send({ embeds: [emb], content: `View your collection: ${collectionUrl}` });
         } catch (e) {
-          console.warn(`[${modalTimestamp}] ⚠️ Failed to DM user ${userId}:`, e?.message || e);
-          // Optional: also notify admins in-channel (kept minimal to avoid spam)
+          console.warn(`[duelcoin] DM to ${userId} failed:`, e?.message || e);
           try {
             await modalInteraction.followUp({
-              content: `⚠️ Could not DM <@${userId}> their updated balance. They may have DMs disabled.`,
-              ephemeral: true
+              content: `⚠️ Could not DM <@${userId}> (they may have DMs disabled).`,
+              ephemeral: true,
             });
           } catch {}
         }
-      });
-    }
+
+        // Stop collectors after success
+        try { btnCollector.stop(); } catch {}
+        try { ddCollector.stop(); } catch {}
+        client.off('interactionCreate', modalListener);
+      };
+
+      client.on('interactionCreate', modalListener);
+
+      // Cleanup on timeout
+      const endAll = async () => {
+        try {
+          await listMsg.edit({
+            content: '⏰ Selection expired. Run **/duelcoin** again to restart.',
+            components: [],
+            embeds: [],
+          });
+        } catch {}
+        client.off('interactionCreate', modalListener);
+      };
+      btnCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+      ddCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+    },
   });
 }
