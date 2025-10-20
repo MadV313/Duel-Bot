@@ -2,9 +2,9 @@
 const splitIds = (s) => (s ? s.split(',').map(x => String(x).trim()).filter(Boolean) : []);
 
 const allowedChannels = {
-  manageCards: splitIds(process.env.CH_MANAGE_CARDS) || ['1367977677658656868'],
-  battlefield: splitIds(process.env.CH_BATTLEFIELD)  || ['1367986446232719484'],
-  adminTools : splitIds(process.env.CH_ADMIN_TOOLS)  || ['1368023977519222895'],
+  manageCards: splitIds(process.env.MANAGE_CARDS_CHANNEL_ID) || ['1367977677658656868'],
+  battlefield: splitIds(process.env.BATTLEFIELD_CHANNEL_ID)  || ['1367986446232719484'],
+  adminTools : splitIds(process.env.ADMIN_TOOLS_CHANNEL_ID)  || ['1368023977519222895'],
 };
 
 export function isAllowedChannel(channelId, groups) {
