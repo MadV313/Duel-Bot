@@ -1,4 +1,5 @@
 // cogs/tradecard.js — Start a trade with another linked player (renamed from /trade to /tradecard).
+// - Requires Supporter/Elite role (warns first, with standard copy)
 // - Confined to #manage-cards channel (warns if used elsewhere)
 // - Warns if player is not linked (must run /linkdeck first)
 // - Shows ONLY linked players in the picker
@@ -6,25 +7,6 @@
 // - (Optional) Webhook listener: backend notifies the bot when initiator submits;
 //    bot DMs the partner with proposal thumbnails + Accept / Deny buttons.
 //    Accept => swap cards in linked_decks.json (REMOTE via storageClient); Deny => notify both.
-//
-// Config (ENV CONFIG_JSON or config.json fallback):
-//   manage_cards_channel_id
-//   collection_ui / ui_urls.card_collection_ui / frontend_url / ui_base / UI_BASE
-//   api_base / API_BASE                 (backend base for trade API)
-//   image_base / IMAGE_BASE            (base for card images; e.g., https://.../images/cards)
-//   trade_webhook_port                 (optional: enable webhook listener; or TRADE_WEBHOOK_PORT env)
-//   trade_webhook_secret               (optional: shared secret; or TRADE_WEBHOOK_SECRET env)
-//   (env) BOT_API_KEY                  (required for calling backend /trade/start)
-//
-// Remote files:
-//   linked_decks.json (via storageClient)
-//
-// Backend endpoints (assumed):
-//   POST {API_BASE}/trade/start  -> { sessionId, urlInitiator? }  (requires {initiatorToken, partnerId})
-//
-// Webhook (optional, from backend/UI -> bot):
-//   POST /trade/notify  with JSON:
-//     { secret, sessionId, initiatorId, partnerId, initiatorName, partnerName, initiatorPicks:[...], partnerPicks:[...] }
 
 import fs from 'fs/promises'; // kept only for config.json fallback read
 import path from 'path';
@@ -42,6 +24,7 @@ import {
 import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 import { adminAlert } from '../utils/adminAlert.js';
 import { L } from '../utils/logs.js';
+import { requireSupporter } from '../utils/roleGuard.js'; // ✅ role check
 
 /* ---------------- config helpers ---------------- */
 function loadConfig() {
@@ -70,7 +53,6 @@ function cardThumbUrl(filename, CONFIG) {
 
 /* ---------------- apply trade to collections ---------------- */
 function applySwap(profileA, profileB, picksA = [], picksB = []) {
-  // For each pickA (initiator gives to partner): decrement A, increment B
   for (const p of picksA) {
     const id = String(p.card_id).replace(/^#/, '').padStart(3, '0');
     const q = Math.max(0, Number(p.qty || 0));
@@ -78,7 +60,6 @@ function applySwap(profileA, profileB, picksA = [], picksB = []) {
     profileA.collection[id] = Math.max(0, Number(profileA.collection?.[id] || 0) - q);
     profileB.collection[id] = Number(profileB.collection?.[id] || 0) + q;
   }
-  // For each pickB (partner gives to initiator)
   for (const p of picksB) {
     const id = String(p.card_id).replace(/^#/, '').padStart(3, '0');
     const q = Math.max(0, Number(p.qty || 0));
@@ -125,10 +106,8 @@ function startWebhookServerOnce(client, CONFIG) {
           initiatorPicks = [], partnerPicks = []
         } = json || {};
 
-        // Cache payload for Accept/Deny handling
         tradeSessionCache.set(sessionId, { initiatorId, partnerId, initiatorPicks, partnerPicks });
 
-        // Build partner DM embed
         const CONFIG2 = loadConfig();
         const thumbs = [];
         for (const p of initiatorPicks) {
@@ -165,7 +144,6 @@ function startWebhookServerOnce(client, CONFIG) {
           const partnerUser = await client.users.fetch(partnerId);
           await partnerUser.send({ embeds: [embed], components: [row] });
         } catch (e) {
-          // Partner DMs closed; fall back to initiator notify
           try {
             const initiatorUser = await client.users.fetch(initiatorId);
             await initiatorUser.send('⚠️ Could not DM your trade partner. Ask them to enable DMs and resubmit.');
@@ -202,7 +180,6 @@ export default async function registerTradeCard(client) {
   const API_BASE = trimBase(CONFIG.api_base || process.env.API_BASE || '');
   const BOT_KEY  = process.env.BOT_API_KEY || '';
 
-  // Optional webhook (for partner Accept/Deny)
   startWebhookServerOnce(client, CONFIG);
 
   const cmd = new SlashCommandBuilder()
@@ -214,6 +191,14 @@ export default async function registerTradeCard(client) {
   client.commands.set('tradecard', {
     data: cmd,
     async execute(interaction) {
+      // ✅ ROLE GATE (runs BEFORE any other messages)
+      if (!requireSupporter(interaction.member)) {
+        return interaction.reply({
+          ephemeral: true,
+          content: '❌ You need the **Supporter** or **Elite Collector** role to use this command. Join on Ko-fi to unlock full access.'
+        });
+      }
+
       // Channel restriction
       if (String(interaction.channelId) !== MANAGE_CARDS_CHANNEL_ID) {
         return interaction.reply({
@@ -245,6 +230,7 @@ export default async function registerTradeCard(client) {
       const entries = Object.entries(linked)
         .filter(([id, data]) => id !== userId && isTokenValid(data?.token));
 
+      // This message will now only be hit AFTER the role check above
       if (!entries.length) {
         return interaction.reply({ content: '⚠️ No other linked users available to trade with.', ephemeral: true });
       }
@@ -320,7 +306,6 @@ export default async function registerTradeCard(client) {
             body: JSON.stringify({
               initiatorToken: mine.token,
               partnerId,
-              // Hints for UI: allow initiator to "view partner" via session gating (no partner token leak)
               apiBase: API_BASE,
               collectionUiBase: UI_BASE
             })
@@ -335,7 +320,6 @@ export default async function registerTradeCard(client) {
         }
 
         const sessionId = json.sessionId || json.session || '';
-        // Prefer backend-provided URL; otherwise construct
         const urlInitiator =
           json.urlInitiator ||
           `${UI_BASE}/?mode=trade&tradeSession=${encodeURIComponent(sessionId)}&role=initiator&token=${encodeURIComponent(mine.token)}&api=${encodeURIComponent(API_BASE)}`;
@@ -386,7 +370,7 @@ export default async function registerTradeCard(client) {
       if (!i.isButton()) return;
       const { customId, user } = i;
       if (!/^trade_(accept|deny)_/.test(customId)) return;
-      const [, action, sessionId] = customId.split('_'); // trade_accept_<sessionId> or trade_deny_<sessionId>
+      const [, action, sessionId] = customId.split('_');
       const payload = tradeSessionCache.get(sessionId);
       if (!payload) return i.reply({ content: '⚠️ Trade session not found or expired.', ephemeral: true });
 
@@ -412,7 +396,6 @@ export default async function registerTradeCard(client) {
       if (action === 'deny') {
         tradeSessionCache.delete(sessionId);
         await i.update({ content: '❌ Trade denied. Both players have been notified.', components: [] });
-        // Notify both
         try { (await client.users.fetch(initiatorId)).send(`❌ Your trade with <@${partnerId}> was **denied**.`); } catch {}
         try { (await client.users.fetch(partnerId)).send(`❌ You **denied** the trade with <@${initiatorId}>.`); } catch {}
         return;
@@ -435,7 +418,6 @@ export default async function registerTradeCard(client) {
 
       await i.update({ content: '✅ Trade accepted! Collections have been updated.', components: [] });
 
-      // DM both players
       try { (await client.users.fetch(initiatorId)).send(`✅ Your trade with <@${partnerId}> was **accepted**. Collections updated.`); } catch {}
       try { (await client.users.fetch(partnerId)).send(`✅ You **accepted** the trade with <@${initiatorId}>. Collections updated.`); } catch {}
 
