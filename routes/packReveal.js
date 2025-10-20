@@ -1,107 +1,86 @@
 // routes/packReveal.js
 //
-// Keeps your existing /revealPack endpoint and ADDs a token/uid-aware
-// /packReveal/reveal endpoint that serves the per-user reveal JSON written by /cardpack.
+// Serves per-user pack reveal payloads written by /buycard under ./public/data.
+// API:
+//   GET /packReveal/reveal?token=...   (preferred)
+//   GET /packReveal/reveal?uid=...     (legacy)
 //
-// Updates:
-//  • Supports reading either reveal_<token>.json or reveal_<userId>.json (your /cardpack writes both)
-//  • Adds Cache-Control: no-store on all responses
-//  • Slightly clearer error handling while preserving the same public shape
+// Also exposes a dev endpoint:
+//   GET /packReveal/revealPack?count=3
 
 import express from 'express';
-import { weightedRandomCards } from '../utils/cardPicker.js';  // Core logic for rarity-weighted pulls
+import fs from 'fs/promises';
+import path from 'path';
+import { weightedRandomCards } from '../utils/cardPicker.js';
 import { resolveUserIdByToken } from '../utils/deckUtils.js';
-import { load_file } from '../utils/storageClient.js';
 
 const router = express.Router();
+const REVEAL_DIR = path.resolve('./public/data');
 
-function jsonNoStore(res, code, body) {
+function noStore(res) {
   res.set('Cache-Control', 'no-store');
-  return res.status(code).json(body);
+  return res;
+}
+
+async function readRevealIfExists(filename) {
+  try {
+    const full = path.join(REVEAL_DIR, filename);
+    const raw = await fs.readFile(full, 'utf-8');
+    // /buycard writes an array; tolerate {cards: [...]} too.
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : (parsed?.cards ?? []);
+  } catch {
+    return null;
+  }
 }
 
 /**
- * GET /packReveal/reveal?token=...   (preferred)
- * GET /packReveal/reveal?uid=...     (legacy)
- *
- * Resolves token → userId when needed and returns the JSON reveal payload:
- *  [
- *    { card_id: "#001", name: "...", rarity: "Common", filename: "...", isNew: true, owned: 1 },
- *    ...
- *  ]
+ * GET /packReveal/reveal?token=... | ?uid=...
  */
 router.get('/reveal', async (req, res) => {
   try {
-    const { token, uid } = req.query || {};
+    const token = (req.query.token ?? '').toString().trim();
+    let uid = (req.query.uid ?? '').toString().trim();
 
-    // 1) Resolve userId from token when provided
-    let userId = uid;
-    if (!userId && token) {
+    if (!token && !uid) {
+      return noStore(res).status(400).json({ error: 'Missing token or uid.' });
+    }
+
+    // Resolve userId from token if we don’t have uid
+    if (!uid && token) {
       try {
-        userId = await resolveUserIdByToken(String(token));
-      } catch {
-        // fall through; we'll still try reading token-based file below
-      }
+        const resolved = await resolveUserIdByToken(token);
+        if (resolved) uid = resolved;
+      } catch { /* ignore */ }
     }
 
-    if (!token && !userId) {
-      return jsonNoStore(res, 400, { error: 'Missing token or uid.' });
+    // Try token file first, then uid file
+    let cards = null;
+    if (token) cards = await readRevealIfExists(`reveal_${token}.json`);
+    if (!cards && uid) cards = await readRevealIfExists(`reveal_${uid}.json`);
+
+    if (!cards || !cards.length) {
+      return noStore(res).status(404).json({ error: 'Reveal not found.' });
     }
 
-    // 2) We support both reveal_<token>.json and reveal_<userId>.json (stored persistently).
-    //    Try token file first (more specific), then user file.
-    const tryFiles = [];
-    if (token)  tryFiles.push(`public/data/reveal_${String(token)}.json`);
-    if (userId) tryFiles.push(`public/data/reveal_${String(userId)}.json`);
-
-    let raw = null;
-    let lastErr = null;
-
-    for (const key of tryFiles) {
-      try {
-        raw = await load_file(key); // persistent storage
-        if (raw) break;
-      } catch (err) {
-        lastErr = err;
-      }
-    }
-
-    if (!raw) {
-      return jsonNoStore(res, 404, { error: 'Reveal file not found for this user/token.' });
-    }
-
-    let json;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      return jsonNoStore(res, 500, { error: 'Reveal file is corrupted.' });
-    }
-
-    return jsonNoStore(res, 200, json);
-  } catch (err) {
-    console.error('❌ /packReveal/reveal error:', err);
-    return jsonNoStore(res, 500, { error: 'Failed to load reveal.' });
+    return noStore(res).status(200).json({ title: 'New Card Pack Unlocked!', cards });
+  } catch (e) {
+    console.error('[packReveal] /reveal error:', e?.message || e);
+    return noStore(res).status(500).json({ error: 'Failed to load reveal.' });
   }
 });
 
 /**
- * GET /revealPack?count=3
- * Returns a randomized pack of cards (default: 3 cards)
- * (Useful for testing/dev; does not persist to any user profile.)
+ * GET /packReveal/revealPack?count=3  (dev only; not persisted)
  */
 router.get('/revealPack', (req, res) => {
   try {
-    const count = parseInt(req.query.count, 10) || 3;
-
-    if (count <= 0 || count > 10) {
-      return jsonNoStore(res, 400, { error: 'Invalid pack size. Choose between 1 and 10.' });
-    }
-
-    const cards = weightedRandomCards(count);
-    return jsonNoStore(res, 200, cards);
-  } catch (error) {
-    console.error('❌ Error fetching random cards:', error);
-    return jsonNoStore(res, 500, { error: 'Failed to fetch cards.' });
+    const n = Math.max(1, Math.min(10, parseInt(req.query.count, 10) || 3));
+    const cards = weightedRandomCards(n);
+    return noStore(res).status(200).json(cards);
+  } catch (e) {
+    console.error('[packReveal] /revealPack error:', e?.message || e);
+    return noStore(res).status(500).json({ error: 'Failed to fetch cards.' });
   }
 });
 
