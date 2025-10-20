@@ -64,6 +64,7 @@ function nextUTCmidnightISO(d = new Date()) {
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n)); // ★ change
 
 /**
  * Unified coins getter:
@@ -297,13 +298,14 @@ router.post('/me/:token/sell/preview', async (req, res) => {
  *  - Resolve token → userId
  *  - Validate ids/qty
  *  - Enforce daily limit: max 5 cards per UTC day (sum of qty)
- *  - Decrement collection counts
+ *  - Decrement collection counts (★ clamp to owned)
  *  - Credit coins per rarity using SELL_VALUES
  *  - Persist to data/linked_decks.json, data/coin_bank.json, data/sells_by_day.json
  *
  * Response 200:
  *  {
  *    ok: true,
+ *    message: "Sold X card(s)",        // ★ added
  *    credited: 7,
  *    balance: 42,
  *    soldToday: 5,
@@ -330,7 +332,7 @@ router.post('/me/:token/sell', async (req, res) => {
       if (!id || id === '000' || !qty) continue;
       coalesced[id] = (coalesced[id] || 0) + qty;
     }
-    const normalized = Object.entries(coalesced).map(([id, qty]) => ({ id, qty }));
+    let normalized = Object.entries(coalesced).map(([id, qty]) => ({ id, qty }));
     if (!normalized.length) return res.status(400).json({ error: 'Invalid items' });
 
     const dayKey = todayKeyUTC();
@@ -348,33 +350,51 @@ router.post('/me/:token/sell', async (req, res) => {
 
     const userSellMap = sellsByDay[userId] || {};
     const soldToday = Number(userSellMap[dayKey] || 0);
-    const requestedTotal = normalized.reduce((a, b) => a + b.qty, 0);
+    const remainingDaily = Math.max(0, DAILY_LIMIT - soldToday);
 
-    if (soldToday + requestedTotal > DAILY_LIMIT) {
+    // Clamp to ownership & to daily remaining (★ change)
+    const collection = { ...(profile.collection || {}) };
+    const metaById = new Map(master.map(c => [pad3(c.card_id), c]));
+
+    // First pass: clamp to owned
+    normalized = normalized.map(({ id, qty }) => {
+      const owned = Math.max(0, Number(collection[id] || 0));
+      return { id, qty: clamp(qty, 0, owned) };
+    }).filter(x => x.qty > 0);
+
+    let totalWanted = normalized.reduce((a, b) => a + b.qty, 0);
+    if (totalWanted === 0) {
+      return res.status(400).json({ error: 'NO_OWNERSHIP' });
+    }
+
+    // Second pass: clamp to daily remaining by reducing items in order
+    let allow = remainingDaily;
+    if (totalWanted > allow) {
+      const reduced = [];
+      for (const item of normalized) {
+        if (allow <= 0) break;
+        const take = Math.min(item.qty, allow);
+        reduced.push({ id: item.id, qty: take });
+        allow -= take;
+      }
+      normalized = reduced;
+    }
+
+    const finalCount = normalized.reduce((a, b) => a + b.qty, 0);
+    if (finalCount <= 0) {
       return res.status(429).json({
         error: 'Daily sell limit reached',
         soldToday,
-        soldRemaining: Math.max(0, DAILY_LIMIT - soldToday),
+        soldRemaining: remainingDaily,
         limit: DAILY_LIMIT,
         resetAtISO
       });
     }
 
-    const metaById = new Map(master.map(c => [pad3(c.card_id), c]));
-
-    // Validate ownership
-    const collection = { ...(profile.collection || {}) };
-    for (const { id, qty } of normalized) {
-      const owned = Number(collection[id] || 0);
-      if (owned < qty) {
-        return res.status(422).json({ error: `Insufficient quantity for ${id}`, id, owned, requested: qty });
-      }
-    }
-
     // Apply changes + compute credit
     let credited = 0;
     for (const { id, qty } of normalized) {
-      const newQty = Number(collection[id] || 0) - qty;
+      const newQty = Math.max(0, Number(collection[id] || 0) - qty);
       if (newQty > 0) collection[id] = newQty;
       else delete collection[id];
 
@@ -382,12 +402,13 @@ router.post('/me/:token/sell', async (req, res) => {
       const value = SELL_VALUES[rarity] ?? SELL_VALUES.Common;
       credited += value * qty;
     }
+    credited = round2(credited);
 
     // Persist collection & coin bank & daily counter
     profile.collection = collection;
 
     const prevBalance = Number((bank?.[userId]) || 0);
-    const newBalance = prevBalance + credited;
+    const newBalance = round2(prevBalance + credited);
 
     const bankUpdate = { ...(bank || {}) };
     bankUpdate[userId] = newBalance;
@@ -401,7 +422,7 @@ router.post('/me/:token/sell', async (req, res) => {
     linkedUpdate[userId] = profile;
 
     const newUserSellMap = { ...(userSellMap || {}) };
-    newUserSellMap[dayKey] = soldToday + requestedTotal;
+    newUserSellMap[dayKey] = (Number(userSellMap[dayKey] || 0) + finalCount);
 
     const sellsByDayUpdate = { ...(sellsByDay || {}) };
     sellsByDayUpdate[userId] = newUserSellMap;
@@ -415,7 +436,8 @@ router.post('/me/:token/sell', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       ok: true,
-      credited: round2(credited),
+      message: `Sold ${finalCount} card(s)`, // ★ change
+      credited,
       balance: newBalance,
       soldToday: newUserSellMap[dayKey],
       soldRemaining: Math.max(0, DAILY_LIMIT - newUserSellMap[dayKey]),
