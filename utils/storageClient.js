@@ -187,9 +187,27 @@ export async function save_file(filename, data) { return saveJSON(filename, data
 
 // Optional named path hints (unchanged)
 export const PATHS = {
-  linkedDecks: 'linked_decks.json',
-  wallet:      'wallet.json',
-  playerData:  'player_data.json',
-  tradeQueue:  'tradeQueue.json',
-  duelStats:   'duelStats.json',
+  // player / profile data
+  linkedDecks:        'data/linked_decks.json',
+  wallet:             'data/coin_bank.json',
+  playerData:         'data/player_data.json',
+
+  // selling / trading
+  sellsByDay:         'data/sells_by_day.json',
+  tradeLimits:        'data/trade_limits.json',
+  tradeQueue:         'data/trade_queue.json',
+  trades:             'data/trades.json',
+
+  // duels (runtime logs + per-duel summaries)
+  duelLogCurrent:     'data/logs/current_duel_log.json',
+  duelSummaryFor:     (duelId) => `data/summaries/${duelId}.json`,
+
+  // stats cache (if you use it)
+  duelStats:          'data/duelStats.json',
+
+  // public assets (served to browsers)
+  public: {
+    duelSummaries:    'public/data/duel_summaries.json',
+    revealFor:        (tokenOrUserId) => `public/data/reveal_${tokenOrUserId}.json`,
+  },
 };
