@@ -3,8 +3,9 @@
 //
 // Uses Persistent Data API via utils/storageClient.js:
 //  - loadJSON(PATHS.linkedDecks)  // { [userId]: {discordName, token, deck, collection, coins?, ...} }
-//  - loadJSON(PATHS.wallet)       // { [userId]: number }
+//  - loadJSON(PATHS.wallet)       // (LEGACY) { [userId]: number }
 //  - loadJSON(PATHS.playerData)   // { [userId]: {wins, losses} }
+//  - loadJSON(PATHS.coinBank)     // (NEW authoritative) { [userId]: number }
 //  - saveJSON(PATHS.linkedDecks, updatedObject)
 //
 // Config resolution order: ENV.CONFIG_JSON → config.json → defaults
@@ -50,6 +51,9 @@ const COLLECTION_BASE = (CFG.collection_ui
 
 const API_BASE = (CFG.api_base || CFG.API_BASE || process.env.API_BASE || '').replace(/\/+$/,'');
 
+/* Authoritative coin file (fallback path if PATHS.coinBank is undefined) */
+const COIN_BANK_FILE = (PATHS && PATHS.coinBank) ? PATHS.coinBank : 'data/coin_bank.json';
+
 /* ───────────────────────── Small helpers ───────────────────────── */
 function hasAnyAdminRole(member) {
   const cache = member?.roles?.cache;
@@ -86,7 +90,7 @@ export default async function registerViewLinked(client) {
       }
       if (String(interaction.channelId) !== String(ADMIN_CHANNEL_ID)) {
         return interaction.reply({
-          content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
+          content: '❌ This command must be used in the SV13 TCG admin tools channel.',
           ephemeral: true
         });
       }
@@ -169,7 +173,8 @@ export default async function registerViewLinked(client) {
 
         // Re-read latest snapshots to minimize race conditions
         let linkedNow   = asObject(await loadJSON(PATHS.linkedDecks), {});
-        let walletNow   = asObject(await loadJSON(PATHS.wallet).catch(() => ({})), {});
+        let coinBankNow = asObject(await loadJSON(COIN_BANK_FILE).catch(() => ({})), {});
+        let walletNow   = asObject(await loadJSON(PATHS.wallet).catch(() => ({})), {}); // legacy fallback
         let playerStats = asObject(await loadJSON(PATHS.playerData).catch(() => ({})), {});
 
         // Ensure profile presence (should exist because it was listed)
@@ -184,10 +189,21 @@ export default async function registerViewLinked(client) {
           }
         }
 
-        // Coins: prefer profile.coins, else wallet
-        let coins = Number(prof.coins ?? 0);
-        if (!Number.isFinite(coins) || coins < 0) coins = 0;
-        if (coins === 0) coins = Number(walletNow[userId] ?? 0) || coins;
+        // Coins: prefer COIN BANK → profile → legacy wallet
+        let coins = Number(coinBankNow[userId]);
+        if (!Number.isFinite(coins)) coins = Number(prof.coins ?? 0);
+        if (!Number.isFinite(coins)) coins = Number(walletNow[userId] ?? 0);
+        if (!Number.isFinite(coins)) coins = 0;
+
+        // Mirror bank balance back into profile for UI consistency, if different
+        if (prof.coins !== coins) {
+          prof.coins = coins;
+          prof.coinsUpdatedAt = new Date().toISOString();
+          linkedNow[userId] = prof;
+          try { await saveJSON(PATHS.linkedDecks, linkedNow); } catch (e) {
+            console.warn('[viewlinked] Failed to mirror coins into linked_decks:', e?.message || e);
+          }
+        }
 
         // Wins/losses
         const wins   = Number(playerStats[userId]?.wins   ?? 0) || 0;
