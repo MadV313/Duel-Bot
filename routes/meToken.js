@@ -18,35 +18,37 @@ import { load_file, save_file } from '../utils/storageClient.js';
 const router = express.Router();
 
 /* ---------------------------------- helpers ---------------------------------- */
-// Remote JSON filenames (persistent storage)
-const LINKED_DECKS_FILE = 'linked_decks.json';
-const COIN_BANK_FILE    = 'coin_bank.json';
-const SELLS_BY_DAY_FILE = 'sells_by_day.json'; // { [userId]: { 'YYYY-MM-DD': numberSold } }
+// Remote JSON filenames (persistent storage) — all under data/
+const LINKED_DECKS_FILE = 'data/linked_decks.json';
+const COIN_BANK_FILE    = 'data/coin_bank.json';
+const SELLS_BY_DAY_FILE = 'data/sells_by_day.json'; // { [userId]: { 'YYYY-MM-DD': numberSold } }
 
-// Default coin values per rarity (tweak as you like or later move to config)
+// Correct coin values per rarity
 const SELL_VALUES = {
-  Common: 1,
-  Uncommon: 2,
-  Rare: 3,
-  Legendary: 5,
-  Unique: 8,
+  Common:    0.5,
+  Uncommon:  1,
+  Rare:      2,
+  Legendary: 3,
+  Unique:    3, // adjust if you want a special value
 };
 
-// Remote I/O wrappers (preserve shapes; add safe fallbacks)
+const DAILY_LIMIT = 5; // total cards/day (sum of qty)
+
 async function readJsonRemote(name, fallback) {
   try {
-    const raw = await load_file(name);
-    return raw ? JSON.parse(raw) : fallback;
+    // load_file already returns a parsed JS object via storageClient
+    const obj = await load_file(name);
+    return (obj && typeof obj === 'object') ? obj : fallback;
   } catch {
     return fallback;
   }
 }
 async function writeJsonRemote(name, data) {
-  await save_file(name, JSON.stringify(data, null, 2));
+  // save_file expects a JS object; storageClient will JSON.stringify for us
+  await save_file(name, data);
 }
 
 function todayKeyUTC(d = new Date()) {
-  // Use UTC date to keep things simple and deterministic
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
@@ -165,25 +167,6 @@ router.get('/userStatsToken', async (req, res) => {
 /**
  * POST /me/:token/sell
  * Body: { items: [ { number:"001", qty:2 }, ... ] }
- *
- * Rules:
- *  - Resolve token → userId
- *  - Validate ids/qty
- *  - Enforce daily limit: max 5 cards per UTC day (sum of qty)
- *  - Decrement collection counts
- *  - Credit coins per rarity using SELL_VALUES
- *  - Persist to linked_decks.json, coin_bank.json, sells_by_day.json
- *
- * Response 200:
- *  {
- *    ok: true,
- *    credited: 7,
- *    balance: 42,
- *    soldToday: 5,
- *    soldRemaining: 0,
- *    resetAtISO: "...",
- *    collection: { "001": 3, "002": 0, ... }   // zero-qty keys omitted
- *  }
  */
 router.post('/me/:token/sell', async (req, res) => {
   try {
@@ -193,11 +176,9 @@ router.post('/me/:token/sell', async (req, res) => {
 
     const body = req.body || {};
     const items = Array.isArray(body.items) ? body.items : [];
-    if (!items.length) {
-      return res.status(400).json({ error: 'No items provided' });
-    }
+    if (!items.length) return res.status(400).json({ error: 'No items provided' });
 
-    // Normalize and COALESCE duplicate numbers (prevents overdraft via split entries)
+    // Normalize & coalesce
     const coalesced = {};
     for (const raw of items) {
       const id = pad3(String(raw.number || raw.card_id || raw.id || '').replace('#', ''));
@@ -206,11 +187,8 @@ router.post('/me/:token/sell', async (req, res) => {
       coalesced[id] = (coalesced[id] || 0) + qty;
     }
     const normalized = Object.entries(coalesced).map(([id, qty]) => ({ id, qty }));
-    if (!normalized.length) {
-      return res.status(400).json({ error: 'Invalid items' });
-    }
+    if (!normalized.length) return res.status(400).json({ error: 'Invalid items' });
 
-    // Daily limit bookkeeping
     const dayKey = todayKeyUTC();
     const resetAtISO = nextUTCmidnightISO();
 
@@ -222,20 +200,12 @@ router.post('/me/:token/sell', async (req, res) => {
     ]);
 
     const profile = linked[userId];
-    if (!profile) {
-      return res.status(404).json({ error: 'Profile not found' });
-    }
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-    // current daily count
     const userSellMap = sellsByDay[userId] || {};
     const soldToday = Number(userSellMap[dayKey] || 0);
     const requestedTotal = normalized.reduce((a, b) => a + b.qty, 0);
 
-    if (requestedTotal <= 0) {
-      return res.status(400).json({ error: 'Requested quantity is zero' });
-    }
-
-    const DAILY_LIMIT = 5;
     if (soldToday + requestedTotal > DAILY_LIMIT) {
       return res.status(429).json({
         error: 'Daily sell limit reached',
@@ -246,10 +216,9 @@ router.post('/me/:token/sell', async (req, res) => {
       });
     }
 
-    // Build master lookup
     const metaById = new Map(master.map(c => [pad3(c.card_id), c]));
 
-    // Validate ownership
+    // validate ownership
     const collection = { ...(profile.collection || {}) };
     for (const { id, qty } of normalized) {
       const owned = Number(collection[id] || 0);
@@ -258,54 +227,53 @@ router.post('/me/:token/sell', async (req, res) => {
       }
     }
 
-    // Apply changes + compute credit
+    // apply changes + compute credit
     let credited = 0;
     for (const { id, qty } of normalized) {
       const newQty = Number(collection[id] || 0) - qty;
       if (newQty > 0) collection[id] = newQty;
       else delete collection[id];
 
-      const meta = metaById.get(id);
-      const rarity = meta?.rarity || 'Common';
+      const rarity = metaById.get(id)?.rarity || 'Common';
       const value = SELL_VALUES[rarity] ?? SELL_VALUES.Common;
       credited += value * qty;
     }
 
-    // Persist collection & coin bank & daily counter
+    // persist collection and coins
     profile.collection = collection;
-
-    // 🔁 Keep coins in sync across BOTH stores so /mycoins & /me/:token/stats agree
-    const prevBalance = Number((await readJsonRemote(COIN_BANK_FILE, {}))[userId] || 0);
+    const prevBalance = Number((bank?.[userId]) || 0);
     const newBalance = prevBalance + credited;
 
-    const bankUpdate = await readJsonRemote(COIN_BANK_FILE, {});
+    const bankUpdate = { ...(bank || {}) };
     bankUpdate[userId] = newBalance;
 
-    // mirror to profile for UIs that read from linked_decks.json
+    // mirror for UIs that read linked_decks.json
     profile.coins = newBalance;
     profile.lastCoinsUpdatedAt = new Date().toISOString();
-    // ensure discordId is present (handy for other routes)
     if (!profile.discordId) profile.discordId = userId;
 
-    linked[userId] = profile;
+    const linkedUpdate = { ...(linked || {}) };
+    linkedUpdate[userId] = profile;
 
-    userSellMap[dayKey] = soldToday + requestedTotal;
-    sellsByDay[userId] = userSellMap;
+    const newUserSellMap = { ...(userSellMap || {}) };
+    newUserSellMap[dayKey] = soldToday + requestedTotal;
+
+    const sellsByDayUpdate = { ...(sellsByDay || {}) };
+    sellsByDayUpdate[userId] = newUserSellMap;
 
     await Promise.all([
-      writeJsonRemote(LINKED_DECKS_FILE, linked),
+      writeJsonRemote(LINKED_DECKS_FILE, linkedUpdate),
       writeJsonRemote(COIN_BANK_FILE, bankUpdate),
-      writeJsonRemote(SELLS_BY_DAY_FILE, sellsByDay),
+      writeJsonRemote(SELLS_BY_DAY_FILE, sellsByDayUpdate),
     ]);
 
-    // Respond with updated state
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       ok: true,
       credited,
       balance: newBalance,
-      soldToday: userSellMap[dayKey],
-      soldRemaining: Math.max(0, DAILY_LIMIT - userSellMap[dayKey]),
+      soldToday: newUserSellMap[dayKey],
+      soldRemaining: Math.max(0, DAILY_LIMIT - newUserSellMap[dayKey]),
       resetAtISO,
       collection
     });
