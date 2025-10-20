@@ -5,6 +5,7 @@
 // - Normalizes collection keys to 3-digit IDs (001, 002, ...)
 // - Ensures & persists a per-user token
 // - Adds &api=, &imgbase= (if configured) and &ts= cache-buster to links
+// - ✅ If the account is already linked (token present), warns instead of “created” copy
 
 import fs from 'fs';
 import crypto from 'crypto';
@@ -99,8 +100,8 @@ export default async function registerLinkDeck(client) {
   client.commands.set('linkdeck', {
     data: commandData,
     async execute(interaction) {
-      const userId   = interaction.user.id;
-      const userName = interaction.user.username;
+      const userId    = interaction.user.id;
+      const userName  = interaction.user.username;
       const channelId = interaction.channelId;
 
       // Channel guard
@@ -134,9 +135,12 @@ export default async function registerLinkDeck(client) {
         stats = {};
       }
 
-      // Create or update profile
-      const created = !linked[userId];
-      if (!linked[userId]) {
+      const existing = linked[userId];
+      const alreadyLinked =
+        !!existing && typeof existing.token === 'string' && existing.token.length >= 12;
+
+      // Create or update profile skeleton
+      if (!existing) {
         linked[userId] = {
           discordId: userId,
           discordName: userName,
@@ -146,20 +150,22 @@ export default async function registerLinkDeck(client) {
         };
       } else {
         // Refresh display name and normalize shapes
-        linked[userId].discordName = userName;
-        linked[userId].collection = normalizeCollectionMap(linked[userId].collection || {});
-        if (!Array.isArray(linked[userId].deck)) linked[userId].deck = [];
+        existing.discordName = userName;
+        existing.collection  = normalizeCollectionMap(existing.collection || {});
+        if (!Array.isArray(existing.deck)) existing.deck = [];
       }
 
-      // Ensure persistent token
-      if (typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
-        linked[userId].token = randomToken(24);
+      // Ensure persistent token (only mint if missing)
+      if (!alreadyLinked) {
+        if (typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
+          linked[userId].token = randomToken(24);
+        }
       }
 
       linked[userId].lastLinkedAt = new Date().toISOString();
 
       // Ensure wallet & stats entries exist
-      if (typeof wallet[userId] !== 'number') wallet[userId] = 0;
+      if (typeof wallet[userId] !== 'number') wallet[userId] = Number(existing?.coins ?? 0) || 0;
       if (!stats[userId]) stats[userId] = { wins: 0, losses: 0 };
 
       // Persist all three in Persistent Data server
@@ -180,17 +186,22 @@ export default async function registerLinkDeck(client) {
       const { collectionUrl, deckUrl, statsUrl } = buildUIUrls(CONFIG, token);
 
       const lines = [];
-      lines.push(created
-        ? '✅ Your profile has been created and linked!'
-        : 'ℹ️ Your profile is linked. Here are your personal links:'
-      );
 
-      if (collectionUrl || deckUrl || statsUrl) {
+      if (alreadyLinked) {
+        // ✅ Show “already linked” warning & links
+        lines.push('ℹ️ You’re **already linked**. Here are your personal links:');
         lines.push('');
-        if (collectionUrl) lines.push(`• **Collection:** ${collectionUrl}`);
-        if (deckUrl)       lines.push(`• **Deck Builder:** ${deckUrl}`);
-        if (statsUrl)      lines.push(`• **Stats & Coins:** ${statsUrl}`);
       } else {
+        // First-time link copy
+        lines.push('✅ Your profile has been created and linked!');
+        lines.push('');
+      }
+
+      if (collectionUrl) lines.push(`• **Collection:** ${collectionUrl}`);
+      if (deckUrl)       lines.push(`• **Deck Builder:** ${deckUrl}`);
+      if (statsUrl)      lines.push(`• **Stats & Coins:** ${statsUrl}`);
+
+      if (!collectionUrl && !deckUrl && !statsUrl) {
         lines.push(
           '',
           '⚠️ No UI base URLs are configured. Ask an admin to set these in `CONFIG_JSON` or `config.json`:',
@@ -200,6 +211,7 @@ export default async function registerLinkDeck(client) {
       }
 
       lines.push('', 'Use **/buycard** to start collecting cards.');
+      if (alreadyLinked) lines.push('Use **/unlinkdeck** to reset your link if needed.');
 
       return interaction.reply({
         content: lines.join('\n'),
