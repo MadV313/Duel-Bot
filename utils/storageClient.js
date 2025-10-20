@@ -1,15 +1,17 @@
 // utils/storageClient.js
 //
 // Persistent JSON storage client with retries, timeouts, and safe helpers.
-// ✅ Back-compat filename remapping so old calls like "linked_decks.json" still hit /data/linked_decks.json
 // ✅ Exports: loadJSON(), saveJSON(), deleteJSON(), updateJSONAtomic(), healthCheck()
-// ✅ Aliases: load_file(), save_file()
-// ✅ Canonical PATHS use the new prefixed locations.
+// ✅ Aliases kept: load_file(), save_file()
+// ✅ Adds: loadOrInitJSON() to silently create files with defaults on first load
+// Logs are prefixed with [STORAGE].
 
 import fetch from 'node-fetch';
 
 const BASE = String(process.env.PERSISTENT_DATA_URL || '').replace(/\/+$/, '');
-if (!BASE) throw new Error('❌ [STORAGE] PERSISTENT_DATA_URL not set');
+if (!BASE) {
+  throw new Error('❌ [STORAGE] PERSISTENT_DATA_URL not set');
+}
 
 const RETRIES    = Number(process.env.STORAGE_RETRIES || 2);
 const TIMEOUT_MS = Number(process.env.STORAGE_TIMEOUT_MS || 12_000);
@@ -21,61 +23,16 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function withTimeout(promise, ms = TIMEOUT_MS) {
   let to;
-  const timer = new Promise((_, reject) => { to = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms); });
+  const timer = new Promise((_, reject) => {
+    to = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+  });
   try { return await Promise.race([promise, timer]); }
   finally { clearTimeout(to); }
 }
 
-/* ───────────────────────────────
- * Back-compat filename remapping
- * ─────────────────────────────── */
-const LEGACY_EXACT = new Map([
-  // core player data
-  ['linked_decks.json',     'data/linked_decks.json'],
-  ['wallet.json',           'data/coin_bank.json'],     // legacy name
-  ['coin_bank.json',        'data/coin_bank.json'],
-  ['player_data.json',      'data/player_data.json'],
-
-  // limits / trades
-  ['sells_by_day.json',     'data/sells_by_day.json'],
-  ['trade_limits.json',     'data/trade_limits.json'],
-  ['trade_queue.json',      'data/trade_queue.json'],
-  ['tradeQueue.json',       'data/trade_queue.json'],   // legacy camel
-  ['trades.json',           'data/trades.json'],
-
-  // duel logs / stats
-  ['current_duel_log.json', 'data/logs/current_duel_log.json'],
-  ['duelStats.json',        'data/duelStats.json'],
-
-  // public
-  ['duel_summaries.json',   'public/data/duel_summaries.json'],
-]);
-
-function remapFilename(name) {
-  const raw = String(name || '').replace(/^\/+/, '');
-
-  // if it’s already prefixed, keep it
-  if (raw.startsWith('data/') || raw.startsWith('public/data/')) return raw;
-
-  // exact legacy hits
-  if (LEGACY_EXACT.has(raw)) return LEGACY_EXACT.get(raw);
-
-  // summaries/<id>.json  → data/summaries/<id>.json
-  if (raw.startsWith('summaries/')) return `data/${raw}`;
-
-  // logs/<file>.json → data/logs/<file>.json
-  if (raw.startsWith('logs/')) return `data/${raw}`;
-
-  // reveal_<token>.json → public/data/reveal_<token>.json
-  if (/^reveal_.+\.json$/.test(raw)) return `public/data/${raw}`;
-
-  // anything else: leave as-is (but this is rare)
-  return raw;
-}
-
 function urlFor(filename) {
-  const effective = remapFilename(filename);
-  return `${BASE}/${effective}`;
+  const clean = String(filename || '').replace(/^\/+/, '');
+  return `${BASE}/${clean}`;
 }
 
 async function parseJsonSafe(res) {
@@ -87,24 +44,21 @@ async function parseJsonSafe(res) {
   }
 }
 
-/* ───────────────────────────────
- * Core operations
- * ─────────────────────────────── */
+/* ─────────────────────────────────────── core ops ─────────────────────────────────────── */
 
 export async function loadJSON(filename) {
-  const effective = remapFilename(filename);
   const url = urlFor(filename);
   let lastErr;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
     try {
       const res = await withTimeout(fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-store' } }));
-      if (!res.ok) throw new Error(`GET ${res.status} ${effective}`);
+      if (!res.ok) throw new Error(`GET ${res.status} ${url}`);
       const data = await parseJsonSafe(res);
-      log(`Loaded ${effective} successfully.`);
+      log(`Loaded ${filename} successfully.`);
       return data;
     } catch (e) {
       lastErr = e;
-      err(`Load failed (${attempt + 1}/${RETRIES + 1}) for ${effective}: ${e.message}`);
+      err(`Load failed (${attempt + 1}/${RETRIES + 1}) for ${filename}: ${e.message}`);
       if (attempt < RETRIES) await sleep(RETRY_BASE * (attempt + 1));
     }
   }
@@ -112,7 +66,6 @@ export async function loadJSON(filename) {
 }
 
 export async function saveJSON(filename, data) {
-  const effective = remapFilename(filename);
   const url = urlFor(filename);
   let lastErr;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
@@ -122,12 +75,12 @@ export async function saveJSON(filename, data) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data, null, 2),
       }));
-      if (!res.ok) throw new Error(`PUT ${res.status} ${effective}`);
-      log(`Saved ${effective} successfully.`);
+      if (!res.ok) throw new Error(`PUT ${res.status} ${url}`);
+      log(`Saved ${filename} successfully.`);
       return true;
     } catch (e) {
       lastErr = e;
-      err(`Save failed (${attempt + 1}/${RETRIES + 1}) for ${effective}: ${e.message}`);
+      err(`Save failed (${attempt + 1}/${RETRIES + 1}) for ${filename}: ${e.message}`);
       if (attempt < RETRIES) await sleep(RETRY_BASE * (attempt + 1) + 50);
     }
   }
@@ -135,83 +88,121 @@ export async function saveJSON(filename, data) {
 }
 
 export async function deleteJSON(filename) {
-  const effective = remapFilename(filename);
   const url = urlFor(filename);
   try {
     const res = await withTimeout(fetch(url, { method: 'DELETE' }));
-    if (!res.ok) throw new Error(`DELETE ${res.status} ${effective}`);
-    log(`Deleted ${effective} successfully.`);
+    if (!res.ok) throw new Error(`DELETE ${res.status} ${url}`);
+    log(`Deleted ${filename} successfully.`);
     return true;
   } catch (e) {
-    err(`Delete failed for ${effective}: ${e.message}`);
+    err(`Delete failed for ${filename}: ${e.message}`);
     throw e;
   }
 }
 
 export async function updateJSONAtomic(filename, mutator) {
-  const effective = remapFilename(filename);
   const url = urlFor(filename);
-
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
     const getRes = await withTimeout(fetch(url, { method: 'GET', headers: { 'Cache-Control': 'no-store' } }));
-    if (!getRes.ok) throw new Error(`GET ${getRes.status} ${effective}`);
-    const etag = getRes.headers.get('etag'); // may be null
+    if (!getRes.ok) throw new Error(`GET ${getRes.status} ${url}`);
+    const etag = getRes.headers.get('etag');
     const current = await parseJsonSafe(getRes);
 
     let next;
     try { next = await mutator(current); }
-    catch (e) { err(`Mutator threw for ${effective}: ${e.message}`); throw e; }
+    catch (e) { err(`Mutator threw for ${filename}: ${e.message}`); throw e; }
 
     const headers = { 'Content-Type': 'application/json' };
     if (etag) headers['If-Match'] = etag;
 
     const putRes = await withTimeout(fetch(url, { method: 'PUT', headers, body: JSON.stringify(next, null, 2) }));
-    if (putRes.ok) { log(`Atomic update succeeded for ${effective}.`); return true; }
+    if (putRes.ok) { log(`Atomic update succeeded for ${filename}.`); return true; }
 
     if (putRes.status === 412 || putRes.status === 409) {
-      err(`Conflict updating ${effective} (attempt ${attempt + 1}). Retrying…`);
+      err(`Conflict updating ${filename} (attempt ${attempt + 1}). Retrying…`);
       if (attempt < RETRIES) { await sleep(RETRY_BASE * (attempt + 1)); continue; }
     }
-
     const body = await putRes.text().catch(() => '');
-    throw new Error(`PUT ${putRes.status} ${effective}: ${body || putRes.statusText}`);
+    throw new Error(`PUT ${putRes.status} ${url}: ${body || putRes.statusText}`);
   }
-
-  throw new Error(`Atomic update exceeded retry budget for ${effective}`);
+  throw new Error(`Atomic update exceeded retry budget for ${filename}`);
 }
 
 export async function healthCheck(filename = '') {
-  const effective = filename ? remapFilename(filename) : 'BASE';
   const url = filename ? urlFor(filename) : BASE;
   try {
     const res = await withTimeout(fetch(url, { method: 'HEAD' }));
     const ok = res.ok;
-    log(`Health check ${ok ? 'OK' : 'FAIL'} for ${effective} (${res.status})`);
+    log(`Health check ${ok ? 'OK' : 'FAIL'} for ${filename || 'BASE'} (${res.status})`);
     return ok;
   } catch (e) {
-    err(`Health check error for ${effective}: ${e.message}`);
+    err(`Health check error for ${filename || 'BASE'}: ${e.message}`);
     return false;
   }
 }
 
-/* Aliases */
-export async function load_file(filename)  { return loadJSON(filename); }
+/* ───────────────────────────── convenience helpers ───────────────────────────── */
+
+/**
+ * Load a file, and if it 404s, create it with the provided default value.
+ * Useful to avoid first-boot 404 noise.
+ */
+export async function loadOrInitJSON(filename, defaultValue = {}) {
+  try {
+    return await loadJSON(filename);
+  } catch (e) {
+    if (String(e.message || '').includes('GET 404')) {
+      log(`Initializing ${filename} with defaults.`);
+      await saveJSON(filename, defaultValue);
+      return defaultValue;
+    }
+    throw e;
+  }
+}
+
+/* ───────────────────────────── aliases for legacy code ───────────────────────────── */
+
+export async function load_file(filename) { return loadJSON(filename); }
 export async function save_file(filename, data) { return saveJSON(filename, data); }
 
-/* Canonical paths (use these in new code) */
+/* ───────────────────────────── canonical path map ─────────────────────────────
+   Files requiring prefix "data/":
+   - coin_bank.json
+   - linked_decks.json
+   - player_data.json
+   - sells_by_day.json
+   - trade_limits.json
+   - trade_queue.json
+   - trades.json
+   - logs/current_duel_log.json
+   - summaries/<duelID>.json
+   Also used by bot: duelStats.json (keep under data/)
+   Files requiring prefix "public/data/":
+   - duel_summaries.json
+   - reveal_<token or user id>.json
+-------------------------------------------------------------------------------*/
+
 export const PATHS = {
-  linkedDecks:        'data/linked_decks.json',
-  wallet:             'data/coin_bank.json',
-  playerData:         'data/player_data.json',
-  sellsByDay:         'data/sells_by_day.json',
-  tradeLimits:        'data/trade_limits.json',
-  tradeQueue:         'data/trade_queue.json',
-  trades:             'data/trades.json',
-  duelLogCurrent:     'data/logs/current_duel_log.json',
-  duelSummaryFor:     (duelId) => `data/summaries/${duelId}.json`,
-  duelStats:          'data/duelStats.json',
-  public: {
-    duelSummaries:    'public/data/duel_summaries.json',
-    revealFor:        (tokenOrUserId) => `public/data/reveal_${tokenOrUserId}.json`,
-  },
+  // core player data
+  linkedDecks:   'data/linked_decks.json',
+  wallet:        'data/coin_bank.json',         // was wallet.json in some modules
+  playerData:    'data/player_data.json',
+
+  // duels & stats
+  duelStats:     'data/duelStats.json',         // created on first boot if missing
+  currentDuelLog:'data/logs/current_duel_log.json',
+
+  // trading
+  tradeQueue:    'data/trade_queue.json',
+  tradeLimits:   'data/trade_limits.json',
+  trades:        'data/trades.json',
+  sellsByDay:    'data/sells_by_day.json',
+
+  // archives / summaries
+  summariesDir:  'data/summaries',              // use helpers below to build file paths
+  duelSummaries: 'public/data/duel_summaries.json', // public
+
+  // helpers for dynamic public files
+  revealFor: (id) => `public/data/reveal_${id}.json`,
+  summaryFor: (duelId) => `data/summaries/${duelId}.json`,
 };
