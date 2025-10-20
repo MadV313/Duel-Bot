@@ -3,6 +3,7 @@
 // - Requires player to be linked (prompts to /linkdeck if not)
 // - Ensures/mints a per-user token if missing and persists it
 // - Builds a link with ?token=... and optional &api=..., plus &ts= cache-buster
+// - Uses unified coin bank (data/coin_bank.json) as source of truth, mirrors to linked_decks
 
 import fs from 'fs';
 import crypto from 'crypto';
@@ -44,6 +45,9 @@ function buildCollectionUrl(cfg, token) {
   return `${trimBase(base)}/index.html?${qp.toString()}`;
 }
 
+// Unified coin bank file (authoritative). Fallback if PATHS.coinBank missing.
+const COIN_BANK_FILE = (PATHS && PATHS.coinBank) ? PATHS.coinBank : 'data/coin_bank.json';
+
 // -------- command --------
 export default async function registerMyCoin(client) {
   const commandData = new SlashCommandBuilder()
@@ -60,11 +64,11 @@ export default async function registerMyCoin(client) {
       const userName = interaction.user.username;
       const CFG = loadConfig();
 
-      // Load linked profiles and wallet
+      // Load linked profiles and unified coin bank
       let linked = {};
-      let wallet = {};
+      let bank = {};
       try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
-      try { wallet = await loadJSON(PATHS.wallet); } catch { wallet = {}; }
+      try { bank   = await loadJSON(COIN_BANK_FILE); } catch { bank = {}; }
 
       const profile = linked[userId];
 
@@ -90,9 +94,10 @@ export default async function registerMyCoin(client) {
         catch (e) { console.warn('[mycoin] failed to persist token mint:', e?.message || e); }
       }
 
-      const coins = Number(wallet[userId] ?? profile.coins ?? 0) || 0;
+      // Use bank as source of truth, fallback to profile.coins if absent
+      const coins = Number(bank[userId] ?? profile.coins ?? 0) || 0;
 
-      // Optionally sync back into linked profile for consistency
+      // Mirror back into linked profile for consistency with UIs that read linked_decks
       if (profile.coins !== coins) {
         profile.coins = coins;
         profile.coinsUpdatedAt = new Date().toISOString();
