@@ -1,23 +1,17 @@
+// cogs/unlinkdeck.js
+// Admin-only: unlink a user's TCG profile and purge related data.
+// - Admin channel + admin role gated
+// - Paginated dropdown UI (25 per page)
+// - Purges: linked_decks, wallet, player_data, trade_limits, trades (sessions with user), duel_sessions (sessions with user)
+// - Best-effort cleanup of pack reveal artifacts
+//
+// Config resolution order: ENV.CONFIG_JSON → config.json → defaults
+// Config / ENV keys used:
+//   admin_role_ids[], admin_payout_channel_id (or fallback ADMIN_ROLE_ID/ADMIN_CHANNEL_ID in code)
+//   reveals_dir (optional local FS fallback for reveal_*.json)
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/unlinkdeck.js — Paginated version synced with dropdown
-// Updates:
-// • Keeps existing UX/logic intact
-// • Also cleans up any tokenized Pack Reveal JSON for the user (userId + token variants)
-// • EXTRA: Wipes related player data in trade_limits.json, trades.json, and duel_sessions.json (if present)
-// • Extra logging + safe error handling around file I/O
-
+import fs from 'fs';
+import path from 'path';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -26,273 +20,249 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ComponentType,
-  EmbedBuilder
+  EmbedBuilder,
 } from 'discord.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-const ADMIN_ROLE_ID = '1173049392371085392';
-const ADMIN_CHANNEL_ID = '1368023977519222895';
-
-const linkedDecksPath   = path.resolve('PATHS.linkedDecks');
-const coinBankPath      = path.resolve('./data/coin_bank.json');
-const playerDataPath    = path.resolve('PATHS.playerData');
-const tradeLimitsPath   = path.resolve('./data/trade_limits.json'); // NEW: wipe per-user counters
-const tradesPath        = path.resolve('./data/trades.json');       // NEW: purge sessions with this user
-const duelSessionsPath  = path.resolve('./data/duel_sessions.json'); // NEW: optional, purge duels with this user
-const revealOutputDir   = path.resolve('./public/data'); // where cardpack writes reveal_<id>.json
-
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try { return JSON.parse(await loadJSON(PATHS.linkedDecks)); }
-  catch { return fallback; }
+/* ───────────────────────── Config helpers ───────────────────────── */
+function loadConfig() {
+  try { if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON); }
+  catch (e) { console.warn('[unlinkdeck] CONFIG_JSON parse error:', e?.message); }
+  try { if (fs.existsSync('config.json')) return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {}; }
+  catch {}
+  return {};
 }
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
+const CFG = loadConfig();
+const FALLBACK_ADMIN_ROLE   = '1173049392371085392';
+const FALLBACK_ADMIN_CHAN   = '1368023977519222895';
+const ADMIN_ROLE_IDS        = Array.isArray(CFG.admin_role_ids) && CFG.admin_role_ids.length ? CFG.admin_role_ids : [FALLBACK_ADMIN_ROLE];
+const ADMIN_CHANNEL_ID      = String(CFG.admin_payout_channel_id || FALLBACK_ADMIN_CHAN);
+const LOCAL_REVEALS_DIR     = String(CFG.reveals_dir || './public/data').replace(/\/+$/, ''); // FS fallback
+
+/* ───────────────────────── Small helpers ───────────────────────── */
+function hasAnyAdminRole(member) {
+  const cache = member?.roles?.cache;
+  if (!cache) return false;
+  return ADMIN_ROLE_IDS.some(rid => cache.has(rid));
 }
 
+function purgeFromObject(obj, userId) {
+  if (!obj || typeof obj !== 'object') return false;
+  if (Object.prototype.hasOwnProperty.call(obj, userId)) {
+    delete obj[userId];
+    return true;
+  }
+  return false;
+}
+
+function purgeSessionsMap(obj, userId) {
+  if (!obj || typeof obj !== 'object') return false;
+  let changed = false;
+  for (const [sid, sess] of Object.entries(obj)) {
+    // Try several shapes:
+    // - { players: [{userId}] }
+    // - { challenger: {userId}, opponent: {userId} }
+    // - flat { aId, bId }
+    const players = Array.isArray(sess?.players) ? sess.players : [];
+    const matchPlayers = players.some(p => String(p?.userId || p?.id) === String(userId));
+    const aMatch = String(sess?.aId || sess?.challenger?.userId || sess?.challenger?.id || '') === String(userId);
+    const bMatch = String(sess?.bId || sess?.opponent?.userId   || sess?.opponent?.id   || '') === String(userId);
+    if (matchPlayers || aMatch || bMatch) {
+      delete obj[sid];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+async function tryDeleteLocalRevealFiles(userId, token) {
+  // Only best-effort local delete (not critical in Persistent Data mode)
+  const files = [
+    path.join(LOCAL_REVEALS_DIR, `reveal_${userId}.json`),
+    token ? path.join(LOCAL_REVEALS_DIR, `reveal_${token}.json`) : null,
+  ].filter(Boolean);
+
+  for (const fp of files) {
+    try { await fs.promises.unlink(fp); }
+    catch { /* ignore */ }
+  }
+}
+
+/* ───────────────────────── Command ───────────────────────── */
 export default async function registerUnlinkDeck(client) {
-  const commandData = new SlashCommandBuilder()
+  const data = new SlashCommandBuilder()
     .setName('unlinkdeck')
-    .setDescription('Admin only: Unlink a user’s card profile.')
+    .setDescription('Admin only: Unlink a user’s card profile and purge associated data.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
-  client.slashData.push(commandData.toJSON());
+  client.slashData.push(data.toJSON());
 
   client.commands.set('unlinkdeck', {
-    data: commandData,
+    data,
     async execute(interaction) {
-      const userRoles = interaction.member?.roles?.cache;
-      const isAdmin = userRoles?.has(ADMIN_ROLE_ID);
-      const channelId = interaction.channelId;
-
-      if (!isAdmin) {
+      // Role & channel guard
+      if (!hasAnyAdminRole(interaction.member)) {
+        return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
+      }
+      if (String(interaction.channelId) !== String(ADMIN_CHANNEL_ID)) {
         return interaction.reply({
-          content: '🚫 You do not have permission to use this command.',
+          content: '❌ This command MUST be used in the SV13 TCG admin tools channel.',
           ephemeral: true
         });
       }
 
-      if (channelId !== ADMIN_CHANNEL_ID) {
-        return interaction.reply({
-          content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
-          ephemeral: true
-        });
+      // Load linked profiles
+      let linked = {};
+      try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
+
+      const entries = Object.entries(linked);
+      if (!entries.length) {
+        return interaction.reply({ content: '⚠️ No linked users found.', ephemeral: true });
       }
 
-      // Load linked users
-      let linkedData = {};
-      try {
-        linkedData = await await _loadJSONSafe(PATHS.linkedDecks);
-      } catch {
-        console.warn('📁 [unlinkdeck] No linked_decks.json found.');
-        return interaction.reply({
-          content: '⚠️ No profiles found to unlink.',
-          ephemeral: true
-        });
-      }
-
-      const entries = Object.entries(linkedData);
-      if (entries.length === 0) {
-        return interaction.reply({
-          content: '⚠️ No linked users found.',
-          ephemeral: true
-        });
-      }
-
-      // Pagination builders
+      // Pagination
       const pageSize = 25;
-      let currentPage = 0;
-      const totalPages = Math.ceil(entries.length / pageSize);
+      let page = 0;
+      const pages = Math.ceil(entries.length / pageSize);
 
-      const generatePageData = (page) => {
-        const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
-        const options = pageEntries.map(([id, data]) => ({
-          label: data.discordName || id,
-          value: id
+      const makePage = (p) => {
+        const slice = entries.slice(p * pageSize, (p + 1) * pageSize);
+        const options = slice.map(([id, prof]) => ({
+          label: prof?.discordName || id,
+          value: id,
         }));
 
         const dropdown = new StringSelectMenuBuilder()
-          .setCustomId(`select_unlink_user_page_${page}`)
+          .setCustomId(`unlinkdeck_select_${p}`)
           .setPlaceholder('🔻 Choose a user to unlink')
           .addOptions(options);
 
-        const embed = new EmbedBuilder()
-          .setTitle(`📋 Select a user to unlink`)
-          .setDescription(`Page ${page + 1} of ${totalPages} (Showing users ${(page * pageSize) + 1}–${Math.min((page + 1) * pageSize, entries.length)} of ${entries.length})`);
-
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('prev_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-          new ButtonBuilder().setCustomId('next_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
+        const rowSelect = new ActionRowBuilder().addComponents(dropdown);
+        const rowNav = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('prev').setStyle(ButtonStyle.Secondary).setLabel('⏮ Prev').setDisabled(p === 0),
+          new ButtonBuilder().setCustomId('next').setStyle(ButtonStyle.Secondary).setLabel('Next ⏭').setDisabled(p === pages - 1),
         );
 
-        const row = new ActionRowBuilder().addComponents(dropdown);
+        const embed = new EmbedBuilder()
+          .setTitle('📋 Select a user to unlink')
+          .setDescription(`Page ${p + 1} of ${pages} — ${entries.length} total users`)
+          .setColor(0xcc3300);
 
-        return { embed, row, buttons, pageEntries };
+        return { embed, rowSelect, rowNav };
       };
 
-      const { embed, row, buttons } = generatePageData(currentPage);
-
-      const mainReply = await interaction.reply({
-        embeds: [embed],
-        components: [row, buttons],
+      const first = makePage(page);
+      const msg = await interaction.reply({
+        embeds: [first.embed],
+        components: [first.rowSelect, first.rowNav],
         ephemeral: true,
         fetchReply: true
       });
 
-      const collector = mainReply.createMessageComponentCollector({
+      const btnCollector = msg.createMessageComponentCollector({
         componentType: ComponentType.Button,
         time: 60_000
       });
 
-      const dropdownCollector = mainReply.createMessageComponentCollector({
+      btnCollector.on('collect', async i => {
+        if (i.user.id !== interaction.user.id) {
+          return i.reply({ content: '⚠️ You cannot interact with this menu.', ephemeral: true });
+        }
+        if (i.customId === 'prev') page = Math.max(0, page - 1);
+        if (i.customId === 'next') page = Math.min(pages - 1, page + 1);
+        const built = makePage(page);
+        await i.update({ embeds: [built.embed], components: [built.rowSelect, built.rowNav] });
+      });
+
+      const ddCollector = msg.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         time: 60_000
       });
 
-      collector.on('collect', async i => {
+      ddCollector.on('collect', async i => {
         if (i.user.id !== interaction.user.id) {
           return i.reply({ content: '⚠️ You cannot interact with this menu.', ephemeral: true });
         }
+        await i.deferUpdate();
 
-        if (i.customId === 'prev_page') {
-          currentPage = Math.max(currentPage - 1, 0);
-        } else if (i.customId === 'next_page') {
-          currentPage = Math.min(currentPage + 1, totalPages - 1);
+        const userId = i.values[0];
+        // Re-read latest snapshot (reduce race)
+        let linkedNow = {};
+        try { linkedNow = await loadJSON(PATHS.linkedDecks); } catch { linkedNow = {}; }
+        const prof = linkedNow[userId];
+        const display = prof?.discordName || userId;
+        const token   = prof?.token || '';
+
+        // 1) Remove from linked_decks
+        const removed = purgeFromObject(linkedNow, userId);
+        if (removed) {
+          await saveJSON(PATHS.linkedDecks, linkedNow);
         }
 
-        const { embed, row, buttons } = generatePageData(currentPage);
-        await i.update({ embeds: [embed], components: [row, buttons] });
-      });
-
-      dropdownCollector.on('collect', async selectInteraction => {
-        if (!selectInteraction.customId.startsWith('select_unlink_user_page_')) return;
-
-        const selectedId = selectInteraction.values[0];
-        const removedUser  = linkedData[selectedId]?.discordName || 'Unknown';
-        const removedToken = linkedData[selectedId]?.token || '';
-
-        // 1) Remove from linked_decks.json
+        // 2) Remove from wallet
         try {
-          delete linkedData[selectedId];
-          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-          console.log(`🗑 [unlinkdeck] Removed profile for ${selectedId}`);
-        } catch (e) {
-          console.warn('⚠️ [unlinkdeck] Failed to update linked_decks.json:', e?.message || e);
-        }
+          const wallet = await loadJSON(PATHS.wallet).catch(() => ({}));
+          if (purgeFromObject(wallet, userId)) {
+            await saveJSON(PATHS.wallet, wallet);
+          }
+        } catch {}
 
-        // 2) Remove from coin_bank.json
+        // 3) Remove from player_data
         try {
-          const coinData = await await _loadJSONSafe(PATHS.linkedDecks);
-          if (coinData && Object.prototype.hasOwnProperty.call(coinData, selectedId)) {
-            delete coinData[selectedId];
-            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-            console.log(`💰 [unlinkdeck] Removed coin data for ${selectedId}`);
+          const playerData = await loadJSON(PATHS.playerData).catch(() => ({}));
+          if (purgeFromObject(playerData, userId)) {
+            await saveJSON(PATHS.playerData, playerData);
           }
-        } catch (e) {
-          console.warn('⚠️ [unlinkdeck] Failed to update coin_bank.json:', e?.message || e);
-        }
+        } catch {}
 
-        // 3) Remove from player_data.json
+        // 4) Remove from trade_limits
         try {
-          const playerData = await await _loadJSONSafe(PATHS.linkedDecks);
-          if (playerData && Object.prototype.hasOwnProperty.call(playerData, selectedId)) {
-            delete playerData[selectedId];
-            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-            console.log(`📊 [unlinkdeck] Removed player data for ${selectedId}`);
+          const limits = await loadJSON(PATHS.tradeLimits).catch(() => ({}));
+          if (purgeFromObject(limits, userId)) {
+            await saveJSON(PATHS.tradeLimits, limits);
           }
-        } catch (e) {
-          console.warn('⚠️ [unlinkdeck] Failed to update player_data.json:', e?.message || e);
-        }
+        } catch {}
 
-        // 4) NEW: Remove from trade_limits.json
+        // 5) Purge any trades involving this user
         try {
-          const limits = await await _loadJSONSafe(PATHS.linkedDecks);
-          if (limits && Object.prototype.hasOwnProperty.call(limits, selectedId)) {
-            delete limits[selectedId];
-            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-            console.log(`🔁 [unlinkdeck] Cleared trade limits for ${selectedId}`);
+          const trades = await loadJSON(PATHS.trades).catch(() => ({}));
+          if (purgeSessionsMap(trades, userId)) {
+            await saveJSON(PATHS.trades, trades);
           }
-        } catch (e) {
-          console.warn('⚠️ [unlinkdeck] Failed to update trade_limits.json:', e?.message || e);
-        }
+        } catch {}
 
-        // 5) NEW: Purge any trade sessions in trades.json involving this user
+        // 6) Purge any duel sessions involving this user
         try {
-          const trades = await await _loadJSONSafe(PATHS.linkedDecks);
-          let changed = false;
-          for (const [sid, sess] of Object.entries(trades)) {
-            const a = sess?.initiator?.userId;
-            const b = sess?.partner?.userId;
-            if (a === selectedId || b === selectedId) {
-              delete trades[sid];
-              changed = true;
-            }
+          const duels = await loadJSON(PATHS.duelSessions).catch(() => ({}));
+          if (purgeSessionsMap(duels, userId)) {
+            await saveJSON(PATHS.duelSessions, duels);
           }
-          if (changed) {
-            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-            console.log(`🔄 [unlinkdeck] Purged trade sessions for ${selectedId}`);
-          }
-        } catch (e) {
-          console.warn('⚠️ [unlinkdeck] Failed to update trades.json:', e?.message || e);
-        }
+        } catch {}
 
-        // 6) NEW: Purge any duel sessions in duel_sessions.json involving this user (if file exists)
-        try {
-          const duels = await await _loadJSONSafe(PATHS.linkedDecks);
-          let changed = false;
-          // Format-agnostic best effort: remove any session where players array contains user,
-          // or any object with .aId/.bId/.players[*].userId equal to selectedId
-          for (const [sid, s] of Object.entries(duels)) {
-            const players = Array.isArray(s?.players) ? s.players : [];
-            const containsInPlayers = players.some(p => String(p?.userId || p?.id) === String(selectedId));
-            const aMatch = String(s?.aId || s?.challenger?.userId) === String(selectedId);
-            const bMatch = String(s?.bId || s?.opponent?.userId) === String(selectedId);
-            if (containsInPlayers || aMatch || bMatch) {
-              delete duels[sid];
-              changed = true;
-            }
-          }
-          if (changed) {
-            await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-            console.log(`⚔️ [unlinkdeck] Purged duel sessions for ${selectedId}`);
-          }
-        } catch (e) {
-          // This file may not exist in your setup; ignore if missing.
-          console.warn('ℹ️ [unlinkdeck] duel_sessions.json not updated (may not exist).', e?.message || e);
-        }
+        // 7) Best-effort cleanup of local reveal files (if they exist)
+        try { await tryDeleteLocalRevealFiles(userId, token); } catch {}
 
-        // 7) Clean up any Pack Reveal JSON files for this user (user + token variants)
-        try {
-          const userRevealPath  = path.join(revealOutputDir, `reveal_${selectedId}.json`);
-          await fs.unlink(userRevealPath).catch(() => {});
-          if (removedToken) {
-            const tokenRevealPath = path.join(revealOutputDir, `reveal_${removedToken}.json`);
-            await fs.unlink(tokenRevealPath).catch(() => {});
-          }
-          console.log(`🧹 [unlinkdeck] Cleaned reveal JSON for ${selectedId}${removedToken ? ` (token ${removedToken})` : ''}`);
-        } catch (e) {
-          console.warn('⚠️ [unlinkdeck] Failed to clean reveal files:', e?.message || e);
-        }
-
-        // Done
-        await selectInteraction.update({
-          content: `✅ Successfully unlinked **${removedUser}** and wiped their associated data.`,
+        await interaction.editReply({
+          content: `✅ Successfully unlinked **${display}** and purged associated data.`,
           embeds: [],
           components: []
         });
 
-        try { collector.stop(); } catch {}
-        try { dropdownCollector.stop(); } catch {}
+        try { btnCollector.stop(); } catch {}
+        try { ddCollector.stop(); } catch {}
       });
 
-      dropdownCollector.on('end', async collected => {
-        if (collected.size === 0) {
+      const endAll = async () => {
+        try {
           await interaction.editReply({
             content: '⏰ No selection made. Command cancelled.',
             embeds: [],
             components: []
           });
-        }
-      });
+        } catch {}
+      };
+      btnCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+      ddCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
     }
   });
 }
