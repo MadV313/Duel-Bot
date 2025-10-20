@@ -302,15 +302,19 @@ process.on('uncaughtException', e => console.error('⚠️ UncaughtException:', 
 /* ──────────────────────────────────────────────────────────
  * Express middleware
  * ────────────────────────────────────────────────────────── */
-app.use(cors({
+const corsOptions = {
   origin: [
+    'https://madv313.github.io',
     /localhost:5173$/,
-    /duel-ui-production\.up\.railway\.app$/,
-    /madv313\.github\.io$/
+    /duel-ui-production\.up\.railway\.app$/
   ],
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Bot-Key'],
-}));
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // handle preflight globally
 app.use(helmet());
 app.use(express.json({ limit: '256kb' }));
 
