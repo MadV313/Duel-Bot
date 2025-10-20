@@ -1,76 +1,21 @@
-
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 // cogs/linkdeck.js
 // /linkdeck — create or ensure a player profile, mint a per-user token,
-// and reply with tokenized links to your static UIs (Card-Collection-UI, etc.)
-// Updates:
-//  • Keeps all existing behavior
-//  • Normalizes collection keys to 3-digit IDs
-//  • Ensures/mints a persistent per-user token
-//  • Builds tokenized links with optional &api= and &imgbase=
-//  • Adds a cache-busting &ts=<epoch> to each link
-//  • Refreshes stored discordName if it changed
+// and reply with tokenized links to your static UIs (Collection, Deck Builder, Stats).
+// - Confined to #manage-cards (via utils/checkChannels.js)
+// - Normalizes collection keys to 3-digit IDs (001, 002, ...)
+// - Ensures & persists a per-user token
+// - Adds &api=, &imgbase= (if configured) and &ts= cache-buster to links
 
+import fs from 'fs';
 import crypto from 'crypto';
 import { SlashCommandBuilder } from 'discord.js';
-import { isAllowedChannel } from '../utils/checkChannel.js';
+import { isAllowedChannel } from '../utils/checkChannels.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-const coinBankPath    = path.resolve('./data/coin_bank.json');
-const playerDataPath  = path.resolve('PATHS.playerData');
+/* ───────────────────────── Helpers & config ───────────────────────── */
 
-/* ---------------- config loader (ENV first, then config.json) ---------------- */
-function _loadConfig() {
-  try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn(`[linkdeck] CONFIG_JSON parse error: ${e?.message}`);
-  }
-  try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    const cfg = JSON.parse(require('fs').readFileSync('config.json', 'utf-8'));
-    return cfg || {};
-  } catch {
-    return {};
-  }
-}
+const pad3 = n => String(n).padStart(3, '0');
 
-/* ---------------- helpers ---------------- */
-function randomToken(len = 24) {
-  // URL-safe base64 without padding
-  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
-}
-
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try {
-    const raw = await loadJSON(PATHS.linkedDecks);
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
-}
-
-function trimSlash(s = '') { return String(s).trim().replace(/\/+$/, ''); }
-function pad3(n) { return String(n).padStart(3, '0'); }
-
-/** Normalize collection keys to 3-digit strings (001, 002, ...). */
 function normalizeCollectionMap(collection = {}) {
   const out = {};
   for (const [k, v] of Object.entries(collection)) {
@@ -81,166 +26,185 @@ function normalizeCollectionMap(collection = {}) {
   return out;
 }
 
+function randomToken(len = 24) {
+  // URL-safe base64 without padding
+  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+}
+
+function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
+
+function loadConfig() {
+  // ENV first
+  try {
+    if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON);
+  } catch (e) {
+    console.warn(`[linkdeck] CONFIG_JSON parse error: ${e?.message}`);
+  }
+  // config.json fallback
+  try {
+    if (fs.existsSync('config.json')) {
+      return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {};
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
 /**
- * Build tokenized URLs for static UIs (GitHub Pages or elsewhere).
- * Uses top-level config first, then ui_urls map. Adds ?token=... and optional &api=... and &imgbase=...
- * Appends &ts= for cache-busting.
+ * Build tokenized URLs for static UIs.
+ * Uses top-level keys first, then ui_urls map.
+ * Adds ?token=..., optional &api=..., &imgbase=..., and &ts=...
  */
 function buildUIUrls(cfg, token) {
-  const ui = {
-    collection: cfg.collection_ui || cfg.ui_urls?.card_collection_ui || 'https://madv313.github.io/Card-Collection-UI',
-    deck:       cfg.deck_builder_ui || cfg.ui_urls?.deck_builder_ui || null,
-    stats:      cfg.stats_leaderboard_ui || cfg.ui_urls?.stats_leaderboard_ui || null,
-  };
+  const collectionBase = cfg.collection_ui
+    || cfg.ui_urls?.card_collection_ui
+    || 'https://madv313.github.io/Card-Collection-UI';
 
-  const API_BASE   = cfg.api_base || cfg.API_BASE || '';
-  // Default image base to the front-end repo copy of images/cards; override via config if needed.
-  const IMAGE_BASE = cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards';
+  const deckBase = cfg.deck_builder_ui
+    || cfg.ui_urls?.deck_builder_ui
+    || null;
+
+  const statsBase = cfg.stats_leaderboard_ui
+    || cfg.ui_urls?.stats_leaderboard_ui
+    || null;
+
+  const API_BASE   = trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+  const IMAGE_BASE = trimBase(cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards');
   const ts         = Date.now();
 
-  const qpApi = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
-  const qpImg = IMAGE_BASE ? `&imgbase=${encodeURIComponent(trimSlash(IMAGE_BASE))}` : '';
-  const qpTs  = `&ts=${ts}`;
+  const qp = new URLSearchParams();
+  qp.set('token', token);
+  if (API_BASE)   qp.set('api', API_BASE);
+  if (IMAGE_BASE) qp.set('imgbase', IMAGE_BASE);
+  qp.set('ts', String(ts));
 
-  const mk = (base) => base
-    ? `${trimSlash(base)}/index.html?token=${encodeURIComponent(token)}${qpApi}${qpImg}${qpTs}`
-    : null;
+  const mk = (base) => base ? `${trimBase(base)}/index.html?${qp.toString()}` : null;
 
   return {
-    collectionUrl: mk(ui.collection),
-    deckUrl:       mk(ui.deck),
-    statsUrl:      mk(ui.stats)
+    collectionUrl: mk(collectionBase),
+    deckUrl:       mk(deckBase),
+    statsUrl:      mk(statsBase),
   };
 }
 
-/* ---------------- command registration ---------------- */
+/* ───────────────────────── Command ───────────────────────── */
+
 export default async function registerLinkDeck(client) {
   const commandData = new SlashCommandBuilder()
     .setName('linkdeck')
-    .setDescription('Link your Discord ID to create your card collection profile and get your personal links.');
+    .setDescription('Link your Discord to create/update your TCG profile and get your personal links.')
+    .setDMPermission(false);
 
   client.slashData.push(commandData.toJSON());
 
   client.commands.set('linkdeck', {
     data: commandData,
     async execute(interaction) {
-      const userId    = interaction.user.id;
-      const userName  = interaction.user.username;
+      const userId   = interaction.user.id;
+      const userName = interaction.user.username;
       const channelId = interaction.channelId;
-      const guildId   = interaction.guildId;
 
-      console.log(`📥 [linkdeck] Command from ${userName} (${userId}) in Guild ${guildId}, Channel ${channelId}`);
-
+      // Channel guard
       if (!isAllowedChannel(channelId, ['manageCards'])) {
-        console.warn(`⛔ [linkdeck] Denied: Channel ${channelId} is not allowed.`);
         return interaction.reply({
           content: '⚠️ This command can only be used in **#manage-cards**.',
-          ephemeral: true
+          ephemeral: true,
         });
       }
 
-      const CONFIG = _loadConfig();
+      const CONFIG = loadConfig();
 
-      // Load or init data files
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
-      const bank   = await await _loadJSONSafe(PATHS.linkedDecks);
-      const stats  = await await _loadJSONSafe(PATHS.linkedDecks);
+      // Load stores from Persistent Data server
+      let linked = {};
+      let wallet = {};
+      let stats  = {};
+      try {
+        linked = await loadJSON(PATHS.linkedDecks); // object map keyed by userId
+      } catch (e) {
+        console.warn('[linkdeck] linkedDecks load failed (will init):', e?.message || e);
+        linked = {};
+      }
+      try {
+        wallet = await loadJSON(PATHS.wallet); // coin balances
+      } catch {
+        wallet = {};
+      }
+      try {
+        stats = await loadJSON(PATHS.playerData); // wins/losses
+      } catch {
+        stats = {};
+      }
 
-      // Ensure profile record
-      let created = false;
+      // Create or update profile
+      const created = !linked[userId];
       if (!linked[userId]) {
         linked[userId] = {
+          discordId: userId,
           discordName: userName,
           deck: [],
           collection: {},
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         };
-        created = true;
-        console.log(`🆕 [linkdeck] Created new profile for ${userName} (${userId})`);
       } else {
-        // Keep display name fresh
-        if (linked[userId].discordName !== userName) {
-          linked[userId].discordName = userName;
-        }
-        // Safety: normalize any existing collection keys to 3-digit IDs
+        // Refresh display name and normalize shapes
+        linked[userId].discordName = userName;
         linked[userId].collection = normalizeCollectionMap(linked[userId].collection || {});
-        // Safety: ensure deck is an array
         if (!Array.isArray(linked[userId].deck)) linked[userId].deck = [];
       }
 
-      // Ensure a persistent per-user token for personal links
-      if (!linked[userId].token || typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
+      // Ensure persistent token
+      if (typeof linked[userId].token !== 'string' || linked[userId].token.length < 12) {
         linked[userId].token = randomToken(24);
-        console.log(`🔑 [linkdeck] Minted token for ${userName} (${userId})`);
       }
 
-      // Touch lastLinkedAt
       linked[userId].lastLinkedAt = new Date().toISOString();
 
-      // Persist linked profile
+      // Ensure wallet & stats entries exist
+      if (typeof wallet[userId] !== 'number') wallet[userId] = 0;
+      if (!stats[userId]) stats[userId] = { wins: 0, losses: 0 };
+
+      // Persist all three in Persistent Data server
       try {
-        await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-      } catch (err) {
-        console.error('❌ [linkdeck] Failed to save linked profile:', err);
+        await saveJSON(PATHS.linkedDecks, linked);
+        await saveJSON(PATHS.wallet, wallet);
+        await saveJSON(PATHS.playerData, stats);
+      } catch (e) {
+        console.error('❌ [linkdeck] Failed to persist profile/wallet/stats:', e?.message || e);
         return interaction.reply({
-          content: '❌ Failed to create or update your profile. Please try again later.',
-          ephemeral: true
+          content: '❌ Failed to save your profile. Please try again later.',
+          ephemeral: true,
         });
       }
 
-      // Ensure coin bank record
-      if (typeof bank[userId] !== 'number') {
-        bank[userId] = 0;
-        try {
-          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-          console.log(`💰 [linkdeck] Initialized coin bank for ${userName} (${userId})`);
-        } catch (err) {
-          console.error('❌ [linkdeck] Failed to save coin_bank.json:', err);
-        }
-      }
-
-      // Ensure stats record
-      if (!stats[userId]) {
-        stats[userId] = { wins: 0, losses: 0 };
-        try {
-          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-          console.log(`📊 [linkdeck] Initialized player stats for ${userName} (${userId})`);
-        } catch (err) {
-          console.error('❌ [linkdeck] Failed to save player_data.json:', err);
-        }
-      }
-
-      // Build personal links (tokenized) for static UIs (e.g., GitHub Pages)
+      // Build personalized links
       const token = linked[userId].token;
       const { collectionUrl, deckUrl, statsUrl } = buildUIUrls(CONFIG, token);
 
-      const msgLines = [];
-      if (created) {
-        msgLines.push('✅ Your profile has been created and linked!');
-      } else {
-        msgLines.push('ℹ️ Your profile is already linked. Your personal links are below.');
-      }
+      const lines = [];
+      lines.push(created
+        ? '✅ Your profile has been created and linked!'
+        : 'ℹ️ Your profile is linked. Here are your personal links:'
+      );
 
       if (collectionUrl || deckUrl || statsUrl) {
-        msgLines.push('', 'Here are your personal links:');
-        if (collectionUrl) msgLines.push(`• **Collection:** ${collectionUrl}`);
-        if (deckUrl)       msgLines.push(`• **Deck Builder:** ${deckUrl}`);
-        if (statsUrl)      msgLines.push(`• **Stats & Coins:** ${statsUrl}`);
+        lines.push('');
+        if (collectionUrl) lines.push(`• **Collection:** ${collectionUrl}`);
+        if (deckUrl)       lines.push(`• **Deck Builder:** ${deckUrl}`);
+        if (statsUrl)      lines.push(`• **Stats & Coins:** ${statsUrl}`);
       } else {
-        msgLines.push(
+        lines.push(
           '',
           '⚠️ No UI base URLs are configured. Ask an admin to set these in `CONFIG_JSON` or `config.json`:',
-          '```json\n{"collection_ui":"https://madv313.github.io/Card-Collection-UI/","pack_reveal_ui":"https://madv313.github.io/Pack-Reveal-UI/","api_base":"https://duel-bot-production.up.railway.app","image_base":"https://madv313.github.io/Card-Collection-UI/images/cards"}\n```',
+          '```json\n{"collection_ui":"https://madv313.github.io/Card-Collection-UI/","deck_builder_ui":"https://madv313.github.io/Deck-Builder-UI/","stats_leaderboard_ui":"https://madv313.github.io/Stats-Leaderboard-UI/","api_base":"https://<your-backend>/","image_base":"https://madv313.github.io/Card-Collection-UI/images/cards"}\n```',
           `Your token (save this): \`${token}\``
         );
       }
 
-      msgLines.push('', 'Use **/buycard** to start collecting cards.');
+      lines.push('', 'Use **/buycard** to start collecting cards.');
 
       return interaction.reply({
-        content: msgLines.join('\n'),
-        ephemeral: true
+        content: lines.join('\n'),
+        ephemeral: true,
       });
-    }
+    },
   });
 }
