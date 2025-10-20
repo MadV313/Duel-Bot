@@ -1,7 +1,10 @@
 // routes/meToken.js
 // Token-aware endpoints that resolve :token → userId and return
 // collection + stats for the linked player.
-// Adds: POST /me/:token/sell   (sell up to 5 cards per 24h, decrements collection, credits coins)
+// Adds:
+//   - GET  /me/:token/sell/status   (check today's sold count & remaining)
+//   - POST /me/:token/sell/preview  (compute coin credit for proposed sale)
+//   - POST /me/:token/sell          (sell up to 5 cards per 24h, decrements collection, credits coins)
 
 import express from 'express';
 import {
@@ -56,6 +59,9 @@ function todayKeyUTC(d = new Date()) {
 function nextUTCmidnightISO(d = new Date()) {
   const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
   return next.toISOString();
+}
+function round2(n) {
+  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
 /* ------------------------------- GET collection ------------------------------ */
@@ -159,6 +165,82 @@ router.get('/userStatsToken', async (req, res) => {
   } catch (e) {
     console.error('[meToken] userStatsToken error:', e);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/* ------------------------- NEW: GET sell status (UI) ------------------------- */
+/**
+ * GET /me/:token/sell/status
+ * -> { soldToday, soldRemaining, limit, resetAtISO }
+ */
+router.get('/me/:token/sell/status', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = await resolveUserIdByToken(token);
+    if (!userId) return res.status(404).json({ error: 'Invalid token' });
+
+    const dayKey = todayKeyUTC();
+    const resetAtISO = nextUTCmidnightISO();
+    const sellsByDay = await readJsonRemote(SELLS_BY_DAY_FILE, {});
+    const userSellMap = sellsByDay[userId] || {};
+    const soldToday = Number(userSellMap[dayKey] || 0);
+
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      soldToday,
+      soldRemaining: Math.max(0, DAILY_LIMIT - soldToday),
+      limit: DAILY_LIMIT,
+      resetAtISO
+    });
+  } catch (e) {
+    console.error('[meToken] sell status error:', e);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/* ----------------------- NEW: POST sell preview (UI) ------------------------ */
+/**
+ * POST /me/:token/sell/preview
+ * Body: { items: [ { number: "001", qty: 2 }, ... ] }
+ * -> { ok: true, credited }
+ *
+ * No writes; just computes coin total based on rarity & qty.
+ */
+router.post('/me/:token/sell/preview', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = await resolveUserIdByToken(token);
+    if (!userId) return res.status(404).json({ error: 'Invalid token' });
+
+    const body = req.body || {};
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'No items provided' });
+
+    const coalesced = {};
+    for (const raw of items) {
+      const id = pad3(String(raw.number || raw.card_id || raw.id || '').replace('#', ''));
+      const qty = Math.max(1, parseInt(raw.qty ?? raw.quantity ?? 0, 10) || 0);
+      if (!id || id === '000' || !qty) continue;
+      coalesced[id] = (coalesced[id] || 0) + qty;
+    }
+    const normalized = Object.entries(coalesced).map(([id, qty]) => ({ id, qty }));
+    if (!normalized.length) return res.status(400).json({ error: 'Invalid items' });
+
+    const master = await loadMaster();
+    const metaById = new Map(master.map(c => [pad3(c.card_id), c]));
+
+    let credited = 0;
+    for (const { id, qty } of normalized) {
+      const rarity = metaById.get(id)?.rarity || 'Common';
+      const value = SELL_VALUES[rarity] ?? SELL_VALUES.Common;
+      credited += value * qty;
+    }
+
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json({ ok: true, credited: round2(credited) });
+  } catch (e) {
+    console.error('[meToken] sell preview error:', e);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 
@@ -289,7 +371,7 @@ router.post('/me/:token/sell', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       ok: true,
-      credited,
+      credited: round2(credited),
       balance: newBalance,
       soldToday: newUserSellMap[dayKey],
       soldRemaining: Math.max(0, DAILY_LIMIT - newUserSellMap[dayKey]),
