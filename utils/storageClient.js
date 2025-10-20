@@ -4,7 +4,7 @@
 // ✅ Keeps your original exports: loadJSON(), saveJSON()
 // ✅ Adds aliases used elsewhere: load_file(), save_file()
 // ✅ Adds: deleteJSON(), updateJSONAtomic(), healthCheck()
-// Logs are prefixed with [STORAGE] per your checklist.
+// Logs are prefixed with [STORAGE].
 
 import fetch from 'node-fetch';
 
@@ -185,27 +185,29 @@ export async function healthCheck(filename = '') {
 export async function load_file(filename)  { return loadJSON(filename); }
 export async function save_file(filename, data) { return saveJSON(filename, data); }
 
-// Optional named path hints (unchanged)
+/* -----------------------------------------------------------------------------
+ * Canonical file paths used across the bot
+ * (moved to the correct directories as requested)
+ * ---------------------------------------------------------------------------*/
+
 export const PATHS = {
-  // player / profile data
+  // Core player data
   linkedDecks:        'data/linked_decks.json',
   wallet:             'data/coin_bank.json',
   playerData:         'data/player_data.json',
 
-  // selling / trading
+  // Limits / queues / trades
   sellsByDay:         'data/sells_by_day.json',
   tradeLimits:        'data/trade_limits.json',
   tradeQueue:         'data/trade_queue.json',
   trades:             'data/trades.json',
 
-  // duels (runtime logs + per-duel summaries)
+  // Duel logs & summaries (private)
   duelLogCurrent:     'data/logs/current_duel_log.json',
   duelSummaryFor:     (duelId) => `data/summaries/${duelId}.json`,
-
-  // stats cache (if you use it)
   duelStats:          'data/duelStats.json',
 
-  // public assets (served to browsers)
+  // Public (served to browsers)
   public: {
     duelSummaries:    'public/data/duel_summaries.json',
     revealFor:        (tokenOrUserId) => `public/data/reveal_${tokenOrUserId}.json`,
