@@ -1,113 +1,77 @@
+// cogs/mystats.js
+// /mystats — Send the invoker to their personal Player Stats UI.
+// - Restricted to #battlefield (configurable)
+// - Requires linked profile (prompts to /linkdeck if missing)
+// - Ensures/mints a per-user token and persists it
+// - Builds URL with ?token=... (&api=... if configured) and cache-busting &ts=...
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/mystats.js — Sends the invoker to their personal Player Stats UI.
-// - Confined to #battlefield channel (warns if used elsewhere)
-// - Requires the player to be linked first (warns to /linkdeck in #manage-cards)
-// - Uses/mints the player's token from linked_decks.json (no extra field)
-// - Passes the player's token (and optional &api=) in the URL
-// - Replies with an ephemeral embed containing the personalized link
-//
-// Config keys used (ENV CONFIG_JSON or config.json fallback):
-//   battlefield_channel_id
-//   player_stats_ui / ui_urls.player_stats_ui / frontend_url / ui_base / UI_BASE
-//   api_base / API_BASE
-//
-// Files used:
-//   PATHS.linkedDecks
-
+import fs from 'fs';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
   EmbedBuilder
 } from 'discord.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-/* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
+const FALLBACK_BATTLEFIELD_CHANNEL_ID = '1367986446232719484';
 
-/* ---------------- config helpers ---------------- */
+const trimBase = (u = '') => String(u).trim().replace(/\/+$/, '');
+const isTokenValid = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
+const randomToken = (len = 24) =>
+  crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+
 function loadConfig() {
   try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
+    if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON);
   } catch (e) {
     console.warn(`[mystats] CONFIG_JSON parse error: ${e?.message}`);
   }
   try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
-  } catch {
-    return {};
-  }
+    if (fs.existsSync('config.json')) {
+      return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {};
+    }
+  } catch { /* ignore */ }
+  return {};
 }
-function resolveBaseUrl(s) {
-  return (s || '').toString().trim().replace(/\/+$/, '');
-}
+
 function resolveStatsBase(cfg) {
-  // Prefer dedicated Player Stats UI, then general UI bases as fallback
-  return resolveBaseUrl(
+  // Prefer dedicated Player Stats UI; fall back to leaderboard/stats UIs
+  return trimBase(
     cfg.player_stats_ui ||
     cfg.ui_urls?.player_stats_ui ||
+    cfg.stats_leaderboard_ui ||
+    cfg.ui_urls?.stats_leaderboard_ui ||
     cfg.frontend_url ||
     cfg.ui_base ||
     cfg.UI_BASE ||
-    ''
+    'https://madv313.github.io/Stats-Leaderboard-UI'
   );
 }
 
-/* ---------------- small utils ---------------- */
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try {
-    const raw = await loadJSON(PATHS.linkedDecks);
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
-}
-function randomToken(len = 24) {
-  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
-}
-function isTokenValid(t) {
-  return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
-}
-
-/* ---------------- command registration ---------------- */
 export default async function registerMyStats(client) {
-  const CONFIG = loadConfig();
-
-  const BATTLEFIELD_CHANNEL_ID =
-    String(CONFIG.battlefield_channel_id || CONFIG.battlefield || CONFIG['battlefield-channel'] || '1367986446232719484');
-
-  const STATS_BASE = resolveStatsBase(CONFIG) || 'https://madv313.github.io/Player-Stats-UI';
-  const API_BASE   = resolveBaseUrl(CONFIG.api_base || CONFIG.API_BASE || process.env.API_BASE || '');
-
   const commandData = new SlashCommandBuilder()
     .setName('mystats')
-    .setDescription('Open your personal Player Stats UI.');
+    .setDescription('Open your personal Player Stats UI.')
+    .setDMPermission(false);
 
   client.slashData.push(commandData.toJSON());
 
   client.commands.set('mystats', {
     data: commandData,
     async execute(interaction) {
+      const CFG = loadConfig();
+
+      const BATTLEFIELD_CHANNEL_ID = String(
+        CFG.battlefield_channel_id ||
+        CFG.battlefield ||
+        CFG['battlefield-channel'] ||
+        FALLBACK_BATTLEFIELD_CHANNEL_ID
+      );
+
       // Channel guard
-      if (interaction.channelId !== BATTLEFIELD_CHANNEL_ID) {
+      if (String(interaction.channelId) !== BATTLEFIELD_CHANNEL_ID) {
         return interaction.reply({
-          content: `📊 Please use this command in the <#${BATTLEFIELD_CHANNEL_ID}> channel.`,
+          content: `📊 Please use this command in <#${BATTLEFIELD_CHANNEL_ID}>.`,
           ephemeral: true
         });
       }
@@ -115,11 +79,13 @@ export default async function registerMyStats(client) {
       const userId = interaction.user.id;
       const username = interaction.user.username;
 
-      // Load profiles
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
+      // Load linked profiles from Persistent Data server
+      let linked = {};
+      try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
+
       const profile = linked[userId];
 
-      // Require linked first (do NOT auto-create; matches your requirement)
+      // Require linked first (do not auto-create here)
       if (!profile) {
         return interaction.reply({
           content:
@@ -134,23 +100,26 @@ export default async function registerMyStats(client) {
         profile.discordName = username;
       }
 
-      // Ensure token exists (self-heal if missing)
+      // Ensure token (self-heal & persist)
       if (!isTokenValid(profile.token)) {
         profile.token = randomToken(24);
-        try {
-          linked[userId] = profile;
-          await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-        } catch (e) {
-          console.warn('[mystats] Failed to persist token mint:', e?.message || e);
-        }
+      }
+      try {
+        await saveJSON(PATHS.linkedDecks, { ...linked, [userId]: profile });
+      } catch (e) {
+        console.warn('[mystats] Failed to persist profile/token updates:', e?.message || e);
       }
 
-      const token = profile.token;
+      const STATS_BASE = resolveStatsBase(CFG);
+      const API_BASE = trimBase(CFG.api_base || CFG.API_BASE || process.env.API_BASE || '');
       const ts = Date.now();
-      const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
 
-      // Personalized Player Stats URL
-      const statsUrl = `${STATS_BASE}/?token=${encodeURIComponent(token)}${apiQP}&ts=${ts}`;
+      const qp = new URLSearchParams();
+      qp.set('token', profile.token);
+      if (API_BASE) qp.set('api', API_BASE);
+      qp.set('ts', String(ts));
+
+      const statsUrl = `${STATS_BASE}/?${qp.toString()}`;
 
       const embed = new EmbedBuilder()
         .setTitle('📊 Your Player Stats')
@@ -160,7 +129,7 @@ export default async function registerMyStats(client) {
             '',
             'From there you can:',
             '• Review duel history and record',
-            '• Check coin balance, streaks, and milestones',
+            '• Check coin balance and milestones',
             '• Jump to other UIs (Collection, Deck Builder, etc.)',
           ].join('\n')
         )
