@@ -39,7 +39,7 @@ const trim = s => String(s || '').trim().replace(/\/+$/, '');
 const DEFAULT_MANAGE_CARDS_CHANNEL_ID = '1367977677658656868';
 const CORE_PATH = path.resolve('./logic/CoreMasterReference.json');
 
-const DEFAULT_SELL = { common: 0.5, uncommon: 0.5, rare: 0.5, legendary: 1 };
+const DEFAULT_SELL = { common: 0.5, uncommon: 1, rare: 2, legendary: 3 };
 const DEFAULT_DAILY_LIMIT = 5; // total cards/day
 const MAX_QTY_PER_SALE = 50;
 
