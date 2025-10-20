@@ -29,7 +29,6 @@ const SELL_VALUES = {
   Uncommon:  1,
   Rare:      2,
   Legendary: 3,
-  Unique:    3, // adjust if you want a special value
 };
 
 const DAILY_LIMIT = 5; // total cards/day (sum of qty)
@@ -167,6 +166,25 @@ router.get('/userStatsToken', async (req, res) => {
 /**
  * POST /me/:token/sell
  * Body: { items: [ { number:"001", qty:2 }, ... ] }
+ *
+ * Rules:
+ *  - Resolve token → userId
+ *  - Validate ids/qty
+ *  - Enforce daily limit: max 5 cards per UTC day (sum of qty)
+ *  - Decrement collection counts
+ *  - Credit coins per rarity using SELL_VALUES
+ *  - Persist to data/linked_decks.json, data/coin_bank.json, data/sells_by_day.json
+ *
+ * Response 200:
+ *  {
+ *    ok: true,
+ *    credited: 7,
+ *    balance: 42,
+ *    soldToday: 5,
+ *    soldRemaining: 0,
+ *    resetAtISO: "...",
+ *    collection: { "001": 3, ... }   // zero-qty keys omitted
+ *  }
  */
 router.post('/me/:token/sell', async (req, res) => {
   try {
@@ -178,7 +196,7 @@ router.post('/me/:token/sell', async (req, res) => {
     const items = Array.isArray(body.items) ? body.items : [];
     if (!items.length) return res.status(400).json({ error: 'No items provided' });
 
-    // Normalize & coalesce
+    // Normalize & coalesce duplicate ids
     const coalesced = {};
     for (const raw of items) {
       const id = pad3(String(raw.number || raw.card_id || raw.id || '').replace('#', ''));
@@ -218,7 +236,7 @@ router.post('/me/:token/sell', async (req, res) => {
 
     const metaById = new Map(master.map(c => [pad3(c.card_id), c]));
 
-    // validate ownership
+    // Validate ownership
     const collection = { ...(profile.collection || {}) };
     for (const { id, qty } of normalized) {
       const owned = Number(collection[id] || 0);
@@ -227,7 +245,7 @@ router.post('/me/:token/sell', async (req, res) => {
       }
     }
 
-    // apply changes + compute credit
+    // Apply changes + compute credit
     let credited = 0;
     for (const { id, qty } of normalized) {
       const newQty = Number(collection[id] || 0) - qty;
@@ -239,15 +257,16 @@ router.post('/me/:token/sell', async (req, res) => {
       credited += value * qty;
     }
 
-    // persist collection and coins
+    // Persist collection & coin bank & daily counter
     profile.collection = collection;
+
     const prevBalance = Number((bank?.[userId]) || 0);
     const newBalance = prevBalance + credited;
 
     const bankUpdate = { ...(bank || {}) };
     bankUpdate[userId] = newBalance;
 
-    // mirror for UIs that read linked_decks.json
+    // Mirror to profile for UIs that read from linked_decks.json
     profile.coins = newBalance;
     profile.lastCoinsUpdatedAt = new Date().toISOString();
     if (!profile.discordId) profile.discordId = userId;
