@@ -1,38 +1,29 @@
+// cogs/buycard.js
+// Player command to buy a 3-card pack for 3 coins (24h cooldown, 247-cap guard).
+// - Role-gated (Supporter or Elite)
+// - Channel-locked to #manage-cards
+// - Uses persistent data service via utils/storageClient.js
+// - Writes per-user reveal JSON under /public/data
+// - DMs a Pack-Reveal link (with next= back to Collection UI)
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
+import fs from 'fs/promises';
+import path from 'path';
+import crypto from 'crypto';
+import {
+  SlashCommandBuilder,
+  EmbedBuilder,
+} from 'discord.js';
 
 import { requireSupporter } from '../utils/roleGuard.js';
 import { adminAlert } from '../utils/adminAlert.js';
 import { L } from '../utils/logs.js';
 import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/buycard.js — Player command to buy a 3-card pack for 3 coins.
-// - Confined to #manage-cards channel
-// - Warns if not linked
-// - 24h cooldown, 247-cap guard, 3-coin price
-// - Ensures/stores player token automatically
-// - Writes tokenized reveal JSON and DMs reveal link
-// - Small extra logging
 
-import crypto from 'crypto';
-import {
-  SlashCommandBuilder,
-  EmbedBuilder
-} from 'discord.js';
-
-/* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-const cardListPath    = path.resolve('./logic/CoreMasterReference.json');
-const revealOutputDir = path.resolve('./public/data');
-
-/* ---------------- config helpers ---------------- */
+// ────────────────────────────────────────────────────────────
+// Config helpers
+// ────────────────────────────────────────────────────────────
 function loadConfig() {
+  // Prefer JSON from env (Railway Variables), fallback to config.json if present.
   try {
     const raw = process.env.CONFIG_JSON;
     if (raw) return JSON.parse(raw);
@@ -40,12 +31,14 @@ function loadConfig() {
     console.warn(`[buycard] CONFIG_JSON parse error: ${e?.message}`);
   }
   try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
+    // Node ESM safe require via createRequire not needed—use fs
+    // but this file is optional anyway.
+    return {};
   } catch {
     return {};
   }
 }
+
 function resolveBaseUrl(s) {
   return (s || '').toString().trim().replace(/\/+$/, '');
 }
@@ -55,27 +48,48 @@ function resolvePackRevealBase(cfg) {
 function resolveCollectionBase(cfg) {
   return resolveBaseUrl(
     cfg.collection_ui ||
-    cfg.ui_urls?.card_collection_ui ||
-    cfg.frontend_url ||
-    cfg.ui_base ||
-    cfg.UI_BASE ||
-    ''
+      cfg.ui_urls?.card_collection_ui ||
+      cfg.frontend_url ||
+      cfg.ui_base ||
+      cfg.UI_BASE ||
+      ''
   );
 }
 
-/* ---------------- small utils ---------------- */
-async function await _loadJSONSafe(PATHS.linkedDecks) {
+// ────────────────────────────────────────────────────────────
+const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+const PACK_COST_COINS = 3;
+const MAX_COLLECTION_BEFORE_BUY = 247;
+
+const CORE_PATH = path.resolve('./logic/CoreMasterReference.json');
+const REVEAL_DIR = path.resolve('./public/data');
+
+// ────────────────────────────────────────────────────────────
+// Small utils
+// ────────────────────────────────────────────────────────────
+async function _loadLinkedDecksSafe() {
   try {
-    const raw = await loadJSON(PATHS.linkedDecks);
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
+    // storageClient.loadJSON already returns parsed JSON (object)
+    return await loadJSON(PATHS.linkedDecks);
+  } catch (e) {
+    L.storage(`load fail ${PATHS.linkedDecks}: ${e.message}`);
+    throw e;
   }
 }
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
+
+async function _saveLinkedDecksSafe(data, client) {
+  try {
+    await saveJSON(PATHS.linkedDecks, data);
+  } catch (e) {
+    await adminAlert(
+      client,
+      process.env.ADMIN_PAYOUT_CHANNEL_ID || process.env.ADMIN_PAYOUT_CHANNEL || process.env.ADMIN_PAYOUT_CHANNEL_ID,
+      `${PATHS.linkedDecks} save failed: ${e.message}`
+    );
+    throw e;
+  }
 }
+
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
@@ -97,7 +111,7 @@ function fmtHMS(ms) {
   return `${s}s`;
 }
 
-// Weighted draw using rarity weights without creating a giant pool
+// Weighted draw without giant pool
 function makeWeightedPicker(cards, weightsByRarity) {
   const items = [];
   let total = 0;
@@ -110,81 +124,108 @@ function makeWeightedPicker(cards, weightsByRarity) {
   }
   return function pick() {
     const r = Math.random() * total;
-    let lo = 0, hi = items.length - 1, ans = hi;
+    let lo = 0,
+      hi = items.length - 1,
+      ans = hi;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (items[mid].acc >= r) { ans = mid; hi = mid - 1; } else { lo = mid + 1; }
+      if (items[mid].acc >= r) {
+        ans = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
     }
     return { ...items[ans].card };
   };
 }
 
-/* ---------------- constants ---------------- */
-const PACK_COST_COINS = 3;              // confirmed rule
-const MAX_COLLECTION_BEFORE_BUY = 247;  // must have <= 247 to buy more
-const COOLDOWN_MS = 24 * 60 * 60 * 1000;
-
-/* ---------------- command registration ---------------- */
+// ────────────────────────────────────────────────────────────
+// Command registration
+// ────────────────────────────────────────────────────────────
 export default async function registerBuyCard(client) {
   const CONFIG = loadConfig();
 
-  const MANAGE_CARDS_CHANNEL_ID =
-    String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || '1367977677658656868');
+  const MANAGE_CARDS_CHANNEL_ID = String(
+    CONFIG.manage_cards_channel_id ||
+      CONFIG.manage_cards ||
+      CONFIG['manage-cards'] ||
+      process.env.MANAGE_CARDS_CHANNEL_ID ||
+      '1367977677658656868'
+  );
 
-  const PACK_REVEAL_BASE  = resolvePackRevealBase(CONFIG) || 'https://madv313.github.io/Pack-Reveal-UI';
-  const COLLECTION_BASE   = resolveCollectionBase(CONFIG)  || 'https://madv313.github.io/Card-Collection-UI';
-  const API_BASE          = resolveBaseUrl(CONFIG.api_base || CONFIG.API_BASE || process.env.API_BASE || '');
+  const PACK_REVEAL_BASE =
+    resolvePackRevealBase(CONFIG) || 'https://madv313.github.io/Pack-Reveal-UI';
+  const COLLECTION_BASE =
+    resolveCollectionBase(CONFIG) || 'https://madv313.github.io/Card-Collection-UI';
+  const API_BASE = resolveBaseUrl(
+    CONFIG.api_base || CONFIG.API_BASE || process.env.API_BASE || ''
+  );
 
-  const commandData = new SlashCommandBuilder()
+  const data = new SlashCommandBuilder()
     .setName('buycard')
     .setDescription(`Buy a 3-card pack for ${PACK_COST_COINS} coins (1 per 24h).`)
-    .setDMPermission(false); // ✅ guild only
+    .setDMPermission(false);
 
-  client.slashData.push(commandData.toJSON());
+  client.slashData.push(data.toJSON());
 
   client.commands.set('buycard', {
-    data: commandData,
-    \1
+    data,
+    async execute(interaction) {
+      // Role gate
       if (!requireSupporter(interaction.member)) {
-        return interaction.reply({ ephemeral: true, content: "❌ You need the Supporter or Elite Collector role to use this command. Join on Ko-fi to unlock full access." });
+        return interaction.reply({
+          ephemeral: true,
+          content:
+            '❌ You need the **Supporter** or **Elite Collector** role to use this command. Join on Ko-fi to unlock full access.',
+        });
       }
-
-      // Tiny audit breadcrumb
-      console.log(`[buycard] invoked by ${interaction.user?.tag} (${interaction.user?.id}) in #${interaction.channelId}`);
 
       // Channel guard
       if (interaction.channelId !== MANAGE_CARDS_CHANNEL_ID) {
         return interaction.reply({
-          content: '🛒 Please use this command in the **#manage-cards** channel.',
-          ephemeral: true
+          content:
+            '🛒 Please use this command in the **#manage-cards** channel.',
+          ephemeral: true,
         });
       }
 
       const buyerId = interaction.user.id;
-      const buyer   = interaction.user;
+      const buyer = interaction.user;
 
-      // Load cards (skip #000 back)
+      // Load master card list (skip #000 back)
       let allCards = [];
       try {
-        const raw = await loadJSON(PATHS.linkedDecks);
+        const raw = await fs.readFile(CORE_PATH, 'utf-8');
         const parsed = JSON.parse(raw);
-        const source = Array.isArray(parsed) ? parsed : (parsed.cards || []);
+        const source = Array.isArray(parsed) ? parsed : parsed.cards || [];
         allCards = source
-          .map(c => ({ ...c, card_id: String(c.card_id).padStart(3, '0') }))
-          .filter(card => card.card_id !== '000');
+          .map((c) => ({
+            ...c,
+            card_id: String(c.card_id).padStart(3, '0'),
+            rarity: c.rarity || 'Common',
+            type: c.type || 'Unknown',
+          }))
+          .filter((c) => c.card_id !== '000');
       } catch (err) {
         console.error('❌ [buycard] Failed to load card list:', err);
-        return interaction.reply({ content: '⚠️ Failed to load card list. Try again later.', ephemeral: true });
+        return interaction.reply({
+          content: '⚠️ Failed to load card list. Try again later.',
+          ephemeral: true,
+        });
       }
       if (!allCards.length) {
-        return interaction.reply({ content: '⚠️ Card list is empty.', ephemeral: true });
+        return interaction.reply({
+          content: '⚠️ Card list is empty.',
+          ephemeral: true,
+        });
       }
 
-      // Load player profile
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
+      // Load player profiles from persistent data service
+      const linked = await _loadLinkedDecksSafe();
       const profile = linked[buyerId];
 
-      // If player is not linked, warn and exit
+      // Not linked → instruct to /linkdeck
       if (!profile) {
         const warn = new EmbedBuilder()
           .setTitle('⚠️ Player Not Linked')
@@ -194,55 +235,55 @@ export default async function registerBuyCard(client) {
               '',
               'Please run **`/linkdeck`** in the **#manage-cards** channel before using Duel Bot commands (including buying packs).',
               '',
-              'Once linked, you’ll be able to buy packs, build decks, and participate in duels.'
+              'Once linked, you’ll be able to buy packs, build decks, and participate in duels.',
             ].join('\n')
           )
           .setColor(0xff9900);
         return interaction.reply({ embeds: [warn], ephemeral: true });
       }
 
-      // Keep Discord display name fresh
-      if (profile.discordName !== buyer.username) {
-        profile.discordName = buyer.username;
-      }
-      // Ensure discordId is present for downstream routes like /meCoins
+      // Keep Discord display name fresh, ensure id present
+      if (profile.discordName !== buyer.username) profile.discordName = buyer.username;
       if (!profile.discordId) profile.discordId = buyerId;
 
       const currentCoins = Number(profile.coins || 0);
 
-      // Enforce 24h cooldown
+      // 24h cooldown
       const now = Date.now();
       const last = profile.lastPackPurchasedAt ? Date.parse(profile.lastPackPurchasedAt) : 0;
       if (last && now - last < COOLDOWN_MS) {
         const waitMs = COOLDOWN_MS - (now - last);
         return interaction.reply({
-          content: `⏳ You can only buy **1 pack per 24 hours**.\nPlease try again in **${fmtHMS(waitMs)}**.`,
-          ephemeral: true
+          content:
+            `⏳ You can only buy **1 pack per 24 hours**.\n` +
+            `Please try again in **${fmtHMS(waitMs)}**.`,
+          ephemeral: true,
         });
       }
 
-      // Enforce 247 collection cap
+      // 247-cap
       const ownedTotal = sumOwned(profile.collection || {});
       if (ownedTotal > MAX_COLLECTION_BEFORE_BUY) {
         return interaction.reply({
-          content: '📦 You must have a maximum of **247 cards** in your collection to buy more. Please sell or discard to make room.',
-          ephemeral: true
+          content:
+            '📦 You must have a maximum of **247 cards** in your collection to buy more. Please sell or discard to make room.',
+          ephemeral: true,
         });
       }
 
-      // Check coins
+      // Coins
       if (currentCoins < PACK_COST_COINS) {
         return interaction.reply({
           content: `💰 You need **${PACK_COST_COINS} coins** to buy a pack. Current balance: **${currentCoins}**.`,
-          ephemeral: true
+          ephemeral: true,
         });
       }
 
-      // Deduct coins
+      // Deduct
       profile.coins = currentCoins - PACK_COST_COINS;
-      profile.lastCoinsUpdatedAt = new Date().toISOString(); // <— keep balance freshness metadata
+      profile.lastCoinsUpdatedAt = new Date().toISOString();
 
-      // Ensure token automatically (no user input)
+      // Ensure token (for UI links)
       if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
         profile.token = randomToken(24);
       }
@@ -252,13 +293,14 @@ export default async function registerBuyCard(client) {
       const pickCard = makeWeightedPicker(allCards, rarityWeights);
       const drawn = [pickCard(), pickCard(), pickCard()];
 
-      // Apply to collection & build reveal payload
+      // Apply collection & build reveal payload
       const revealJson = [];
       const newIds = [];
+      profile.collection ||= {};
 
       for (const card of drawn) {
         const idStr = String(card.card_id).padStart(3, '0');
-        const owned = Number(profile.collection?.[idStr] || 0);
+        const owned = Number(profile.collection[idStr] || 0);
         const isNew = owned === 0;
 
         const filename =
@@ -266,7 +308,6 @@ export default async function registerBuyCard(client) {
             ? sanitizeNameForFile(card.filename)
             : `${idStr}_${sanitizeNameForFile(card.name)}_${sanitizeNameForFile(card.type)}.png`;
 
-        profile.collection = profile.collection || {};
         profile.collection[idStr] = owned + 1;
         if (isNew) newIds.push(idStr);
 
@@ -276,37 +317,39 @@ export default async function registerBuyCard(client) {
           rarity: card.rarity || 'Common',
           filename,
           isNew,
-          owned: profile.collection[idStr]
+          owned: profile.collection[idStr],
         });
       }
 
       profile.lastPackPurchasedAt = new Date().toISOString();
 
-      // Persist profile + reveal files
-      await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
+      // Persist profiles
+      linked[buyerId] = profile;
+      await _saveLinkedDecksSafe(linked, interaction.client);
 
-      await fs.mkdir(revealOutputDir, { recursive: true });
-      const userRevealPath  = path.join(revealOutputDir, `reveal_${buyerId}.json`);
-      const tokenRevealPath = path.join(revealOutputDir, `reveal_${profile.token}.json`);
-      await saveJSON(PATHS.linkedDecks));
-      await saveJSON(PATHS.linkedDecks));
+      // Persist reveal JSON (both userId and token file for UI)
+      await fs.mkdir(REVEAL_DIR, { recursive: true });
+      const userRevealPath = path.join(REVEAL_DIR, `reveal_${buyerId}.json`);
+      const tokenRevealPath = path.join(REVEAL_DIR, `reveal_${profile.token}.json`);
+      await fs.writeFile(userRevealPath, JSON.stringify(revealJson, null, 2));
+      await fs.writeFile(tokenRevealPath, JSON.stringify(revealJson, null, 2));
 
-      // Build URLs
-      const API_BASE = resolveBaseUrl(loadConfig().api_base || process.env.API_BASE || '');
-      const apiQP  = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
-      const ts     = Date.now();
+      // Build UI URLs
+      const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+      const ts = Date.now();
       const newCsv = newIds.join(',');
 
-      const collectionUrlBase =
-        `${COLLECTION_BASE}/?token=${encodeURIComponent(profile.token)}${apiQP}`;
+      const collectionUrlBase = `${COLLECTION_BASE}/?token=${encodeURIComponent(profile.token)}${apiQP}`;
       const collectionUrlWithFlags =
-        `${collectionUrlBase}&fromPackReveal=true${newCsv ? `&new=${encodeURIComponent(newCsv)}` : ''}&ts=${ts}`;
+        `${collectionUrlBase}&fromPackReveal=true` +
+        `${newCsv ? `&new=${encodeURIComponent(newCsv)}` : ''}` +
+        `&ts=${ts}`;
 
       const tokenUrl =
         `${PACK_REVEAL_BASE}/?token=${encodeURIComponent(profile.token)}${apiQP}` +
         `&next=${encodeURIComponent(collectionUrlWithFlags)}`;
 
-      // DM buyer with masked link
+      // DM link (with pretty embed)
       let dmOk = true;
       try {
         await buyer.send({
@@ -315,16 +358,16 @@ export default async function registerBuyCard(client) {
               .setTitle('🎁 Your new card pack is ready!')
               .setDescription('Tap to open your 3-card reveal.')
               .setURL(tokenUrl)
-              .setColor(0x00ccff)
+              .setColor(0x00ccff),
           ],
-          content: `🔓 **Open your pack:** [Click here to reveal your cards](${tokenUrl})`
+          content: `🔓 **Open your pack:** [Click here to reveal your cards](${tokenUrl})`,
         });
       } catch (err) {
         dmOk = false;
         console.warn(`⚠️ [buycard] Could not DM user ${buyerId}`, err);
       }
 
-      // Follow-up confirmation with remaining coins
+      // Confirmation
       const msg =
         `✅ Purchase successful! **${PACK_COST_COINS}** coins deducted.\n` +
         `💰 Remaining balance: **${profile.coins}** coin${profile.coins === 1 ? '' : 's'}.\n` +
@@ -333,6 +376,6 @@ export default async function registerBuyCard(client) {
           : `⚠️ I couldn’t DM you. Please enable DMs from server members and try again.`);
 
       return interaction.reply({ content: msg, ephemeral: true });
-    }
+    },
   });
 }
