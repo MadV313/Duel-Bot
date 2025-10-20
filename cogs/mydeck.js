@@ -1,114 +1,75 @@
+// cogs/mydeck.js
+// /mydeck — Send the invoker to their personal Deck Builder UI.
+// - Restricted to #manage-cards (configurable)
+// - Requires linked profile (prompts to /linkdeck if missing)
+// - Ensures/mints a per-user token and persists it
+// - Builds URL with ?token=... (&api=... if configured) and cache-busting &ts=...
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/mydeck.js — Sends the invoker to their personal Deck Builder UI.
-// - Confined to #manage-cards channel (warns if used elsewhere)
-// - Auto-uses/mints the player's token from linked_decks.json (no extra field)
-// - Passes the player's token in the URL
-// - Replies with an ephemeral embed containing the personalized link + instructions
-//
-// Config keys used (ENV CONFIG_JSON or config.json fallback):
-//   manage_cards_channel_id
-//   deck_builder_ui / ui_urls.deck_builder_ui / frontend_url / ui_base / UI_BASE
-//   api_base / API_BASE
-//
-// Files used:
-//   PATHS.linkedDecks
-
+import fs from 'fs';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
   EmbedBuilder
 } from 'discord.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-/* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
+const FALLBACK_MANAGE_CARDS_CHANNEL_ID = '1367977677658656868';
 
-/* ---------------- config helpers ---------------- */
+const trimBase = (u = '') => String(u).trim().replace(/\/+$/, '');
+const isTokenValid = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
+const randomToken = (len = 24) =>
+  crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+
 function loadConfig() {
   try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
+    if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON);
   } catch (e) {
     console.warn(`[mydeck] CONFIG_JSON parse error: ${e?.message}`);
   }
   try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
-  } catch {
-    return {};
-  }
-}
-
-function resolveBaseUrl(s) {
-  return (s || '').toString().trim().replace(/\/+$/, '');
+    if (fs.existsSync('config.json')) {
+      return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {};
+    }
+  } catch { /* ignore */ }
+  return {};
 }
 
 function resolveDeckBuilderBase(cfg) {
-  // Prefer dedicated Deck Builder UI, then general UI bases as fallback
-  return resolveBaseUrl(
+  // Prefer dedicated Deck Builder UI; fall back to general bases if needed
+  return trimBase(
     cfg.deck_builder_ui ||
     cfg.ui_urls?.deck_builder_ui ||
     cfg.frontend_url ||
     cfg.ui_base ||
     cfg.UI_BASE ||
-    ''
+    'https://madv313.github.io/Deck-Builder-UI'
   );
 }
 
-/* ---------------- small utils ---------------- */
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try {
-    const raw = await loadJSON(PATHS.linkedDecks);
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
-}
-function randomToken(len = 24) {
-  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
-}
-function isTokenValid(t) {
-  return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
-}
-
-/* ---------------- command registration ---------------- */
 export default async function registerMyDeck(client) {
-  const CONFIG = loadConfig();
-
-  const MANAGE_CARDS_CHANNEL_ID =
-    String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || '1367977677658656868');
-
-  const DECK_BUILDER_BASE = resolveDeckBuilderBase(CONFIG) || 'https://madv313.github.io/Deck-Builder-UI';
-  const API_BASE = resolveBaseUrl(CONFIG.api_base || CONFIG.API_BASE || process.env.API_BASE || '');
-
   const commandData = new SlashCommandBuilder()
     .setName('mydeck')
-    .setDescription('Open your personal Deck Builder UI.');
+    .setDescription('Open your personal Deck Builder UI.')
+    .setDMPermission(false);
 
   client.slashData.push(commandData.toJSON());
 
   client.commands.set('mydeck', {
     data: commandData,
     async execute(interaction) {
+      const CFG = loadConfig();
+
+      const MANAGE_CARDS_CHANNEL_ID = String(
+        CFG.manage_cards_channel_id ||
+        CFG.manage_cards ||
+        CFG['manage-cards'] ||
+        FALLBACK_MANAGE_CARDS_CHANNEL_ID
+      );
+
       // Channel guard
-      if (interaction.channelId !== MANAGE_CARDS_CHANNEL_ID) {
+      if (String(interaction.channelId) !== MANAGE_CARDS_CHANNEL_ID) {
         return interaction.reply({
-          content: '🧩 Please use this command in the **#manage-cards** channel.',
+          content: `🧩 Please use this command in <#${MANAGE_CARDS_CHANNEL_ID}>.`,
           ephemeral: true
         });
       }
@@ -116,10 +77,13 @@ export default async function registerMyDeck(client) {
       const userId = interaction.user.id;
       const username = interaction.user.username;
 
-      // Load profile; warn if not linked (do NOT auto-create here)
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
+      // Load linked profiles from Persistent Data server
+      let linked = {};
+      try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
+
       const profile = linked[userId];
 
+      // Require linked first (do not auto-create here)
       if (!profile) {
         const warn = new EmbedBuilder()
           .setTitle('⚠️ Player Not Linked')
@@ -146,14 +110,23 @@ export default async function registerMyDeck(client) {
         profile.token = randomToken(24);
       }
 
-      await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
+      // Persist any self-heal updates quietly
+      try {
+        await saveJSON(PATHS.linkedDecks, { ...linked, [userId]: profile });
+      } catch (e) {
+        console.warn('[mydeck] Failed to persist profile updates:', e?.message || e);
+      }
 
-      const token = profile.token;
+      const DECK_BUILDER_BASE = resolveDeckBuilderBase(CFG);
+      const API_BASE = trimBase(CFG.api_base || CFG.API_BASE || process.env.API_BASE || '');
       const ts = Date.now();
-      const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
 
-      // Personalized Deck Builder URL
-      const deckUrl = `${DECK_BUILDER_BASE}/?token=${encodeURIComponent(token)}${apiQP}&ts=${ts}`;
+      const qp = new URLSearchParams();
+      qp.set('token', profile.token);
+      if (API_BASE) qp.set('api', API_BASE);
+      qp.set('ts', String(ts));
+
+      const deckUrl = `${DECK_BUILDER_BASE}/?${qp.toString()}`;
 
       const embed = new EmbedBuilder()
         .setTitle('🧩 Deck Builder')
@@ -162,16 +135,12 @@ export default async function registerMyDeck(client) {
             'Open your personal Deck Builder using the link above.',
             '',
             '**How to use the Deck Builder UI:**',
-            'Once you’ve arrived at your Deck Builder UI, please select between **20–40 cards maximum** to complete your deck.',
-            'No more than **5 duplicates** are allowed per deck.',
-            'Simply **click a card** from your collection along with the amount you’d like to add to start building your deck.',
-            'Once satisfied, press the **Save Deck** button — this will lock in your deck build for future duels.',
-            'To view your current deck build, press the **View My Deck** button.',
-            'To start a new build, press the **Wipe Deck** button.',
+            '• Build a deck with **20–40 cards**.',
+            '• Max **5 duplicates** per card.',
+            '• Click cards to add amounts, then press **Save Deck**.',
+            '• **View My Deck** shows your current build; **Wipe Deck** starts fresh.',
             '',
-            'Only **one deck build** is allowed currently (deck expansions will come in the future).',
-            '',
-            '_Tip: Decks must be 20–40 cards to be duel-eligible._'
+            '_Tip: Only saved decks that meet the rules are duel-eligible._'
           ].join('\n')
         )
         .setURL(deckUrl)
