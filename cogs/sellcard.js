@@ -6,7 +6,7 @@
 // - Dropdown shows only OWNED cards (paginated, 25 per page)
 // - Quantity dropdown limited to 1..owned (max 50)
 // - Uses rarity-based prices (CONFIG_JSON or config.json; sane defaults)
-// - Updates wallet.json and mirrors coins into linkedDecks
+// - Updates coin_bank.json (authoritative) and mirrors coins into linkedDecks
 // - Enforces a daily sell limit (default 5 cards/day)
 // - Includes a “View Collection” link with instructions
 
@@ -42,6 +42,9 @@ const CORE_PATH = path.resolve('./logic/CoreMasterReference.json');
 const DEFAULT_SELL = { common: 0.5, uncommon: 1, rare: 2, legendary: 3 };
 const DEFAULT_DAILY_LIMIT = 5; // total cards/day
 const MAX_QTY_PER_SALE = 50;
+
+// Unified coin bank file (authoritative). Fallback to data/coin_bank.json if PATHS.coinBank missing.
+const COIN_BANK_FILE = (PATHS && PATHS.coinBank) ? PATHS.coinBank : 'data/coin_bank.json';
 
 /* ───────────────────────── Core rarity map ───────────────────────── */
 function loadCoreRarityMap() {
@@ -142,9 +145,9 @@ export default async function registerSellCard(client) {
 
       // Load stores
       let linked = {};
-      let wallet = {};
+      let bank = {};
       try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
-      try { wallet = await loadJSON(PATHS.wallet); } catch { wallet = {}; }
+      try { bank = await loadJSON(COIN_BANK_FILE); } catch { bank = {}; }
 
       const profile = linked[userId];
       if (!profile) {
@@ -302,7 +305,7 @@ export default async function registerSellCard(client) {
 
           // Reload fresh copies before committing (reduce race)
           try { linked = await loadJSON(PATHS.linkedDecks); } catch {}
-          try { wallet = await loadJSON(PATHS.wallet); } catch {}
+          try { bank   = await loadJSON(COIN_BANK_FILE); } catch {}
 
           const prof = linked[userId];
           if (!prof) return i.update({ content: 'Profile disappeared. Try again.', embeds: [], components: [] });
@@ -334,18 +337,19 @@ export default async function registerSellCard(client) {
           prof.sellCountDate = today;
           prof.sellCountToday = used + selectedQty;
 
-          const currentWallet = Number(wallet[userId] ?? prof.coins ?? 0);
-          const newBalance = Math.round((currentWallet + coinsGained) * 100) / 100;
+          // Unified balance: prefer coin bank, fallback to prof.coins if missing
+          const currentBalance = Number(bank[userId] ?? prof.coins ?? 0);
+          const newBalance = Math.round((currentBalance + coinsGained) * 100) / 100;
 
-          wallet[userId] = newBalance;
-          prof.coins = newBalance;
+          bank[userId] = newBalance;          // authoritative write
+          prof.coins = newBalance;            // mirror for UIs that read linked_decks
           prof.coinsUpdatedAt = new Date().toISOString();
 
           linked[userId] = prof;
 
           try {
             await saveJSON(PATHS.linkedDecks, linked);
-            await saveJSON(PATHS.wallet, wallet);
+            await saveJSON(COIN_BANK_FILE, bank);
           } catch (e) {
             console.error('[sellcard] Persist failed:', e?.message || e);
             return i.update({
