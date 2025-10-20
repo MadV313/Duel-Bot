@@ -1,16 +1,27 @@
 // cogs/sellcard.js
-// /sellcard — Sell cards from your collection for coins.
+// /sellcard — Sell cards from your collection for coins (interactive).
 //
 // - Confined to #manage-cards
 // - Requires Supporter/Elite role and a linked profile
-// - Validates card id & quantity
+// - Dropdown shows only OWNED cards (paginated, 25 per page)
+// - Quantity dropdown limited to 1..owned (max 50)
 // - Uses rarity-based prices (CONFIG_JSON or config.json; sane defaults)
 // - Updates wallet.json and mirrors coins into linkedDecks
 // - Enforces a daily sell limit (default 5 cards/day)
+// - Includes a “View Collection” link with instructions
 
 import fs from 'fs';
 import path from 'path';
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import crypto from 'crypto';
+import {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType
+} from 'discord.js';
 import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 import { requireSupporter } from '../utils/roleGuard.js';
 
@@ -30,6 +41,7 @@ const CORE_PATH = path.resolve('./logic/CoreMasterReference.json');
 
 const DEFAULT_SELL = { common: 0.5, uncommon: 0.5, rare: 0.5, legendary: 1 };
 const DEFAULT_DAILY_LIMIT = 5; // total cards/day
+const MAX_QTY_PER_SALE = 50;
 
 /* ───────────────────────── Core rarity map ───────────────────────── */
 function loadCoreRarityMap() {
@@ -50,8 +62,30 @@ function loadCoreRarityMap() {
 const rarityMap = loadCoreRarityMap();
 
 /* ───────────────────────── Small helpers ───────────────────────── */
-const todayUTC = () => new Date().toISOString().slice(0, 10);
 const to3 = v => String(v).padStart(3, '0');
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+const clamp = (n, a, b) => Math.min(Math.max(n, a), b);
+
+function buildCollectionUrl(cfg, token) {
+  const collectionBase =
+    cfg.collection_ui ||
+    cfg.ui_urls?.card_collection_ui ||
+    cfg.frontend_url ||
+    cfg.ui_base ||
+    cfg.UI_BASE ||
+    'https://madv313.github.io/Card-Collection-UI';
+
+  const API_BASE   = trim(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+  const IMAGE_BASE = trim(cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards');
+
+  const qp = new URLSearchParams();
+  qp.set('token', token);
+  if (API_BASE)   qp.set('api', API_BASE);
+  if (IMAGE_BASE) qp.set('imgbase', IMAGE_BASE);
+  qp.set('ts', String(Date.now()));
+
+  return `${trim(collectionBase)}/index.html?${qp.toString()}`;
+}
 
 /* ───────────────────────── Command ───────────────────────── */
 export default async function registerSellCard(client) {
@@ -76,14 +110,6 @@ export default async function registerSellCard(client) {
   const command = new SlashCommandBuilder()
     .setName('sellcard')
     .setDescription('Sell cards from your collection for coins (daily limit applies).')
-    .addStringOption(o =>
-      o.setName('card_id')
-        .setDescription('Card # (001–127)')
-        .setRequired(true))
-    .addIntegerOption(o =>
-      o.setName('qty')
-        .setDescription('Quantity to sell (1–50)')
-        .setRequired(true))
     .setDMPermission(false);
 
   client.slashData.push(command.toJSON());
@@ -107,25 +133,14 @@ export default async function registerSellCard(client) {
         });
       }
 
+      // Defer (ephemeral)
+      try { await interaction.deferReply({ ephemeral: true }); }
+      catch { await interaction.deferReply({ ephemeral: true }); }
+
       const userId = interaction.user.id;
       const userName = interaction.user.username;
 
-      const rawId = interaction.options.getString('card_id', true);
-      const id = to3(rawId);
-      const qty = interaction.options.getInteger('qty', true);
-
-      if (!/^\d{3}$/.test(id)) {
-        return interaction.reply({ content: '❌ Invalid card id. Use a 3-digit id like `045`.', ephemeral: true });
-      }
-      const n = Number(id);
-      if (n < 1 || n > 127) {
-        return interaction.reply({ content: '❌ Card id must be between 001 and 127.', ephemeral: true });
-      }
-      if (!Number.isInteger(qty) || qty < 1 || qty > 50) {
-        return interaction.reply({ content: '❌ Quantity must be between 1 and 50.', ephemeral: true });
-      }
-
-      // Load stores from Persistent Data
+      // Load stores
       let linked = {};
       let wallet = {};
       try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
@@ -133,86 +148,285 @@ export default async function registerSellCard(client) {
 
       const profile = linked[userId];
       if (!profile) {
-        return interaction.reply({
+        return interaction.editReply({
           content: '❌ You are not linked yet. Run **/linkdeck** in **#manage-cards** first.',
           ephemeral: true
         });
       }
 
-      // Keep name fresh & shapes sane
+      // Keep name fresh
       if (profile.discordName !== userName) profile.discordName = userName;
       profile.collection = profile.collection || {};
 
-      // Daily limit (UTC day counter)
-      const today = todayUTC();
-      const usedToday = Number(profile.sellCountToday || 0);
-      const lastDay = profile.sellCountDate || '';
-      const effectiveUsed = (lastDay === today) ? usedToday : 0;
+      // Build owned list (id, qty, rarity, price/card)
+      const ownedPairs = Object.entries(profile.collection)
+        .map(([id, qty]) => {
+          const id3 = to3(id);
+          const q = Number(qty || 0);
+          if (!/^\d{3}$/.test(id3) || q <= 0) return null;
+          const rarity = (rarityMap[id3] || 'Common').toLowerCase();
+          const priceEach = Number(sellValues[rarity] ?? DEFAULT_SELL.common);
+          return { id: id3, qty: q, rarity, priceEach };
+        })
+        .filter(Boolean)
+        // Sort: highest qty first, then numeric id
+        .sort((a, b) => (b.qty - a.qty) || (Number(a.id) - Number(b.id)));
 
-      if (effectiveUsed + qty > DAILY_LIMIT) {
-        const remain = Math.max(0, DAILY_LIMIT - effectiveUsed);
-        return interaction.reply({
-          content:
-            `⛔ Daily sell limit reached. You may sell **${remain}** more card` +
-            `${remain === 1 ? '' : 's'} today (limit: ${DAILY_LIMIT}).`,
+      // If nothing owned, bail
+      if (ownedPairs.length === 0) {
+        return interaction.editReply({
+          content: 'You do not have any cards in your collection to sell.',
           ephemeral: true
         });
       }
 
-      const owned = Number(profile.collection[id] || 0);
-      if (owned < qty) {
-        return interaction.reply({
-          content: `❌ You only own **${owned}** of #${id}.`,
-          ephemeral: true
-        });
+      // Collection deep-link + instructions
+      const token = profile.token || crypto.randomBytes(18).toString('base64url');
+      if (!profile.token) { profile.token = token; linked[userId] = profile; try { await saveJSON(PATHS.linkedDecks, linked); } catch {} }
+      const collectionUrl = buildCollectionUrl(CFG, token);
+
+      // Build the interactive UI (pagination of IDs)
+      let page = 0;
+      const pageSize = 25;
+      const pages = Math.ceil(ownedPairs.length / pageSize);
+
+      const dailyUsed = (profile.sellCountDate === todayUTC())
+        ? Number(profile.sellCountToday || 0)
+        : 0;
+
+      function makeEmbed(cardChoice = null, qtyChoice = null) {
+        const lines = [];
+        lines.push('**How to sell from the UI (recommended):**');
+        lines.push('• Open your collection → select the cards and **quantities** you want to sell.');
+        lines.push('• Add them to the **Sale Queue** (bottom), then **Confirm Sale**.');
+        lines.push('');
+        lines.push(`🔗 **Collection:** ${collectionUrl}`);
+        lines.push('');
+        lines.push(`**Daily limit:** ${dailyUsed}/${DAILY_LIMIT} cards used today (resets 00:00 UTC).`);
+        if (cardChoice) {
+          const r = cardChoice.rarity.charAt(0).toUpperCase() + cardChoice.rarity.slice(1);
+          lines.push('');
+          lines.push(`Selected: **#${cardChoice.id}** (${r}) — You own **${cardChoice.qty}** — \`${cardChoice.priceEach} coin each\``);
+        }
+        if (qtyChoice) {
+          const est = Math.round(qtyChoice * (cardChoice?.priceEach || 0) * 100) / 100;
+          lines.push(`Quantity: **${qtyChoice}**  →  Estimated coins: **${est}**`);
+        }
+
+        return new EmbedBuilder()
+          .setTitle('🧾 Sell Cards')
+          .setDescription(lines.join('\n'))
+          .setColor(0x00ccff);
       }
 
-      const rarity = (rarityMap[id] || 'Common').toLowerCase();
-      const perCard = Number(sellValues[rarity] ?? DEFAULT_SELL.common);
-      const coinsGained = Math.round(perCard * qty * 100) / 100;
+      function makePageRows(p, selected = null, qtySelected = null) {
+        const slice = ownedPairs.slice(p * pageSize, (p + 1) * pageSize);
+        const options = slice.map(c => ({
+          label: `#${c.id} • x${c.qty} • ${c.rarity}`,
+          description: `Value: ${c.priceEach} coin each`,
+          value: c.id
+        }));
 
-      // Apply sale
-      profile.collection[id] = owned - qty;
-      if (profile.collection[id] <= 0) delete profile.collection[id];
+        const selectCards = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`sell_select_card_${p}`)
+            .setPlaceholder('Select a card to sell')
+            .addOptions(options)
+        );
 
-      profile.sellCountDate = today;
-      profile.sellCountToday = effectiveUsed + qty;
+        const nav = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('sell_prev').setStyle(ButtonStyle.Secondary).setLabel('⏮ Prev').setDisabled(p === 0),
+          new ButtonBuilder().setCustomId('sell_next').setStyle(ButtonStyle.Secondary).setLabel('Next ⏭').setDisabled(p === pages - 1)
+        );
 
-      const currentWallet = Number(wallet[userId] ?? profile.coins ?? 0);
-      const newBalance = Math.round((currentWallet + coinsGained) * 100) / 100;
+        const rows = [selectCards, nav];
 
-      wallet[userId] = newBalance;
-      profile.coins = newBalance;
-      profile.coinsUpdatedAt = new Date().toISOString();
+        // If a card is selected, add Quantity dropdown + Confirm/Cancel
+        if (selected) {
+          const maxQty = clamp(selected.qty, 1, MAX_QTY_PER_SALE);
+          const qtyOpts = Array.from({ length: maxQty }, (_, i) => ({
+            label: String(i + 1),
+            value: String(i + 1)
+          }));
+          rows.push(
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId(`sell_select_qty_${selected.id}`)
+                .setPlaceholder(`Choose quantity (max ${maxQty})`)
+                .addOptions(qtyOpts)
+            )
+          );
+          rows.push(
+            new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId(`sell_confirm_${selected.id}`).setStyle(ButtonStyle.Success).setLabel('✅ Confirm Sale').setDisabled(!qtySelected),
+              new ButtonBuilder().setCustomId('sell_cancel').setStyle(ButtonStyle.Secondary).setLabel('Cancel')
+            )
+          );
+        }
 
-      // Persist
-      linked[userId] = profile;
-      try {
-        await saveJSON(PATHS.linkedDecks, linked);
-        await saveJSON(PATHS.wallet, wallet);
-      } catch (e) {
-        console.error('[sellcard] Persist failed:', e?.message || e);
-        return interaction.reply({
-          content: '⚠️ Failed to save your sale. Please try again later.',
-          ephemeral: true
-        });
+        return rows;
       }
 
-      const niceRarity = rarity.charAt(0).toUpperCase() + rarity.slice(1);
-      const embed = new EmbedBuilder()
-        .setTitle('🪙 Card Sold')
-        .setDescription(
-          [
-            `Sold **${qty}×** card **#${id}** (${niceRarity}).`,
-            '',
-            `**Coins gained:** ${coinsGained}`,
-            `**New balance:** ${newBalance}`,
-          ].join('\n')
-        )
-        .setFooter({ text: `Daily limit: ${profile.sellCountToday}/${DAILY_LIMIT} (resets 00:00 UTC)` })
-        .setColor(0x00cc66);
+      let selectedCard = null;
+      let selectedQty  = null;
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      const initialRows = makePageRows(page);
+      const initialEmbed = makeEmbed();
+
+      const msg = await interaction.editReply({
+        embeds: [initialEmbed],
+        components: initialRows,
+        ephemeral: true
+      });
+
+      const collector = msg.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 120_000
+      });
+
+      const selectCollector = msg.createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 120_000
+      });
+
+      collector.on('collect', async (i) => {
+        if (i.user.id !== userId) return i.reply({ content: '⚠️ Not your menu.', ephemeral: true });
+
+        if (i.customId === 'sell_prev') page = Math.max(0, page - 1);
+        if (i.customId === 'sell_next') page = Math.min(pages - 1, page + 1);
+
+        if (i.customId.startsWith('sell_confirm_')) {
+          if (!selectedCard || !selectedQty) {
+            return i.reply({ content: 'Pick a card and quantity first.', ephemeral: true });
+          }
+
+          // Reload fresh copies before committing (reduce race)
+          try { linked = await loadJSON(PATHS.linkedDecks); } catch {}
+          try { wallet = await loadJSON(PATHS.wallet); } catch {}
+
+          const prof = linked[userId];
+          if (!prof) return i.update({ content: 'Profile disappeared. Try again.', embeds: [], components: [] });
+
+          // Limit checks again
+          const today = todayUTC();
+          const used = (prof.sellCountDate === today) ? Number(prof.sellCountToday || 0) : 0;
+          if (used + selectedQty > DAILY_LIMIT) {
+            const remain = Math.max(0, DAILY_LIMIT - used);
+            return i.reply({
+              content: `⛔ Daily sell limit would be exceeded. You can sell **${remain}** more card${remain === 1 ? '' : 's'} today.`,
+              ephemeral: true
+            });
+          }
+
+          const ownedNow = Number(prof.collection?.[selectedCard.id] || 0);
+          if (ownedNow < selectedQty) {
+            return i.reply({ content: `You now only own **${ownedNow}** of #${selectedCard.id}.`, ephemeral: true });
+          }
+
+          // Commit sale
+          const rarity = (rarityMap[selectedCard.id] || 'Common').toLowerCase();
+          const perCard = Number(sellValues[rarity] ?? DEFAULT_SELL.common);
+          const coinsGained = Math.round(perCard * selectedQty * 100) / 100;
+
+          prof.collection[selectedCard.id] = ownedNow - selectedQty;
+          if (prof.collection[selectedCard.id] <= 0) delete prof.collection[selectedCard.id];
+
+          prof.sellCountDate = today;
+          prof.sellCountToday = used + selectedQty;
+
+          const currentWallet = Number(wallet[userId] ?? prof.coins ?? 0);
+          const newBalance = Math.round((currentWallet + coinsGained) * 100) / 100;
+
+          wallet[userId] = newBalance;
+          prof.coins = newBalance;
+          prof.coinsUpdatedAt = new Date().toISOString();
+
+          linked[userId] = prof;
+
+          try {
+            await saveJSON(PATHS.linkedDecks, linked);
+            await saveJSON(PATHS.wallet, wallet);
+          } catch (e) {
+            console.error('[sellcard] Persist failed:', e?.message || e);
+            return i.update({
+              content: '⚠️ Failed to save your sale. Please try again later.',
+              embeds: [],
+              components: []
+            });
+          }
+
+          const rNice = rarity.charAt(0).toUpperCase() + rarity.slice(1);
+          const done = new EmbedBuilder()
+            .setTitle('🪙 Card Sold')
+            .setDescription(
+              [
+                `Sold **${selectedQty}×** card **#${selectedCard.id}** (${rNice}).`,
+                '',
+                `**Coins gained:** ${coinsGained}`,
+                `**New balance:** ${newBalance}`,
+                '',
+                `Daily usage: ${prof.sellCountToday}/${DAILY_LIMIT} (resets 00:00 UTC)`,
+                '',
+                `🔗 **Collection:** ${collectionUrl}`
+              ].join('\n')
+            )
+            .setColor(0x00cc66);
+
+          try { collector.stop(); } catch {}
+          try { selectCollector.stop(); } catch {}
+
+          return i.update({ embeds: [done], components: [] });
+        }
+
+        if (i.customId === 'sell_cancel') {
+          try { collector.stop(); } catch {}
+          try { selectCollector.stop(); } catch {}
+          return i.update({ content: 'Sale cancelled.', embeds: [], components: [] });
+        }
+
+        // Page changed → rebuild (preserve current selection context)
+        const rows = makePageRows(page, selectedCard, selectedQty);
+        const emb  = makeEmbed(selectedCard, selectedQty);
+        await i.update({ embeds: [emb], components: rows });
+      });
+
+      selectCollector.on('collect', async (i) => {
+        if (i.user.id !== userId) return i.reply({ content: '⚠️ Not your menu.', ephemeral: true });
+
+        // Card selection
+        if (i.customId.startsWith('sell_select_card_')) {
+          const chosenId = i.values[0];
+          const found = ownedPairs.find(c => c.id === chosenId);
+          selectedCard = found || null;
+          selectedQty = null;
+
+          const rows = makePageRows(page, selectedCard, selectedQty);
+          const emb  = makeEmbed(selectedCard, selectedQty);
+          return i.update({ embeds: [emb], components: rows });
+        }
+
+        // Quantity selection
+        if (i.customId.startsWith('sell_select_qty_')) {
+          selectedQty = Number(i.values[0] || '0') || 0;
+          selectedQty = clamp(selectedQty, 1, Math.min(selectedCard?.qty || 1, MAX_QTY_PER_SALE));
+
+          const rows = makePageRows(page, selectedCard, selectedQty);
+          const emb  = makeEmbed(selectedCard, selectedQty);
+          return i.update({ embeds: [emb], components: rows });
+        }
+      });
+
+      const endAll = async () => {
+        try {
+          await interaction.editReply({
+            content: '⏰ Sell menu expired. Run **/sellcard** again when ready.',
+            embeds: [],
+            components: []
+          });
+        } catch {}
+      };
+      collector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+      selectCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
     }
   });
 }
