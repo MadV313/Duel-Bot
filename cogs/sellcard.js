@@ -1,242 +1,218 @@
+// cogs/sellcard.js
+// /sellcard — Sell cards from your collection for coins.
+//
+// - Confined to #manage-cards
+// - Requires Supporter/Elite role and a linked profile
+// - Validates card id & quantity
+// - Uses rarity-based prices (CONFIG_JSON or config.json; sane defaults)
+// - Updates wallet.json and mirrors coins into linkedDecks
+// - Enforces a daily sell limit (default 5 cards/day)
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { requireSupporter } from '../utils/roleGuard.js';
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
+import fs from 'fs';
+import path from 'path';
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/sellcard.js — Gives the invoker their personal Card Collection UI link for selling.
-// - Confined to #manage-cards channel
-// - Warns if the player is not yet linked (asks to run /linkdeck first)
-// - Auto-uses/mints the player's token from linked_decks.json
-// - If the player has already sold 5 cards in the last 24h, returns a warning embed
-//   with a countdown until they can sell again (no link shown in that case)
-// - Otherwise, sends an embed with the Collection URL + selling instructions (limit 5/day)
-//
-// Config keys used (ENV CONFIG_JSON or config.json fallback):
-//   manage_cards_channel_id
-//   collection_ui / ui_urls.card_collection_ui / frontend_url / ui_base / UI_BASE
-//   api_base / API_BASE
-//
-// Files used:
-//   PATHS.linkedDecks
-//
-// Notes:
-// - This command only *warns* about the daily sell limit based on profile.sellStats.
-//   Your Collection UI/back-end should still enforce the limit during actual sale.
-// - We track a simple rolling 24h window via sellStats: { windowStartISO, sellsInWindow }.
+import { requireSupporter } from '../utils/roleGuard.js';
 
-import crypto from 'crypto';
-import {
-  SlashCommandBuilder,
-  EmbedBuilder
-} from 'discord.js';
-
-/* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-
-/* ---------------- config helpers ---------------- */
+/* ───────────────────────── Config helpers ───────────────────────── */
 function loadConfig() {
+  try { if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON); }
+  catch (e) { console.warn('[sellcard] CONFIG_JSON parse error:', e?.message); }
+  try { if (fs.existsSync('config.json')) return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {}; }
+  catch {}
+  return {};
+}
+const trim = s => String(s || '').trim().replace(/\/+$/, '');
+
+/* ───────────────────────── Defaults ───────────────────────── */
+const DEFAULT_MANAGE_CARDS_CHANNEL_ID = '1367977677658656868';
+const CORE_PATH = path.resolve('./logic/CoreMasterReference.json');
+
+const DEFAULT_SELL = { common: 0.5, uncommon: 0.5, rare: 0.5, legendary: 1 };
+const DEFAULT_DAILY_LIMIT = 5; // total cards/day
+
+/* ───────────────────────── Core rarity map ───────────────────────── */
+function loadCoreRarityMap() {
   try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
+    const raw = fs.readFileSync(CORE_PATH, 'utf-8');
+    const arr = JSON.parse(raw);
+    const map = {};
+    for (const c of arr) {
+      const id = String(c.card_id ?? '').padStart(3, '0');
+      if (id && id !== '000' && c.rarity) map[id] = String(c.rarity);
+    }
+    return map;
   } catch (e) {
-    console.warn(`[sellcard] CONFIG_JSON parse error: ${e?.message}`);
-  }
-  try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
-  } catch {
+    console.error('[sellcard] Failed to load CoreMasterReference:', e?.message || e);
     return {};
   }
 }
+const rarityMap = loadCoreRarityMap();
 
-function resolveBaseUrl(s) {
-  return (s || '').toString().trim().replace(/\/+$/, '');
-}
+/* ───────────────────────── Small helpers ───────────────────────── */
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+const to3 = v => String(v).padStart(3, '0');
 
-function resolveCollectionBase(cfg) {
-  return resolveBaseUrl(
-    cfg.collection_ui ||
-    cfg.ui_urls?.card_collection_ui ||
-    cfg.frontend_url ||
-    cfg.ui_base ||
-    cfg.UI_BASE ||
-    ''
-  );
-}
-
-/* ---------------- small utils ---------------- */
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try {
-    const raw = await loadJSON(PATHS.linkedDecks);
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
-}
-function randomToken(len = 24) {
-  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
-}
-function isTokenValid(t) {
-  return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
-}
-function fmtHMS(ms) {
-  const totalSec = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-/* ---------------- constants ---------------- */
-const DAILY_SELL_LIMIT = 5;
-const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-/* ---------------- command registration ---------------- */
+/* ───────────────────────── Command ───────────────────────── */
 export default async function registerSellCard(client) {
-  const CONFIG = loadConfig();
+  const CFG = loadConfig();
 
   const MANAGE_CARDS_CHANNEL_ID =
-    String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || '1367977677658656868');
+    String(CFG.manage_cards_channel_id || CFG.manage_cards || CFG['manage-cards'] || DEFAULT_MANAGE_CARDS_CHANNEL_ID);
 
-  const COLLECTION_BASE = resolveCollectionBase(CONFIG) || 'https://madv313.github.io/Card-Collection-UI';
-  const API_BASE = resolveBaseUrl(CONFIG.api_base || CONFIG.API_BASE || process.env.API_BASE || '');
+  const sellValues = {
+    common:    Number(CFG?.coin_system?.card_sell_values?.common    ?? DEFAULT_SELL.common),
+    uncommon:  Number(CFG?.coin_system?.card_sell_values?.uncommon  ?? DEFAULT_SELL.uncommon),
+    rare:      Number(CFG?.coin_system?.card_sell_values?.rare      ?? DEFAULT_SELL.rare),
+    legendary: Number(CFG?.coin_system?.card_sell_values?.legendary ?? DEFAULT_SELL.legendary),
+  };
 
-  const commandData = new SlashCommandBuilder()
+  const DAILY_LIMIT = Number(
+    CFG?.trade_system?.sell_limit_per_day ??
+    CFG?.coin_system?.sell_limit_per_day ??
+    DEFAULT_DAILY_LIMIT
+  );
+
+  const command = new SlashCommandBuilder()
     .setName('sellcard')
-    .setDescription('Get your personal collection link to sell cards (limit 5/day).');
+    .setDescription('Sell cards from your collection for coins (daily limit applies).')
+    .addStringOption(o =>
+      o.setName('card_id')
+        .setDescription('Card # (001–127)')
+        .setRequired(true))
+    .addIntegerOption(o =>
+      o.setName('qty')
+        .setDescription('Quantity to sell (1–50)')
+        .setRequired(true))
+    .setDMPermission(false);
 
-  client.slashData.push(commandData.toJSON());
+  client.slashData.push(command.toJSON());
 
   client.commands.set('sellcard', {
-    data: commandData,
-    \1
+    data: command,
+    async execute(interaction) {
+      // Role gate
       if (!requireSupporter(interaction.member)) {
-        return interaction.reply({ ephemeral: true, content: "❌ You need the Supporter or Elite Collector role to use this command. Join on Ko-fi to unlock full access." });
+        return interaction.reply({
+          ephemeral: true,
+          content: '❌ Supporter or Elite Collector role required.'
+        });
       }
 
-      // Channel guard
+      // Channel gate
       if (interaction.channelId !== MANAGE_CARDS_CHANNEL_ID) {
         return interaction.reply({
-          content: '🧾 Please use this command in the **#manage-cards** channel.',
+          content: `🧾 Please use this command in <#${MANAGE_CARDS_CHANNEL_ID}>.`,
           ephemeral: true
         });
       }
 
       const userId = interaction.user.id;
-      const username = interaction.user.username;
+      const userName = interaction.user.username;
 
-      // Load profile; warn if not linked (do NOT auto-create here)
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
+      const rawId = interaction.options.getString('card_id', true);
+      const id = to3(rawId);
+      const qty = interaction.options.getInteger('qty', true);
+
+      if (!/^\d{3}$/.test(id)) {
+        return interaction.reply({ content: '❌ Invalid card id. Use a 3-digit id like `045`.', ephemeral: true });
+      }
+      const n = Number(id);
+      if (n < 1 || n > 127) {
+        return interaction.reply({ content: '❌ Card id must be between 001 and 127.', ephemeral: true });
+      }
+      if (!Number.isInteger(qty) || qty < 1 || qty > 50) {
+        return interaction.reply({ content: '❌ Quantity must be between 1 and 50.', ephemeral: true });
+      }
+
+      // Load stores from Persistent Data
+      let linked = {};
+      let wallet = {};
+      try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
+      try { wallet = await loadJSON(PATHS.wallet); } catch { wallet = {}; }
+
       const profile = linked[userId];
-
       if (!profile) {
-        const warn = new EmbedBuilder()
-          .setTitle('⚠️ Player Not Linked')
-          .setDescription(
-            [
-              'You are not yet linked to the Duel Bot system.',
-              '',
-              'Please run **`/linkdeck`** in the **#manage-cards** channel before using Duel Bot commands.',
-              '',
-              'Once linked, you’ll be able to browse your collection, sell cards, and participate in duels.'
-            ].join('\n')
-          )
-          .setColor(0xff9900);
-        return interaction.reply({ embeds: [warn], ephemeral: true });
-      }
-
-      // Keep Discord name fresh
-      if (profile.discordName !== username) {
-        profile.discordName = username;
-      }
-
-      // Ensure token (no user input)
-      if (!isTokenValid(profile.token)) {
-        profile.token = randomToken(24);
-      }
-
-      // Check daily sell limit window (advisory only; UI/back-end must enforce)
-      const now = Date.now();
-      const stats = profile.sellStats || {};
-      let windowStart = stats.windowStartISO ? Date.parse(stats.windowStartISO) : 0;
-      let sellsInWindow = Number.isFinite(stats.sellsInWindow) ? Number(stats.sellsInWindow) : 0;
-
-      // If window missing/stale, reset it
-      if (!windowStart || (now - windowStart) >= WINDOW_MS) {
-        windowStart = now;
-        sellsInWindow = 0;
-        profile.sellStats = { windowStartISO: new Date(windowStart).toISOString(), sellsInWindow };
-        linked[userId] = profile;
-        await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-      }
-
-      // If limit already hit, return warning embed with countdown (no link)
-      if (sellsInWindow >= DAILY_SELL_LIMIT) {
-        const waitMs = WINDOW_MS - (now - windowStart);
-        const warn = new EmbedBuilder()
-          .setTitle('⏳ Daily Sell Limit Reached')
-          .setDescription(
-            [
-              `You’ve already sold **${DAILY_SELL_LIMIT} cards** in the last 24 hours.`,
-              `Please come back in **${fmtHMS(waitMs)}** to continue selling.`,
-              '',
-              '_Tip: You can still browse your collection using the `/mycards` command; further sales are blocked until the timer resets._'
-            ].join('\n')
-          )
-          .setColor(0xff9900);
-
         return interaction.reply({
-          embeds: [warn],
+          content: '❌ You are not linked yet. Run **/linkdeck** in **#manage-cards** first.',
           ephemeral: true
         });
       }
 
-      // Otherwise, return Collection link + selling instructions
+      // Keep name fresh & shapes sane
+      if (profile.discordName !== userName) profile.discordName = userName;
+      profile.collection = profile.collection || {};
+
+      // Daily limit (UTC day counter)
+      const today = todayUTC();
+      const usedToday = Number(profile.sellCountToday || 0);
+      const lastDay = profile.sellCountDate || '';
+      const effectiveUsed = (lastDay === today) ? usedToday : 0;
+
+      if (effectiveUsed + qty > DAILY_LIMIT) {
+        const remain = Math.max(0, DAILY_LIMIT - effectiveUsed);
+        return interaction.reply({
+          content:
+            `⛔ Daily sell limit reached. You may sell **${remain}** more card` +
+            `${remain === 1 ? '' : 's'} today (limit: ${DAILY_LIMIT}).`,
+          ephemeral: true
+        });
+      }
+
+      const owned = Number(profile.collection[id] || 0);
+      if (owned < qty) {
+        return interaction.reply({
+          content: `❌ You only own **${owned}** of #${id}.`,
+          ephemeral: true
+        });
+      }
+
+      const rarity = (rarityMap[id] || 'Common').toLowerCase();
+      const perCard = Number(sellValues[rarity] ?? DEFAULT_SELL.common);
+      const coinsGained = Math.round(perCard * qty * 100) / 100;
+
+      // Apply sale
+      profile.collection[id] = owned - qty;
+      if (profile.collection[id] <= 0) delete profile.collection[id];
+
+      profile.sellCountDate = today;
+      profile.sellCountToday = effectiveUsed + qty;
+
+      const currentWallet = Number(wallet[userId] ?? profile.coins ?? 0);
+      const newBalance = Math.round((currentWallet + coinsGained) * 100) / 100;
+
+      wallet[userId] = newBalance;
+      profile.coins = newBalance;
+      profile.coinsUpdatedAt = new Date().toISOString();
+
+      // Persist
       linked[userId] = profile;
-      await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
+      try {
+        await saveJSON(PATHS.linkedDecks, linked);
+        await saveJSON(PATHS.wallet, wallet);
+      } catch (e) {
+        console.error('[sellcard] Persist failed:', e?.message || e);
+        return interaction.reply({
+          content: '⚠️ Failed to save your sale. Please try again later.',
+          ephemeral: true
+        });
+      }
 
-      const token = profile.token;
-      const ts = Date.now();
-      const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
-
-      // Personal Collection URL (used for selling within the UI)
-      const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(token)}${apiQP}&ts=${ts}`;
-
+      const niceRarity = rarity.charAt(0).toUpperCase() + rarity.slice(1);
       const embed = new EmbedBuilder()
-        .setTitle('🧾 Sell Your Cards')
+        .setTitle('🪙 Card Sold')
         .setDescription(
           [
-            'Use your personal collection link below. From there you can sell eligible cards.',
+            `Sold **${qty}×** card **#${id}** (${niceRarity}).`,
             '',
-            '**Selling instructions:**',
-            '• When selling, make sure you **select the proper amount of each card** before adding it to the queue.',
-            '• Once satisfied with your selection, **confirm the sale in the sale queue at the bottom** of the page.',
-            '• **Only 5 cards allowed to be sold per day.**'
+            `**Coins gained:** ${coinsGained}`,
+            `**New balance:** ${newBalance}`,
           ].join('\n')
         )
-        .setURL(collectionUrl)
-        .setColor(0x00ccff);
+        .setFooter({ text: `Daily limit: ${profile.sellCountToday}/${DAILY_LIMIT} (resets 00:00 UTC)` })
+        .setColor(0x00cc66);
 
-      return interaction.reply({
-        content: `🔗 **Open your personal Collection:** ${collectionUrl}`,
-        embeds: [embed],
-        ephemeral: true
-      });
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
   });
 }
