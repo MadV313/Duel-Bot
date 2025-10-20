@@ -1,149 +1,121 @@
+// cogs/mycoin.js
+// /mycoin — show your current coin balance and a tokenized link to your Collection UI.
+// - Requires player to be linked (prompts to /linkdeck if not)
+// - Ensures/mints a per-user token if missing and persists it
+// - Builds a link with ?token=... and optional &api=..., plus &ts= cache-buster
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
+import fs from 'fs';
+import crypto from 'crypto';
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/mycoins.js — Shows the invoker's current coin balance in an ephemeral embed.
-// - Confined to #manage-cards channel (warns if used elsewhere)
-// - Warns if the player is not yet linked (asks to run /linkdeck)
-// - Replies with a minimal balance readout
-//
-// Config keys used (ENV CONFIG_JSON or config.json fallback):
-//   manage_cards_channel_id
-//
-// Files used:
-//   PATHS.linkedDecks
 
-import {
-  SlashCommandBuilder,
-  EmbedBuilder
-} from 'discord.js';
+// -------- helpers --------
+const trimBase = (u = '') => String(u).trim().replace(/\/+$/, '');
+const randomToken = (len = 24) =>
+  crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 
-/* ---------------- paths ---------------- */
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-
-/* ---------------- config helpers ---------------- */
 function loadConfig() {
   try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
+    if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON);
   } catch (e) {
-    console.warn(`[mycoins] CONFIG_JSON parse error: ${e?.message}`);
+    console.warn(`[mycoin] CONFIG_JSON parse error: ${e?.message}`);
   }
   try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
-  } catch {
-    return {};
-  }
+    if (fs.existsSync('config.json')) {
+      return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {};
+    }
+  } catch {}
+  return {};
 }
 
-/* ---------------- small utils ---------------- */
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try {
-    const raw = await loadJSON(PATHS.linkedDecks);
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
-}
+function buildCollectionUrl(cfg, token) {
+  const base =
+    cfg.collection_ui ||
+    cfg.ui_urls?.card_collection_ui ||
+    'https://madv313.github.io/Card-Collection-UI';
+  const API_BASE = trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+  const ts = Date.now();
 
-/** Format coins with up to 2 decimals, trimming trailing zeros (supports 0.5, 1, 2.5, etc.) */
-function formatCoins(n) {
-  const s = Number(n).toFixed(2);
-  return s.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+  const qp = new URLSearchParams();
+  qp.set('token', token);
+  if (API_BASE) qp.set('api', API_BASE);
+  qp.set('ts', String(ts));
+
+  return `${trimBase(base)}/index.html?${qp.toString()}`;
 }
 
-/* ---------------- command registration ---------------- */
-export default async function registerMyCoins(client) {
-  const CONFIG = loadConfig();
-
-  const MANAGE_CARDS_CHANNEL_ID =
-    String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || '1367977677658656868');
-
+// -------- command --------
+export default async function registerMyCoin(client) {
   const commandData = new SlashCommandBuilder()
-    .setName('mycoins')
-    .setDescription('Check your current coin balance.');
+    .setName('mycoin')
+    .setDescription('Show your coin balance and a personal link to your Collection.')
+    .setDMPermission(false);
 
   client.slashData.push(commandData.toJSON());
 
-  client.commands.set('mycoins', {
+  client.commands.set('mycoin', {
     data: commandData,
     async execute(interaction) {
-      // Channel guard
-      if (interaction.channelId !== MANAGE_CARDS_CHANNEL_ID) {
+      const userId = interaction.user.id;
+      const userName = interaction.user.username;
+      const CFG = loadConfig();
+
+      // Load linked profiles and wallet
+      let linked = {};
+      let wallet = {};
+      try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
+      try { wallet = await loadJSON(PATHS.wallet); } catch { wallet = {}; }
+
+      const profile = linked[userId];
+
+      // Must be linked first
+      if (!profile) {
         return interaction.reply({
-          content: '💰 Please use this command in the **#manage-cards** channel.',
-          ephemeral: true
+          content:
+            '❌ You are not linked yet.\n' +
+            'Please run **/linkdeck** in **#manage-cards** to create your profile.',
+          ephemeral: true,
         });
       }
 
-      const userId = interaction.user.id;
-      const username = interaction.user.username;
-
-      // Load player data
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
-      let playerProfile = linked[userId];
-
-      // If player is not yet linked, show warning
-      if (!playerProfile) {
-        const warn = new EmbedBuilder()
-          .setTitle('⚠️ Player Not Linked')
-          .setDescription(
-            [
-              'You are not yet linked to the Duel Bot system.',
-              '',
-              'Please run the command **`/linkdeck`** in the **#manage-cards** channel before using any Duel Bot commands.',
-              '',
-              'Once linked, you’ll be able to build decks, earn coins, and participate in duels.'
-            ].join('\n')
-          )
-          .setColor(0xff9900);
-        return interaction.reply({ embeds: [warn], ephemeral: true });
+      // Keep display name fresh
+      if (profile.discordName !== userName) {
+        profile.discordName = userName;
       }
 
-      // Ensure coins prop exists and is numeric
-      if (typeof playerProfile.coins !== 'number' || Number.isNaN(playerProfile.coins)) {
-        playerProfile.coins = 0;
+      // Ensure token
+      if (typeof profile.token !== 'string' || profile.token.length < 12) {
+        profile.token = randomToken(24);
+        try { await saveJSON(PATHS.linkedDecks, { ...linked, [userId]: profile }); }
+        catch (e) { console.warn('[mycoin] failed to persist token mint:', e?.message || e); }
       }
 
-      // Refresh Discord name if changed
-      let changed = false;
-      if (playerProfile.discordName !== username) {
-        playerProfile.discordName = username;
-        changed = true;
+      const coins = Number(wallet[userId] ?? profile.coins ?? 0) || 0;
+
+      // Optionally sync back into linked profile for consistency
+      if (profile.coins !== coins) {
+        profile.coins = coins;
+        profile.coinsUpdatedAt = new Date().toISOString();
+        try { await saveJSON(PATHS.linkedDecks, { ...linked, [userId]: profile }); } catch {}
       }
 
-      // Persist any fixes (e.g., missing coins field or name refresh)
-      if (changed) {
-        linked[userId] = playerProfile;
-        await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
-      }
-
-      const balance = Number(playerProfile.coins || 0);
-      const pretty = formatCoins(balance);
+      const collectionUrl = buildCollectionUrl(CFG, profile.token);
 
       const embed = new EmbedBuilder()
-        .setTitle('💰 My Coins')
-        .setDescription(`Your current coin balance is:\n\n**${pretty}** coin${balance === 1 ? '' : 's'}.`)
-        .setColor(0x00cc66);
+        .setTitle('🪙 Your Coin Balance')
+        .addFields(
+          { name: 'Player', value: userName, inline: true },
+          { name: 'Coins', value: `${coins}`, inline: true },
+        )
+        .setDescription('Open your collection with your personal tokenized link below.')
+        .setURL(collectionUrl)
+        .setColor(0x00ccff);
 
       return interaction.reply({
+        content: `🔗 **Open Collection:** ${collectionUrl}`,
         embeds: [embed],
-        ephemeral: true
+        ephemeral: true,
       });
-    }
+    },
   });
 }
