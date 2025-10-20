@@ -211,7 +211,7 @@ export default async function registerLinkDeck(client) {
       }
 
       lines.push('', 'Use **/buycard** to start collecting cards.');
-      if (alreadyLinked) lines.push('Use **/unlinkdeck** to reset your link if needed.');
+      if (alreadyLinked) lines.push('Ask and admin to use **/unlinkdeck** to reset your link if needed.');
 
       return interaction.reply({
         content: lines.join('\n'),
