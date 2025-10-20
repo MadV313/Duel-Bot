@@ -64,6 +64,9 @@ const MAX_COLLECTION_BEFORE_BUY = 247;
 const CORE_PATH = path.resolve('./logic/CoreMasterReference.json');
 const REVEAL_DIR = path.resolve('./public/data');
 
+// Unified coin bank file (authoritative); fall back to linked_decks when missing
+const COIN_BANK_FILE = (PATHS && PATHS.coinBank) ? PATHS.coinBank : 'data/coin_bank.json';
+
 // ────────────────────────────────────────────────────────────
 // Small utils
 // ────────────────────────────────────────────────────────────
@@ -85,6 +88,28 @@ async function _saveLinkedDecksSafe(data, client) {
       client,
       process.env.ADMIN_PAYOUT_CHANNEL_ID || process.env.ADMIN_PAYOUT_CHANNEL || process.env.ADMIN_PAYOUT_CHANNEL_ID,
       `${PATHS.linkedDecks} save failed: ${e.message}`
+    );
+    throw e;
+  }
+}
+
+async function _loadCoinBankSafe() {
+  try {
+    return await loadJSON(COIN_BANK_FILE);
+  } catch (e) {
+    L.storage(`load fail ${COIN_BANK_FILE}: ${e.message}`);
+    // If not present, start with empty object
+    return {};
+  }
+}
+async function _saveCoinBankSafe(data, client) {
+  try {
+    await saveJSON(COIN_BANK_FILE, data);
+  } catch (e) {
+    await adminAlert(
+      client,
+      process.env.ADMIN_PAYOUT_CHANNEL_ID || process.env.ADMIN_PAYOUT_CHANNEL || process.env.ADMIN_PAYOUT_CHANNEL_ID,
+      `${COIN_BANK_FILE} save failed: ${e.message}`
     );
     throw e;
   }
@@ -246,7 +271,11 @@ export default async function registerBuyCard(client) {
       if (profile.discordName !== buyer.username) profile.discordName = buyer.username;
       if (!profile.discordId) profile.discordId = buyerId;
 
-      const currentCoins = Number(profile.coins || 0);
+      // Unified coins source: prefer coin_bank.json, fallback to profile.coins
+      const coinBank = await _loadCoinBankSafe();
+      const currentCoins = Number(
+        (coinBank && coinBank[buyerId] != null) ? coinBank[buyerId] : profile.coins || 0
+      );
 
       // 24h cooldown
       const now = Date.now();
@@ -279,11 +308,11 @@ export default async function registerBuyCard(client) {
         });
       }
 
-      // Deduct
-      profile.coins = currentCoins - PACK_COST_COINS;
+      // Deduct (write through to BOTH coin_bank.json and profile.coins)
+      const newBalance = currentCoins - PACK_COST_COINS;
+      profile.coins = newBalance;
       profile.lastCoinsUpdatedAt = new Date().toISOString();
-
-      // Ensure token (for UI links)
+      // also ensure token (for UI links)
       if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
         profile.token = randomToken(24);
       }
@@ -323,9 +352,14 @@ export default async function registerBuyCard(client) {
 
       profile.lastPackPurchasedAt = new Date().toISOString();
 
-      // Persist profiles
+      // Persist: update both linked_decks.json and coin_bank.json atomically-ish
       linked[buyerId] = profile;
-      await _saveLinkedDecksSafe(linked, interaction.client);
+      coinBank[buyerId] = newBalance;
+
+      await Promise.all([
+        _saveLinkedDecksSafe(linked, interaction.client),
+        _saveCoinBankSafe(coinBank, interaction.client),
+      ]);
 
       // Persist reveal JSON (both userId and token file for UI)
       await fs.mkdir(REVEAL_DIR, { recursive: true });
@@ -370,7 +404,7 @@ export default async function registerBuyCard(client) {
       // Confirmation
       const msg =
         `✅ Purchase successful! **${PACK_COST_COINS}** coins deducted.\n` +
-        `💰 Remaining balance: **${profile.coins}** coin${profile.coins === 1 ? '' : 's'}.\n` +
+        `💰 Remaining balance: **${newBalance}** coin${newBalance === 1 ? '' : 's'}.\n` +
         (dmOk
           ? `📨 I’ve sent you a DM with your pack reveal link.`
           : `⚠️ I couldn’t DM you. Please enable DMs from server members and try again.`);
