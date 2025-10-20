@@ -1,23 +1,15 @@
+// cogs/viewlinked.js
+// Admin only: View all linked users, inspect a profile, and open a tokenized collection link.
+//
+// Uses Persistent Data API via utils/storageClient.js:
+//  - loadJSON(PATHS.linkedDecks)  // { [userId]: {discordName, token, deck, collection, coins?, ...} }
+//  - loadJSON(PATHS.wallet)       // { [userId]: number }
+//  - loadJSON(PATHS.playerData)   // { [userId]: {wins, losses} }
+//  - saveJSON(PATHS.linkedDecks, updatedObject)
+//
+// Config resolution order: ENV.CONFIG_JSON → config.json → defaults
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/viewlinked.js — Paginated with synced dropdown and profile viewer
-// Additions:
-//  • Token-aware deep link to the Card Collection UI for the selected user
-//  • Ensures a token exists for each user (mints & persists if missing)
-//  • Prefers coins from linked_decks.json (fallback to coin_bank.json)
-//  • Adds a "View Cards" LINK button next to the profile info
-
+import fs from 'fs';
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -26,245 +18,210 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ComponentType,
-  EmbedBuilder
+  EmbedBuilder,
 } from 'discord.js';
 import crypto from 'crypto';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-const ADMIN_ROLE_ID = '1173049392371085392';
-const ADMIN_CHANNEL_ID = '1368023977519222895';
-
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-const coinBankPath    = path.resolve('./data/coin_bank.json');
-const playerDataPath  = path.resolve('PATHS.playerData');
-
-/* ---------------- config helpers (matches duelcard/duelcoin style) ---------------- */
+/* ───────────────────────── Config helpers ───────────────────────── */
 function loadConfig() {
-  try {
-    const raw = process.env.CONFIG_JSON;
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn(`[viewlinked] CONFIG_JSON parse error: ${e?.message}`);
-  }
-  try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    return JSON.parse(require('fs').readFileSync('config.json', 'utf-8')) || {};
-  } catch {
-    return {};
-  }
+  try { if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON); }
+  catch (e) { console.warn('[viewlinked] CONFIG_JSON parse error:', e?.message); }
+  try { if (fs.existsSync('config.json')) return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {}; }
+  catch { /* ignore */ }
+  return {};
 }
-function trimBase(u = '') { return String(u).trim().replace(/\/+$/, ''); }
-function resolveCollectionBase(cfg) {
-  return trimBase(
-    cfg.collection_ui ||
-    cfg.ui_urls?.card_collection_ui ||
-    cfg.frontend_url ||
-    cfg.ui_base ||
-    cfg.UI_BASE ||
-    'https://madv313.github.io/Card-Collection-UI'
-  );
-}
-function resolveApiBase(cfg) {
-  return trimBase(cfg.api_base || cfg.API_BASE || process.env.API_BASE || '');
+const CFG = loadConfig();
+
+const FALLBACK_ADMIN_ROLE  = '1173049392371085392';
+const FALLBACK_ADMIN_CHAN  = '1368023977519222895';
+
+const ADMIN_ROLE_IDS   = Array.isArray(CFG.admin_role_ids) && CFG.admin_role_ids.length
+  ? CFG.admin_role_ids
+  : [FALLBACK_ADMIN_ROLE];
+
+const ADMIN_CHANNEL_ID = String(CFG.admin_payout_channel_id || FALLBACK_ADMIN_CHAN);
+
+const COLLECTION_BASE = (CFG.collection_ui
+  || CFG.ui_urls?.card_collection_ui
+  || CFG.frontend_url
+  || CFG.ui_base
+  || 'https://madv313.github.io/Card-Collection-UI').replace(/\/+$/,'');
+
+const API_BASE = (CFG.api_base || CFG.API_BASE || process.env.API_BASE || '').replace(/\/+$/,'');
+
+/* ───────────────────────── Small helpers ───────────────────────── */
+function hasAnyAdminRole(member) {
+  const cache = member?.roles?.cache;
+  if (!cache) return false;
+  return ADMIN_ROLE_IDS.some(rid => cache.has(rid));
 }
 function randomToken(len = 24) {
   return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
 }
+function asObject(x, fallback = {}) {
+  if (!x) return fallback;
+  if (typeof x === 'string') {
+    try { return JSON.parse(x); } catch { return fallback; }
+  }
+  if (typeof x === 'object') return x;
+  return fallback;
+}
 
+/* ───────────────────────── Command ───────────────────────── */
 export default async function registerViewLinked(client) {
-  const CFG = loadConfig();
-  const COLLECTION_BASE = resolveCollectionBase(CFG);
-  const API_BASE        = resolveApiBase(CFG);
-  const apiQP           = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
-
-  const commandData = new SlashCommandBuilder()
+  const data = new SlashCommandBuilder()
     .setName('viewlinked')
-    .setDescription('Admin only: View all currently linked users and inspect profiles.')
+    .setDescription('Admin only: View linked users and inspect a profile.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
-  client.slashData.push(commandData.toJSON());
+  client.slashData.push(data.toJSON());
 
   client.commands.set('viewlinked', {
-    data: commandData,
+    data,
     async execute(interaction) {
-      const userRoles = interaction.member?.roles?.cache;
-      const isAdmin   = userRoles?.has(ADMIN_ROLE_ID);
-      const channelId = interaction.channelId;
-
-      if (!isAdmin) {
-        return interaction.reply({
-          content: '🚫 You do not have permission to use this command.',
-          ephemeral: true
-        });
+      // Role & channel guard
+      if (!hasAnyAdminRole(interaction.member)) {
+        return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
       }
-
-      if (channelId !== ADMIN_CHANNEL_ID) {
+      if (String(interaction.channelId) !== String(ADMIN_CHANNEL_ID)) {
         return interaction.reply({
           content: '❌ This command MUST be used in the SV13 TCG - admin tools channel.',
           ephemeral: true
         });
       }
 
-      let linkedData = {};
-      try {
-        const raw = await loadJSON(PATHS.linkedDecks);
-        linkedData = JSON.parse(raw);
-      } catch {
-        return interaction.reply({
-          content: '⚠️ No linked users found.',
-          ephemeral: true
-        });
+      // Load linked users
+      let linkedData = asObject(await loadJSON(PATHS.linkedDecks), {});
+      const entries = Object.entries(linkedData);
+      if (!entries.length) {
+        return interaction.reply({ content: '⚠️ No linked profiles found.', ephemeral: true });
       }
 
-      const entries = Object.entries(linkedData || {});
-      if (entries.length === 0) {
-        return interaction.reply({
-          content: '⚠️ No linked profiles found.',
-          ephemeral: true
-        });
-      }
+      // Pagination
+      const pageSize = 25;
+      let page = 0;
+      const pages = Math.ceil(entries.length / pageSize);
 
-      const pageSize   = 25;
-      let currentPage  = 0;
-      const totalPages = Math.ceil(entries.length / pageSize);
-
-      const generatePageData = (page) => {
-        const pageEntries = entries.slice(page * pageSize, (page + 1) * pageSize);
-        const options = pageEntries.map(([id, data]) => ({
-          label: data.discordName,
-          value: id
+      const makePage = (p) => {
+        const slice = entries.slice(p * pageSize, (p + 1) * pageSize);
+        const options = slice.map(([id, prof]) => ({
+          label: prof?.discordName || id,
+          value: id,
         }));
 
         const dropdown = new StringSelectMenuBuilder()
-          .setCustomId(`select_view_profile_page_${page}`)
+          .setCustomId(`viewlinked_select_${p}`)
           .setPlaceholder('🔻 View user profile')
           .addOptions(options);
 
-        const embed = new EmbedBuilder()
-          .setTitle(`<:tech_phantoms:1391237241418023075> Linked Users`)
-          .setDescription(`Page ${page + 1} of ${totalPages} (Showing ${pageEntries.length} of ${entries.length})`);
-
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('prev_page').setLabel('⏮ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-          new ButtonBuilder().setCustomId('next_page').setLabel('Next ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
+        const rowSelect = new ActionRowBuilder().addComponents(dropdown);
+        const rowNav = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('prev').setStyle(ButtonStyle.Secondary).setLabel('⏮ Prev').setDisabled(p === 0),
+          new ButtonBuilder().setCustomId('next').setStyle(ButtonStyle.Secondary).setLabel('Next ⏭').setDisabled(p === pages - 1),
         );
 
-        const row = new ActionRowBuilder().addComponents(dropdown);
-        return { embed, row, buttons };
+        const embed = new EmbedBuilder()
+          .setTitle('🔗 Linked Users')
+          .setDescription(`Page ${p + 1} of ${pages} — ${entries.length} total users`)
+          .setColor(0x00ccff);
+
+        return { embed, rowSelect, rowNav };
       };
 
-      const first = generatePageData(currentPage);
-
-      const reply = await interaction.reply({
+      const first = makePage(page);
+      const msg = await interaction.reply({
         embeds: [first.embed],
-        components: [first.row, first.buttons],
+        components: [first.rowSelect, first.rowNav],
         ephemeral: true,
         fetchReply: true
       });
 
-      const buttonCollector = reply.createMessageComponentCollector({
+      // Buttons for pagination
+      const btnCollector = msg.createMessageComponentCollector({
         componentType: ComponentType.Button,
         time: 120_000
       });
 
-      const dropdownCollector = reply.createMessageComponentCollector({
+      btnCollector.on('collect', async i => {
+        if (i.user.id !== interaction.user.id) {
+          return i.reply({ content: '⚠️ You can’t interact with this menu.', ephemeral: true });
+        }
+        if (i.customId === 'prev') page = Math.max(0, page - 1);
+        if (i.customId === 'next') page = Math.min(pages - 1, page + 1);
+        const built = makePage(page);
+        await i.update({ embeds: [built.embed], components: [built.rowSelect, built.rowNav] });
+      });
+
+      // Dropdown for viewing a profile
+      const ddCollector = msg.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         time: 120_000
       });
 
-      buttonCollector.on('collect', async i => {
+      ddCollector.on('collect', async i => {
         if (i.user.id !== interaction.user.id) {
-          return i.reply({ content: '⚠️ You can’t interact with this menu.', ephemeral: true });
+          return i.reply({ content: '⚠️ You can’t interact with this dropdown.', ephemeral: true });
         }
+        await i.deferUpdate();
 
-        if (i.customId === 'prev_page') {
-          currentPage = Math.max(currentPage - 1, 0);
-        } else if (i.customId === 'next_page') {
-          currentPage = Math.min(currentPage + 1, totalPages - 1);
-        }
+        const userId = i.values[0];
 
-        const { embed, row, buttons } = generatePageData(currentPage);
-        await i.update({ embeds: [embed], components: [row, buttons] });
-      });
+        // Re-read latest snapshots to minimize race conditions
+        let linkedNow   = asObject(await loadJSON(PATHS.linkedDecks), {});
+        let walletNow   = asObject(await loadJSON(PATHS.wallet).catch(() => ({})), {});
+        let playerStats = asObject(await loadJSON(PATHS.playerData).catch(() => ({})), {});
 
-      dropdownCollector.on('collect', async selectInteraction => {
-        if (selectInteraction.user.id !== interaction.user.id) {
-          return selectInteraction.reply({
-            content: '⚠️ You can’t interact with this dropdown.',
-            ephemeral: true
-          });
-        }
+        // Ensure profile presence (should exist because it was listed)
+        const prof = linkedNow[userId] || { discordName: userId, deck: [], collection: {}, createdAt: new Date().toISOString() };
 
-        const selectedId = selectInteraction.values[0];
-        // Re-read latest to reduce race conditions when tokens/coins change elsewhere
-        let latestLinked = {};
-        try {
-          latestLinked = JSON.parse(await loadJSON(PATHS.linkedDecks));
-        } catch {
-          latestLinked = linkedData;
-        }
-
-        // Ensure profile & token
-        const profile = latestLinked[selectedId] || {
-          discordName: selectedId,
-          deck: [],
-          collection: {},
-          createdAt: new Date().toISOString()
-        };
-        if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
-          profile.token = randomToken(24);
-          latestLinked[selectedId] = profile;
-          // Persist token for future deep links
-          try {
-            await saveJSON(PATHS.linkedDecks));
-          } catch (e) {
+        // Ensure token
+        if (typeof prof.token !== 'string' || prof.token.length < 12) {
+          prof.token = randomToken(24);
+          linkedNow[userId] = prof;
+          try { await saveJSON(PATHS.linkedDecks, linkedNow); } catch (e) {
             console.warn('[viewlinked] Failed to persist token mint:', e?.message || e);
           }
         }
 
-        // Coins: prefer profile.coins if present, fallback to coin_bank
-        let coin = Number(profile.coins ?? 0);
-        if (!Number.isFinite(coin) || coin < 0) coin = 0;
-        if (coin === 0) {
-          try {
-            const coinData = JSON.parse(await loadJSON(PATHS.linkedDecks));
-            coin = Number(coinData[selectedId] ?? 0) || coin;
-          } catch {}
-        }
+        // Coins: prefer profile.coins, else wallet
+        let coins = Number(prof.coins ?? 0);
+        if (!Number.isFinite(coins) || coins < 0) coins = 0;
+        if (coins === 0) coins = Number(walletNow[userId] ?? 0) || coins;
 
-        // Wins / Losses (optional)
-        let wins = 0, losses = 0;
-        try {
-          const statsData = JSON.parse(await loadJSON(PATHS.linkedDecks));
-          if (statsData[selectedId]) {
-            wins   = Number(statsData[selectedId].wins   ?? 0) || 0;
-            losses = Number(statsData[selectedId].losses ?? 0) || 0;
-          }
-        } catch {}
+        // Wins/losses
+        const wins   = Number(playerStats[userId]?.wins   ?? 0) || 0;
+        const losses = Number(playerStats[userId]?.losses ?? 0) || 0;
 
-        // Unique unlocked within 001–127
-        const ownedIds = Object.keys(profile.collection || {});
-        const uniqueUnlocked = ownedIds.filter(id => {
-          const parsed = parseInt(id, 10);
-          return parsed >= 1 && parsed <= 127;
+        // Collection stats
+        const coll = prof.collection || {};
+        const totalOwned = Object.values(coll).reduce((a, b) => a + Number(b || 0), 0);
+        const uniqueUnlocked = Object.keys(coll).filter(id => {
+          const n = parseInt(id, 10);
+          return n >= 1 && n <= 127; // current base set window
         }).length;
-        const totalOwned = Object.values(profile.collection || {}).reduce((a, b) => a + Number(b || 0), 0);
 
-        const profileEmbed = new EmbedBuilder()
-          .setTitle(`<:ID:1391239596112613376> Profile: ${profile.discordName}`)
-          .addFields(
-            { name: '🂠 Deck Size', value: `${profile.deck?.length || 0}`, inline: true },
-            { name: '🀢🀣🀦🀤 Collection Size', value: `${totalOwned}`, inline: true },
-            { name: '🀢ᯓ★ Cards Unlocked', value: `${uniqueUnlocked} / 127`, inline: true },
-            { name: '⛃ Coins', value: `${coin}`, inline: true },
-            { name: '╰── ──╮ Wins / Losses', value: `${wins} / ${losses}`, inline: true }
-          )
-          .setFooter({ text: `Discord ID: ${selectedId}` });
-
-        // Build tokenized Collection URL (include &api= if configured, plus cache-busting ts)
+        // Build tokenized collection link
         const ts = Date.now();
-        const collectionUrl = `${COLLECTION_BASE}/?token=${encodeURIComponent(profile.token)}${apiQP}&ts=${ts}`;
+        const qp = new URLSearchParams();
+        qp.set('token', prof.token);
+        if (API_BASE) qp.set('api', API_BASE);
+        qp.set('ts', String(ts));
 
-        // Add a LINK button so admins can open the player’s collection directly
+        const collectionUrl = `${COLLECTION_BASE}/?${qp.toString()}`;
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🧑‍🚀 Profile: ${prof.discordName || userId}`)
+          .addFields(
+            { name: 'Deck Size', value: `${Array.isArray(prof.deck) ? prof.deck.length : 0}`, inline: true },
+            { name: 'Collection Cards', value: `${totalOwned}`, inline: true },
+            { name: 'Unique Unlocked (001–127)', value: `${uniqueUnlocked} / 127`, inline: true },
+            { name: 'Coins', value: `${coins}`, inline: true },
+            { name: 'Wins / Losses', value: `${wins} / ${losses}`, inline: true },
+          )
+          .setFooter({ text: `Discord ID: ${userId}` })
+          .setColor(0x00ccff);
+
         const linkRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setStyle(ButtonStyle.Link)
@@ -272,24 +229,24 @@ export default async function registerViewLinked(client) {
             .setLabel('📒 View Cards')
         );
 
-        await selectInteraction.reply({
-          embeds: [profileEmbed],
+        await interaction.followUp({
+          embeds: [embed],
           components: [linkRow],
           ephemeral: true
         });
       });
 
-      dropdownCollector.on('end', async collected => {
-        if (collected.size === 0) {
-          try {
-            await interaction.editReply({
-              content: '⏰ No selection made. Command expired.',
-              embeds: [],
-              components: []
-            });
-          } catch {}
-        }
-      });
+      const endAll = async () => {
+        try {
+          await interaction.editReply({
+            content: '⏰ No selection made. Command expired.',
+            embeds: [],
+            components: []
+          });
+        } catch {}
+      };
+      btnCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
+      ddCollector.on('end', (_c, r) => { if (r === 'time') endAll(); });
     }
   });
 }
