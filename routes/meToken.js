@@ -5,6 +5,7 @@
 //   - GET  /me/:token/sell/status   (check today's sold count & remaining)
 //   - POST /me/:token/sell/preview  (compute coin credit for proposed sale)
 //   - POST /me/:token/sell          (sell up to 5 cards per 24h, decrements collection, credits coins)
+//   - GET  /me/:token/coins         (UNIFIED coin balance for frontends)
 
 import express from 'express';
 import {
@@ -64,6 +65,24 @@ function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Unified coins getter:
+ * - Primary: data/coin_bank.json[userId]
+ * - Fallback: data/linked_decks.json[userId].coins
+ * Returns a finite number (default 0).
+ */
+async function getCoinsUnified(userId) {
+  const [bank, linked] = await Promise.all([
+    readJsonRemote(COIN_BANK_FILE, {}),
+    readJsonRemote(LINKED_DECKS_FILE, {})
+  ]);
+  const fromBank   = Number(bank?.[userId]);
+  const fromLinked = Number(linked?.[userId]?.coins);
+  if (Number.isFinite(fromBank)) return fromBank;
+  if (Number.isFinite(fromLinked)) return fromLinked;
+  return 0;
+}
+
 /* ------------------------------- GET collection ------------------------------ */
 /**
  * GET /me/:token/collection
@@ -110,6 +129,7 @@ router.get('/me/:token/collection', async (req, res) => {
 /**
  * GET /me/:token/stats
  * -> { userId, discordName, coins, wins, losses }
+ * (coins now comes from unified source)
  */
 router.get('/me/:token/stats', async (req, res) => {
   try {
@@ -117,16 +137,17 @@ router.get('/me/:token/stats', async (req, res) => {
     const userId = await resolveUserIdByToken(token);
     if (!userId) return res.status(404).json({ error: 'Invalid token' });
 
-    const [stats, profile] = await Promise.all([
+    const [stats, profile, coins] = await Promise.all([
       getUserStats(userId),
-      getPlayerProfileByUserId(userId)
+      getPlayerProfileByUserId(userId),
+      getCoinsUnified(userId)
     ]);
 
     res.set('Cache-Control', 'no-store');
     res.json({
       userId,
       discordName: profile?.discordName || '',
-      coins: stats.coins || 0,
+      coins: Number(coins) || 0,
       wins: stats.wins || 0,
       losses: stats.losses || 0
     });
@@ -136,10 +157,32 @@ router.get('/me/:token/stats', async (req, res) => {
   }
 });
 
+/* ----------------------- Convenient coins-only endpoint ---------------------- */
+/**
+ * GET /me/:token/coins
+ * -> { ok: true, coins }
+ * Minimal round-trip for frontends that just need the current balance.
+ */
+router.get('/me/:token/coins', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = await resolveUserIdByToken(token);
+    if (!userId) return res.status(404).json({ error: 'Invalid token' });
+
+    const coins = await getCoinsUnified(userId);
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, coins: Number(coins) || 0 });
+  } catch (e) {
+    console.error('[meToken] coins error:', e);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 /* ---------------------------- Compat GET ?token= ------------------------------ */
 /**
  * Compat: GET /userStatsToken?token=...
  * Same as /me/:token/stats but with a query param.
+ * (coins now comes from unified source)
  */
 router.get('/userStatsToken', async (req, res) => {
   try {
@@ -149,16 +192,17 @@ router.get('/userStatsToken', async (req, res) => {
     const userId = await resolveUserIdByToken(String(token));
     if (!userId) return res.status(404).json({ error: 'Invalid token' });
 
-    const [stats, profile] = await Promise.all([
+    const [stats, profile, coins] = await Promise.all([
       getUserStats(userId),
-      getPlayerProfileByUserId(userId)
+      getPlayerProfileByUserId(userId),
+      getCoinsUnified(userId)
     ]);
 
     res.set('Cache-Control', 'no-store');
     res.json({
       userId,
       discordName: profile?.discordName || '',
-      coins: stats.coins || 0,
+      coins: Number(coins) || 0,
       wins: stats.wins || 0,
       losses: stats.losses || 0
     });
