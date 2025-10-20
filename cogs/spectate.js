@@ -1,33 +1,22 @@
+// cogs/spectate.js
+// /spectate — Browse & join active duels as a spectator.
+//
+// - Battlefield channel only
+// - Requires a linked profile; self-heals token if missing
+// - Pulls active duels from backend (/duel/active), PUBLIC→INTERNAL fallback
+// - Paginated dropdown of matches; returns a personalized spectator URL
+//
+// Config (ENV CONFIG_JSON takes precedence over config.json):
+//   battlefield_channel_id
+//   duel_ui_url (or ui_urls.duel_ui)
+//   api_base
+//   image_base
+//
+// Files via Persistent Data API:
+//   PATHS.linkedDecks
 
-async function _loadJSONSafe(name){
-  try { return await loadJSON(name); }
-  catch(e){ L.storage(`load fail ${name}: ${e.message}`); throw e; }
-}
-async function _saveJSONSafe(name, data, client){
-  try { await saveJSON(name, data); }
-  catch(e){ await adminAlert(client, process.env.PAYOUTS_CHANNEL_ID, `${name} save failed: ${e.message}`); throw e; }
-}
-
-import { adminAlert } from '../utils/adminAlert.js';
-import { L } from '../utils/logs.js';
-import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
-// cogs/spectate.js — Browse & join active duels as a spectator.
-// - Restricted to Battlefield channel (warns otherwise)
-// - Requires the invoker to be linked (warns to /linkdeck otherwise)
-// - Passes invoker's token in spectator links so the UI can show/viewers
-// - Pulls active duels from backend; paginated dropdown of matches
-// - On selection, returns an ephemeral embed with a personalized spectator link
-//
-// Backend contract (best-effort; tries both public & internal):
-//   GET  {PUBLIC_BACKEND_URL}/duel/active     (fallback to INTERNAL_BACKEND_URL)
-//     returns: { ok: true, duels: [{ id, status, startedAt, isPractice?, players:[{userId,name}], ... }] }
-//
-// Spectator URL construction (fallback if backend doesn't return URLs):
-//   {DUEL_UI_URL}?mode=duel&session=<id>&role=spectator&token=<yourToken>&api=<PUBLIC_BACKEND_URL>&ts=<now>
-//
-// Notes:
-// - We resolve Discord display names using linked_decks.json when possible.
-// - Dropdown is ephemeral and supports up to 25 options per page; nav with Prev/Next buttons.
+import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import {
   SlashCommandBuilder,
@@ -39,12 +28,17 @@ import {
   EmbedBuilder,
   MessageFlags
 } from 'discord.js';
+import { loadJSON, saveJSON, PATHS } from '../utils/storageClient.js';
 
-/* ───────────── Config & helpers (same style as challenge/practice) ───────────── */
-
-const DEFAULT_BATTLEFIELD_CHANNEL_ID = '1367986446232719484';
-const BATTLEFIELD_CHANNEL_ID =
-  process.env.BATTLEFIELD_CHANNEL_ID || DEFAULT_BATTLEFIELD_CHANNEL_ID;
+/* ───────────────────────── Config helpers ───────────────────────── */
+function loadConfig() {
+  try { if (process.env.CONFIG_JSON) return JSON.parse(process.env.CONFIG_JSON); }
+  catch (e) { console.warn('[spectate] CONFIG_JSON parse error:', e?.message); }
+  try { if (fs.existsSync('config.json')) return JSON.parse(fs.readFileSync('config.json', 'utf-8')) || {}; }
+  catch {}
+  return {};
+}
+const trim = v => String(v ?? '').trim().replace(/\/+$/, '');
 
 const IS_RAILWAY =
   !!process.env.RAILWAY_ENVIRONMENT ||
@@ -53,75 +47,22 @@ const IS_RAILWAY =
 
 const PORT = process.env.PORT || '8080';
 
-let cfg = {};
-try {
-  const raw = fssync.readFileSync('config.json', 'utf-8');
-  cfg = JSON.parse(raw);
-} catch (_) {}
-
-const trim = v => String(v || '').replace(/\/+$/, '');
-const pick = (envKeys, cfgKeys, fallback) => {
-  for (const k of envKeys) {
-    const v = process.env[k];
-    if (v) return trim(v);
-  }
-  for (const k of cfgKeys) {
-    const v = cfg[k];
-    if (v) return trim(v);
-  }
+function pickUrl({ envKeys = [], cfgKeys = [], fallback = '' }, cfg) {
+  for (const k of envKeys) if (process.env[k]) return trim(process.env[k]);
+  for (const k of cfgKeys) if (cfg[k]) return trim(cfg[k]);
   return trim(fallback);
-};
-
-// Public backend URL (for UIs)
-const PUBLIC_BACKEND_URL = pick(
-  ['DUEL_BACKEND_URL', 'BACKEND_URL'],
-  ['duel_backend_base_url'],
-  IS_RAILWAY ? `https://example.invalid` : `http://localhost:${PORT}`
-);
-
-// Internal backend URL (for bot→server)
-const INTERNAL_BACKEND_URL = pick(
-  ['INTERNAL_BACKEND_URL'],
-  [],
-  IS_RAILWAY ? `http://127.0.0.1:${PORT}` : `http://localhost:${PORT}`
-);
-
-// Duel UI base (public)
-const DUEL_UI_URL = pick(
-  ['DUEL_UI_URL', 'DUEL_UI'],
-  ['duel_ui_url'],
-  'http://localhost:5173'
-);
-
-// Whether to add &api=<public-backend> to links
-const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? cfg.pass_api_query ?? 'true')
-  .toLowerCase() === 'true';
-
-// Optional shared BOT key (not required to read public /duel/active)
-const BOT_API_KEY = process.env.BOT_API_KEY || '';
-
-/* ───────────── Files & small helpers ───────────── */
-
-const linkedDecksPath = path.resolve('PATHS.linkedDecks');
-
-async function await _loadJSONSafe(PATHS.linkedDecks) {
-  try { return JSON.parse(await loadJSON(PATHS.linkedDecks)); } catch { return fb; }
-}
-async function await _saveJSONSafe(PATHS.linkedDecks, \1, client) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await saveJSON(PATHS.linkedDecks));
-}
-function randomToken(len = 24) {
-  return crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
-}
-function isTokenValid(t) {
-  return typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
 }
 
-/** Ensure a token exists for an already-linked user. Returns token or null if not linked. */
+/* ───────────────────────── Small helpers ───────────────────────── */
+const isTokenValid = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{12,128}$/.test(t);
+const randomToken  = (len = 24) => crypto.randomBytes(Math.ceil((len * 3) / 4)).toString('base64url').slice(0, len);
+
+/** Ensure a token exists for an already-linked user; returns token or null if not linked. */
 async function ensureTokenIfLinked(userId, userName) {
-  const linked = await await _loadJSONSafe(PATHS.linkedDecks);
+  let linked = {};
+  try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
   if (!linked[userId]) return null;
+
   let changed = false;
   if (linked[userId].discordName !== userName) {
     linked[userId].discordName = userName;
@@ -131,80 +72,110 @@ async function ensureTokenIfLinked(userId, userName) {
     linked[userId].token = randomToken(24);
     changed = true;
   }
-  if (changed) await await _saveJSONSafe(PATHS.linkedDecks, \1, client);
+  if (changed) {
+    await saveJSON(PATHS.linkedDecks, linked);
+  }
   return linked[userId].token;
 }
 
 /** Fetch active duels from backend; tries PUBLIC then INTERNAL; returns [] on failure. */
-async function fetchActiveDuels() {
+async function fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_API_KEY }) {
   const tryUrls = [
     `${PUBLIC_BACKEND_URL}/duel/active`,
     `${INTERNAL_BACKEND_URL}/duel/active`
   ];
   for (const url of tryUrls) {
     try {
-      const r = await fetch(url, {
-        headers: { ...(BOT_API_KEY ? { 'X-Bot-Key': BOT_API_KEY } : {}) }
-      });
+      const r = await fetch(url, { headers: { ...(BOT_API_KEY ? { 'X-Bot-Key': BOT_API_KEY } : {}) } });
       if (!r.ok) continue;
       const json = await r.json().catch(() => null);
-      if (json && Array.isArray(json.duels)) {
-        return json.duels;
-      }
-      // Some backends might just return an array
+      if (json && Array.isArray(json.duels)) return json.duels;
       if (Array.isArray(json)) return json;
-    } catch {
-      // continue to next URL
-    }
+    } catch {}
   }
   return [];
 }
 
 /** Normalize a duel record into a UI-friendly item. */
 function normalizeDuel(d, linked) {
-  const id = String(d.id || d.session || d.sessionId || '');
+  const id = String(d.id || d.session || d.sessionId || '').trim();
   const status = String(d.status || 'active').toLowerCase();
   const practice = !!(d.isPractice || d.practice);
 
-  // Extract names/ids
   const players = Array.isArray(d.players) ? d.players : [];
-  let a = players[0] || {};
-  let b = players[1] || {};
-  // Some backends might use fields like challenger/opponent
-  if (!players.length && (d.challenger || d.opponent)) {
-    a = d.challenger || {};
-    b = d.opponent || {};
-  }
+  let a = players[0] || d.challenger || {};
+  let b = players[1] || d.opponent   || {};
 
-  const aId = String(a.userId || a.id || a.discordId || '');
-  const bId = String(b.userId || b.id || b.discordId || '');
+  const aId = String(a.userId || a.id || a.discordId || '').trim();
+  const bId = String(b.userId || b.id || b.discordId || '').trim();
 
   const aName = (linked?.[aId]?.discordName) || a.name || (aId ? `<@${aId}>` : 'Unknown');
-  const bName = practice
-    ? 'Practice Bot'
-    : ((linked?.[bId]?.discordName) || b.name || (bId ? `<@${bId}>` : 'Unknown'));
+  const bName = practice ? 'Practice Bot' : ((linked?.[bId]?.discordName) || b.name || (bId ? `<@${bId}>` : 'Unknown'));
 
   return { id, status, aId, bId, aName, bName, isPractice: practice };
 }
 
 /** Build personalized spectator URL */
-function buildSpectatorUrl({ sessionId, token }) {
+function buildSpectatorUrl({ sessionId, token, DUEL_UI_URL, PUBLIC_BACKEND_URL, IMAGE_BASE, PASS_API_QUERY }) {
   const qp = new URLSearchParams();
   qp.set('mode', 'duel');
   qp.set('session', sessionId);
   qp.set('role', 'spectator');
   if (token) qp.set('token', token);
   if (PASS_API_QUERY) qp.set('api', PUBLIC_BACKEND_URL);
-  const imgBase =
-    cfg.image_base || cfg.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards';
-  if (imgBase) qp.set('imgbase', imgBase);
+  if (IMAGE_BASE) qp.set('imgbase', IMAGE_BASE);
   qp.set('ts', String(Date.now()));
   return `${DUEL_UI_URL}?${qp.toString()}`;
 }
 
-/* ───────────── Command registration ───────────── */
-
+/* ───────────────────────── Command registration ───────────────────────── */
 export default async function registerSpectate(bot) {
+  const CFG = loadConfig();
+
+  const BATTLEFIELD_CHANNEL_ID = String(
+    CFG.battlefield_channel_id ||
+    process.env.BATTLEFIELD_CHANNEL_ID ||
+    '1367986446232719484'
+  );
+
+  const PUBLIC_BACKEND_URL = pickUrl(
+    {
+      envKeys: ['DUEL_BACKEND_URL', 'BACKEND_URL'],
+      cfgKeys: ['duel_backend_base_url'],
+      fallback: IS_RAILWAY ? 'https://example.invalid' : `http://localhost:${PORT}`
+    },
+    CFG
+  );
+
+  const INTERNAL_BACKEND_URL = pickUrl(
+    {
+      envKeys: ['INTERNAL_BACKEND_URL'],
+      cfgKeys: [],
+      fallback: IS_RAILWAY ? `http://127.0.0.1:${PORT}` : `http://localhost:${PORT}`
+    },
+    CFG
+  );
+
+  const DUEL_UI_URL = pickUrl(
+    {
+      envKeys: ['DUEL_UI_URL', 'DUEL_UI'],
+      cfgKeys: ['duel_ui_url', 'ui_urls?.duel_ui'],
+      fallback: 'https://madv313.github.io/Duel-UI'
+    },
+    CFG
+  );
+
+  const PASS_API_QUERY = String(process.env.PASS_API_QUERY ?? CFG.pass_api_query ?? 'true').toLowerCase() === 'true';
+
+  const IMAGE_BASE = trim(
+    process.env.IMAGE_BASE ||
+    CFG.image_base ||
+    CFG.IMAGE_BASE ||
+    'https://madv313.github.io/Card-Collection-UI/images/cards'
+  );
+
+  const BOT_API_KEY = process.env.BOT_API_KEY || '';
+
   const data = new SlashCommandBuilder()
     .setName('spectate')
     .setDescription('View live duels and join as a spectator.')
@@ -226,21 +197,24 @@ export default async function registerSpectate(bot) {
       const invokerId = interaction.user.id;
       const invokerName = interaction.user.username;
 
-      // Must be linked first
+      // Must be linked (and ensure a token)
       const token = await ensureTokenIfLinked(invokerId, invokerName);
       if (!token) {
         return interaction.reply({
-          content: '❌ You are not linked yet. Please run **/linkdeck** in **#manage-cards** before using Duel Bot commands.',
+          content: '❌ You are not linked yet. Please run **/linkdeck** in **#manage-cards**.',
           flags: MessageFlags.Ephemeral
         });
       }
 
-      // Load linked names to render labels
-      const linked = await await _loadJSONSafe(PATHS.linkedDecks);
-      const duelsRaw = await fetchActiveDuels();
-      const duels = duelsRaw
+      // Load linked map for name resolution
+      let linked = {};
+      try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
+
+      // Fetch active duels
+      const raw = await fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_API_KEY });
+      const duels = raw
         .map(d => normalizeDuel(d, linked))
-        .filter(d => d.id && (d.status === 'active' || d.status === 'live' || d.status === 'running'));
+        .filter(d => d.id && ['active', 'live', 'running'].includes(d.status));
 
       if (!duels.length) {
         const empty = new EmbedBuilder()
@@ -250,7 +224,7 @@ export default async function registerSpectate(bot) {
         return interaction.reply({ embeds: [empty], flags: MessageFlags.Ephemeral });
       }
 
-      // Paginated dropdown (25 per page)
+      // Paginate 25 per page
       const pageSize = 25;
       let page = 0;
       const pages = Math.ceil(duels.length / pageSize);
@@ -277,9 +251,7 @@ export default async function registerSpectate(bot) {
 
         const embed = new EmbedBuilder()
           .setTitle('🎥 Live Duels')
-          .setDescription(
-            slice.map(d => `• **${d.aName}** vs **${d.bName}** — *Live now*`).join('\n')
-          )
+          .setDescription(slice.map(d => `• **${d.aName}** vs **${d.bName}** — *Live now*`).join('\n'))
           .setColor(0x00ccff)
           .setFooter({ text: `Page ${p + 1} of ${pages}` });
 
@@ -330,26 +302,27 @@ export default async function registerSpectate(bot) {
           });
         }
 
-        // Build personalized spectator URL
-        const specUrl = buildSpectatorUrl({ sessionId: picked.id, token });
+        // Personalized spectator URL
+        const specUrl = buildSpectatorUrl({
+          sessionId: picked.id,
+          token,
+          DUEL_UI_URL,
+          PUBLIC_BACKEND_URL,
+          IMAGE_BASE,
+          PASS_API_QUERY
+        });
 
         const embed = new EmbedBuilder()
           .setTitle('🎥 Spectate Duel')
-          .setDescription(
-            [
-              `**Match:** ${picked.aName} vs ${picked.bName}`,
-              `**Status:** Live now`,
-              '',
-              `🔗 **Join as Spectator:** ${specUrl}`
-            ].join('\n')
-          )
+          .setDescription([
+            `**Match:** ${picked.aName} vs ${picked.bName}`,
+            `**Status:** Live now`,
+            '',
+            `🔗 **Join as Spectator:** ${specUrl}`
+          ].join('\n'))
           .setColor(0x2ecc71);
 
-        await interaction.editReply({
-          embeds: [embed],
-          components: []
-        });
-
+        await interaction.editReply({ embeds: [embed], components: [] });
         try { btnCollector.stop(); } catch {}
         try { ddCollector.stop(); } catch {}
       });
@@ -357,7 +330,7 @@ export default async function registerSpectate(bot) {
       const endAll = async () => {
         try {
           await interaction.editReply({
-            content: '⏰ Spectate menu expired. Run **/spectate** again to refresh live duels.',
+            content: '⏰ Spectate menu expired. Run **/spectate** again to refresh.',
             embeds: [],
             components: []
           });
