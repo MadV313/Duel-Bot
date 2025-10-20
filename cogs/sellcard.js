@@ -95,7 +95,7 @@ export default async function registerSellCard(client) {
       if (!requireSupporter(interaction.member)) {
         return interaction.reply({
           ephemeral: true,
-          content: '❌ Supporter or Elite Collector role required.'
+          content: '❌ You need the **Supporter** or **Elite Collector** role to use this command. Join on Ko-fi to unlock full access.'
         });
       }
 
