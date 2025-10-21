@@ -6,6 +6,14 @@ import { fileURLToPath } from 'url';
 import { startPracticeDuel, duelState } from '../logic/duelState.js';
 import { applyBotMove } from '../logic/botHandler.js';
 
+// NEW: session registry
+import {
+  upsertSession,
+  setSessionStateProvider,
+  listActiveSessions,
+  getSessionState,
+} from '../logic/duelRegistry.js';
+
 const router = express.Router();          // mounted at /duel
 export const botAlias = express.Router(); // mounted at /bot
 
@@ -37,7 +45,22 @@ async function startPracticeHandler(req, res) {
 
   try {
     const cards = await loadCoreCards();
-    startPracticeDuel(cards); // sets duelState (200 HP, draw 3, coin flip)
+    startPracticeDuel(cards); // sets global duelState (200 HP, draw 3, coin flip)
+
+    // NEW: also reflect the practice duel into the session registry
+    const sessionId = 'practice';
+    upsertSession({
+      id: sessionId,
+      status: 'live',
+      isPractice: true,
+      // You can fill names if your duelState tracks them; safe defaults here:
+      players: [
+        // viewer name resolution is handled client-side; ids can be empty here
+        { userId: '', name: 'Player' },
+        { userId: 'bot', name: 'Practice Bot' },
+      ],
+    });
+    setSessionStateProvider(sessionId, () => duelState);
 
     console.log(
       `[duel] practice.init ${JSON.stringify({
@@ -81,6 +104,9 @@ async function botTurnHandler(req, res) {
 
     const updated = await applyBotMove(req.body);
 
+    // If this was a practice move, refresh "practice" session updatedAt implicitly.
+    // (If needed later, call upsertSession({id:'practice', ...same fields }) here.)
+
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
         t: new Date().toISOString(),
@@ -116,16 +142,38 @@ function statusHandler(_req, res) {
 }
 
 // ────────────────────────────────────────────────────────────
-// Public routes
+// NEW: multi-lobby endpoints (non-breaking)
+// ────────────────────────────────────────────────────────────
+
+// List all currently active sessions (practice + any future PvP)
+function listActiveHandler(_req, res) {
+  const list = listActiveSessions();
+  res.json({ duels: list });
+}
+
+// Return duel state; supports ?session=... (falls back to global practice for backward-compat)
+function stateHandler(req, res) {
+  const sessionId = String(req.query.session || '').trim();
+  if (sessionId) {
+    const state = getSessionState(sessionId);
+    if (state) return res.json(state);
+    return res.status(404).json({ error: 'Session not found', session: sessionId });
+  }
+  // Backward-compat: no session param returns the global duelState
+  return res.json(duelState);
+}
+
 // ────────────────────────────────────────────────────────────
 router.get('/status', statusHandler);
 botAlias.get('/status', statusHandler);
 
-router.get('/practice', startPracticeHandler); // /duel/practice
-botAlias.get('/practice', startPracticeHandler); // /bot/practice
+router.get('/practice', startPracticeHandler);     // /duel/practice
+botAlias.get('/practice', startPracticeHandler);   // /bot/practice
 
-router.post('/turn', botTurnHandler); // /duel/turn
+router.post('/turn', botTurnHandler);              // /duel/turn
 
-router.get('/state', (_req, res) => res.json(duelState)); // debug
+// NEW (non-breaking additions)
+router.get('/active', listActiveHandler);          // /duel/active
+router.get('/state', stateHandler);                // /duel/state[?session=...]
 
 export default router;
