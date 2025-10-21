@@ -10,6 +10,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { startLiveDuel, duelState } from '../logic/duelState.js';
 import { load_file } from '../utils/storageClient.js';
 
+// NEW: session registry (multi-duel discovery)
+import {
+  upsertSession,
+  setSessionStateProvider,
+} from '../logic/duelRegistry.js';
+
 const router = express.Router();
 
 // ────────────────────────────────────────────────────────────
@@ -33,7 +39,9 @@ try {
 router.post('/start', async (req, res) => {
   const { player1Id, player2Id, wager = 0 } = req.body || {};
 
-  // Prevent launching if duel already active
+  // Prevent launching if duel already active (global duelState guard)
+  // NOTE: This preserves current behavior. True concurrency will require
+  // per-session state in logic/duelState.js (not just a single global duelState).
   if (
     duelState.players?.player1?.deck?.length ||
     duelState.players?.player2?.deck?.length
@@ -70,12 +78,31 @@ router.post('/start', async (req, res) => {
       });
     }
 
-    // Launch the duel
+    // Launch the duel (global duelState is initialized here)
     const duelId = uuidv4();
     duelState.duelId = duelId;
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager);
 
-    const uiUrl = `${process.env.FRONTEND_URL}/duel.html?player=${player1Id}`;
+    // ── NEW: Register this duel in the session registry for /duel/active discovery
+    upsertSession({
+      id: duelId,
+      status: 'live',
+      isPractice: false,
+      players: [
+        { userId: String(player1Id || ''), name: 'Player 1' },
+        { userId: String(player2Id || ''), name: (player2Id === 'bot' ? 'Practice Bot' : 'Player 2') },
+      ],
+    });
+
+    // Expose a state provider. For now, we return the global duelState to retain behavior.
+    // When you move to per-session state, replace this with a per-session getter.
+    setSessionStateProvider(duelId, () => duelState);
+
+    const uiBase = process.env.FRONTEND_URL || '';
+    const uiUrl  = uiBase
+      ? `${uiBase}/duel.html?player=${player1Id}`
+      : undefined;
+
     console.log(
       `[DUEL] Started live duel ${duelId} between ${player1Id} and ${player2Id} (wager=${wager})`
     );
