@@ -89,7 +89,13 @@ async function fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_
       const r = await fetch(url, { headers: { ...(BOT_API_KEY ? { 'X-Bot-Key': BOT_API_KEY } : {}) } });
       if (!r.ok) continue;
       const json = await r.json().catch(() => null);
-      if (json && Array.isArray(json.duels)) return json.duels;
+      if (!json) continue;
+
+      // Accept common shapes: {duels:[]}, {sessions:[]}, {active:[]}, {games:[]}, or a bare array
+      const keys = ['duels', 'sessions', 'active', 'games'];
+      for (const k of keys) {
+        if (Array.isArray(json[k])) return json[k];
+      }
       if (Array.isArray(json)) return json;
     } catch {}
   }
@@ -99,7 +105,7 @@ async function fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_
 /** Normalize a duel record into a UI-friendly item. */
 function normalizeDuel(d, linked) {
   const id = String(d.id || d.session || d.sessionId || '').trim();
-  const status = String(d.status || 'active').toLowerCase();
+  const status = String(d.status || d.state || 'active').toLowerCase();
   const practice = !!(d.isPractice || d.practice);
 
   const players = Array.isArray(d.players) ? d.players : [];
@@ -214,7 +220,10 @@ export default async function registerSpectate(bot) {
       const raw = await fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_API_KEY });
       const duels = raw
         .map(d => normalizeDuel(d, linked))
-        .filter(d => d.id && ['active', 'live', 'running'].includes(d.status));
+        // Accept common live statuses OR any session explicitly marked as practice.
+        .filter(d => d.id && (
+          ['active', 'live', 'running', 'in_progress', 'started'].includes(d.status) || d.isPractice
+        ));
 
       if (!duels.length) {
         const empty = new EmbedBuilder()
