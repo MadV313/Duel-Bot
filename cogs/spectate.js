@@ -251,7 +251,11 @@ export default async function registerSpectate(bot) {
 
         const embed = new EmbedBuilder()
           .setTitle('🎥 Live Duels')
-          .setDescription(slice.map(d => `• **${d.aName}** vs **${d.bName}** — *Live now*`).join('\n'))
+          .setDescription(
+            slice
+              .map(d => `• **${d.aName}** vs **${d.bName}** — *Live${d.isPractice ? ' (Practice)' : ''}*`)
+              .join('\n')
+          )
           .setColor(0x00ccff)
           .setFooter({ text: `Page ${p + 1} of ${pages}` });
 
@@ -316,7 +320,7 @@ export default async function registerSpectate(bot) {
           .setTitle('🎥 Spectate Duel')
           .setDescription([
             `**Match:** ${picked.aName} vs ${picked.bName}`,
-            `**Status:** Live now`,
+            `**Status:** ${picked.isPractice ? 'Live (Practice)' : 'Live now'}`,
             '',
             `🔗 **Join as Spectator:** ${specUrl}`
           ].join('\n'))
