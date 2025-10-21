@@ -9,6 +9,11 @@
 // - Updates coin_bank.json (authoritative) and mirrors coins into linkedDecks
 // - Enforces a daily sell limit (default 5 cards/day)
 // - Includes a “View Collection” link with instructions
+//
+// NEW: If API_BASE + token are available, we fetch live sell status from
+//      `${API_BASE}/me/:token/sell/status` so the embed reflects the current
+//      usage/limit (e.g., after selling from the Collection UI), and we enforce
+//      that remote limit during this command.
 
 import fs from 'fs';
 import path from 'path';
@@ -90,6 +95,27 @@ function buildCollectionUrl(cfg, token) {
   return `${trim(collectionBase)}/index.html?${qp.toString()}`;
 }
 
+// Live status from backend (usedToday/remaining/limit/reset)
+// Returns {soldToday, soldRemaining, limit, resetAtISO} or null.
+async function fetchSellStatus(apiBase, token) {
+  try {
+    if (!apiBase || !token) return null;
+    const url = `${apiBase}/me/${encodeURIComponent(token)}/sell/status`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (typeof j?.soldRemaining === 'undefined') return null;
+    return {
+      soldToday: Number(j.soldToday || 0),
+      soldRemaining: Number(j.soldRemaining || 0),
+      limit: Number(j.limit || DEFAULT_DAILY_LIMIT),
+      resetAtISO: j.resetAtISO || null
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* ───────────────────────── Command ───────────────────────── */
 export default async function registerSellCard(client) {
   const CFG = loadConfig();
@@ -104,11 +130,14 @@ export default async function registerSellCard(client) {
     legendary: Number(CFG?.coin_system?.card_sell_values?.legendary ?? DEFAULT_SELL.legendary),
   };
 
-  const DAILY_LIMIT = Number(
+  const CONFIG_LIMIT = Number(
     CFG?.trade_system?.sell_limit_per_day ??
     CFG?.coin_system?.sell_limit_per_day ??
     DEFAULT_DAILY_LIMIT
   );
+
+  // We'll resolve API base once here
+  const API_BASE = trim(CFG.api_base || CFG.API_BASE || process.env.API_BASE || '');
 
   const command = new SlashCommandBuilder()
     .setName('sellcard')
@@ -161,6 +190,25 @@ export default async function registerSellCard(client) {
       if (profile.discordName !== userName) profile.discordName = userName;
       profile.collection = profile.collection || {};
 
+      // Ensure token for deep links & API status
+      if (!profile.token || typeof profile.token !== 'string' || profile.token.length < 12) {
+        profile.token = crypto.randomBytes(18).toString('base64url');
+        linked[userId] = profile;
+        try { await saveJSON(PATHS.linkedDecks, linked); } catch {}
+      }
+      const token = profile.token;
+      const collectionUrl = buildCollectionUrl(CFG, token);
+
+      // Try to fetch *live* status from API (reflects sales made from the UI)
+      const live = await fetchSellStatus(API_BASE, token);
+      let dailyLimitNow = Number(live?.limit ?? CONFIG_LIMIT);
+      let dailyUsedNow  = Number(
+        live?.soldToday ??
+        ((profile.sellCountDate === todayUTC()) ? Number(profile.sellCountToday || 0) : 0)
+      );
+      let dailyRemainingNow = Math.max(0, dailyLimitNow - dailyUsedNow);
+      const resetText = live?.resetAtISO ? ` (resets ${new Date(live.resetAtISO).toUTCString()})` : ' (resets 00:00 UTC)';
+
       // Build owned list (id, qty, rarity, price/card)
       const ownedPairs = Object.entries(profile.collection)
         .map(([id, qty]) => {
@@ -183,20 +231,6 @@ export default async function registerSellCard(client) {
         });
       }
 
-      // Collection deep-link + instructions
-      const token = profile.token || crypto.randomBytes(18).toString('base64url');
-      if (!profile.token) { profile.token = token; linked[userId] = profile; try { await saveJSON(PATHS.linkedDecks, linked); } catch {} }
-      const collectionUrl = buildCollectionUrl(CFG, token);
-
-      // Build the interactive UI (pagination of IDs)
-      let page = 0;
-      const pageSize = 25;
-      const pages = Math.ceil(ownedPairs.length / pageSize);
-
-      const dailyUsed = (profile.sellCountDate === todayUTC())
-        ? Number(profile.sellCountToday || 0)
-        : 0;
-
       function makeEmbed(cardChoice = null, qtyChoice = null) {
         const lines = [];
         lines.push('**How to sell from the UI (recommended):**');
@@ -205,7 +239,7 @@ export default async function registerSellCard(client) {
         lines.push('');
         lines.push(`🔗 **Collection:** ${collectionUrl}`);
         lines.push('');
-        lines.push(`**Daily limit:** ${dailyUsed}/${DAILY_LIMIT} cards used today (resets 00:00 UTC).`);
+        lines.push(`**Daily limit:** ${dailyUsedNow}/${dailyLimitNow} used today • Remaining: ${dailyRemainingNow}${resetText}`);
         if (cardChoice) {
           const r = cardChoice.rarity.charAt(0).toUpperCase() + cardChoice.rarity.slice(1);
           lines.push('');
@@ -223,6 +257,8 @@ export default async function registerSellCard(client) {
       }
 
       function makePageRows(p, selected = null, qtySelected = null) {
+        const pageSize = 25;
+        const pages = Math.ceil(ownedPairs.length / pageSize);
         const slice = ownedPairs.slice(p * pageSize, (p + 1) * pageSize);
         const options = slice.map(c => ({
           label: `#${c.id} • x${c.qty} • ${c.rarity}`,
@@ -270,9 +306,8 @@ export default async function registerSellCard(client) {
         return rows;
       }
 
-      let selectedCard = null;
-      let selectedQty  = null;
-
+      // Build the interactive UI (pagination of IDs)
+      let page = 0;
       const initialRows = makePageRows(page);
       const initialEmbed = makeEmbed();
 
@@ -292,11 +327,14 @@ export default async function registerSellCard(client) {
         time: 120_000
       });
 
+      let selectedCard = null;
+      let selectedQty  = null;
+
       collector.on('collect', async (i) => {
         if (i.user.id !== userId) return i.reply({ content: '⚠️ Not your menu.', ephemeral: true });
 
         if (i.customId === 'sell_prev') page = Math.max(0, page - 1);
-        if (i.customId === 'sell_next') page = Math.min(pages - 1, page + 1);
+        if (i.customId === 'sell_next') page = Math.min(Math.ceil(ownedPairs.length / 25) - 1, page + 1);
 
         if (i.customId.startsWith('sell_confirm_')) {
           if (!selectedCard || !selectedQty) {
@@ -310,11 +348,15 @@ export default async function registerSellCard(client) {
           const prof = linked[userId];
           if (!prof) return i.update({ content: 'Profile disappeared. Try again.', embeds: [], components: [] });
 
-          // Limit checks again
-          const today = todayUTC();
-          const used = (prof.sellCountDate === today) ? Number(prof.sellCountToday || 0) : 0;
-          if (used + selectedQty > DAILY_LIMIT) {
-            const remain = Math.max(0, DAILY_LIMIT - used);
+          // Re-check live status right before sale (so we respect UI sales)
+          const liveNow = await fetchSellStatus(API_BASE, token);
+          const limitNow = Number(liveNow?.limit ?? CONFIG_LIMIT);
+          const usedNow  = Number(
+            liveNow?.soldToday ??
+            ((prof.sellCountDate === todayUTC()) ? Number(prof.sellCountToday || 0) : 0)
+          );
+          if (usedNow + selectedQty > limitNow) {
+            const remain = Math.max(0, limitNow - usedNow);
             return i.reply({
               content: `⛔ Daily sell limit would be exceeded. You can sell **${remain}** more card${remain === 1 ? '' : 's'} today.`,
               ephemeral: true
@@ -326,7 +368,7 @@ export default async function registerSellCard(client) {
             return i.reply({ content: `You now only own **${ownedNow}** of #${selectedCard.id}.`, ephemeral: true });
           }
 
-          // Commit sale
+          // Commit sale (legacy file-backed path)
           const rarity = (rarityMap[selectedCard.id] || 'Common').toLowerCase();
           const perCard = Number(sellValues[rarity] ?? DEFAULT_SELL.common);
           const coinsGained = Math.round(perCard * selectedQty * 100) / 100;
@@ -334,8 +376,10 @@ export default async function registerSellCard(client) {
           prof.collection[selectedCard.id] = ownedNow - selectedQty;
           if (prof.collection[selectedCard.id] <= 0) delete prof.collection[selectedCard.id];
 
+          const today = todayUTC();
+          const usedLegacy = (prof.sellCountDate === today) ? Number(prof.sellCountToday || 0) : 0;
           prof.sellCountDate = today;
-          prof.sellCountToday = used + selectedQty;
+          prof.sellCountToday = usedLegacy + selectedQty;
 
           // Unified balance: prefer coin bank, fallback to prof.coins if missing
           const currentBalance = Number(bank[userId] ?? prof.coins ?? 0);
@@ -359,6 +403,11 @@ export default async function registerSellCard(client) {
             });
           }
 
+          // Update local counters used in the embed for any subsequent UI redraws
+          dailyUsedNow  = usedNow + selectedQty;
+          dailyLimitNow = limitNow;
+          dailyRemainingNow = Math.max(0, dailyLimitNow - dailyUsedNow);
+
           const rNice = rarity.charAt(0).toUpperCase() + rarity.slice(1);
           const done = new EmbedBuilder()
             .setTitle('🪙 Card Sold')
@@ -369,7 +418,7 @@ export default async function registerSellCard(client) {
                 `**Coins gained:** ${coinsGained}`,
                 `**New balance:** ${newBalance}`,
                 '',
-                `Daily usage: ${prof.sellCountToday}/${DAILY_LIMIT} (resets 00:00 UTC)`,
+                `Daily usage: ${dailyUsedNow}/${dailyLimitNow}${resetText}`,
                 '',
                 `🔗 **Collection:** ${collectionUrl}`
               ].join('\n')
@@ -380,12 +429,6 @@ export default async function registerSellCard(client) {
           try { selectCollector.stop(); } catch {}
 
           return i.update({ embeds: [done], components: [] });
-        }
-
-        if (i.customId === 'sell_cancel') {
-          try { collector.stop(); } catch {}
-          try { selectCollector.stop(); } catch {}
-          return i.update({ content: 'Sale cancelled.', embeds: [], components: [] });
         }
 
         // Page changed → rebuild (preserve current selection context)
