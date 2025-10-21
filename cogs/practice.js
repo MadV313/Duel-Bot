@@ -7,6 +7,7 @@
 //     • Use Saved Deck   (?mode=practice&practiceDeck=saved)   — only if user has a valid saved deck
 //     • Use Random Deck  (?mode=practice&practiceDeck=random)
 // - Each link carries ?token=..., optional &api=..., &imgbase=..., and cache-busting &ts=...
+// - Also pushes UI hints: &user=<discordName> and &deckCount=<N>
 
 import fs from 'fs';
 import crypto from 'crypto';
@@ -213,12 +214,16 @@ export default async function registerPractice(bot) {
       const savedTotal = countDeckCards(profile.deck);
       const hasSavedDeck = Number.isFinite(savedTotal) && savedTotal >= 20;
 
-      // Build personalized UI links
+      // Build personalized UI links (+ push user/display hints)
       const baseParams = new URLSearchParams();
       baseParams.set('mode', 'practice');
       baseParams.set('token', token || '');
       if (PASS_API_QUERY) baseParams.set('api', PUBLIC_BACKEND_URL);
       if (IMAGE_BASE) baseParams.set('imgbase', IMAGE_BASE);
+
+      // Push display hints so UI can show name instantly even before /me/:token/stats
+      baseParams.set('user', interaction.user.username);  // consumed by loadPracticeDuel.js
+      baseParams.set('deckCount', String(savedTotal));     // debug/visibility
 
       // Always provide Random deck
       const paramsRandom = new URLSearchParams(baseParams);
@@ -243,6 +248,10 @@ export default async function registerPractice(bot) {
         '• Each draws **3 cards**',
         '• **Coin flip** decides who goes first',
         '',
+        hasSavedDeck
+          ? `**Your saved deck:** ${savedTotal} cards`
+          : '**No valid saved deck detected** (need ≥ 20 cards).',
+        '',
         '**Choose how you want to practice:**',
       ];
       if (hasSavedDeck) {
@@ -251,11 +260,9 @@ export default async function registerPractice(bot) {
           '• **Use Random Deck**: a randomized premade deck for quick practice'
         );
       } else {
-        lines.push(
-          '• **Use Random Deck**: a randomized premade deck for quick practice'
-        );
+        lines.push('• **Use Random Deck**: a randomized premade deck for quick practice');
         lines.push('');
-        lines.push('_(No saved deck found or deck has fewer than 20 cards. Build & save a deck in the Deck Builder to enable the Saved Deck option.)_');
+        lines.push('_(Build & save a deck in the Deck Builder to enable the Saved Deck option.)_');
       }
       lines.push('', `Trace: \`${traceId}\``);
 
