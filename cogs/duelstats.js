@@ -32,19 +32,22 @@ const CFG = readOptionalConfig();
 const trimBase = (u = '') => String(u).trim().replace(/\/+$/, '');
 const pickBase = (...vals) => trimBase(vals.find(Boolean) || '');
 
+// Prefer the new Stats-Leaderboard base if provided; otherwise fall back to your
+// actual repo ("Leaderboard-UI"). The old "Stats-Leaderboard-UI" URL caused 404s.
 function resolveLeaderboardBase(cfg = {}) {
-  // Prefer your Stats-Leaderboard UI key, then other fallbacks
   return pickBase(
     process.env.STATS_LEADERBOARD_UI,
     cfg.stats_leaderboard_ui,
     cfg.ui_urls?.stats_leaderboard_ui,
-    cfg.leaderboard_ui,                   // legacy key
-    cfg.ui_urls?.leaderboard_ui,          // legacy key
+    cfg.leaderboard_ui,                  // legacy key
+    cfg.ui_urls?.leaderboard_ui,         // legacy key
     cfg.frontend_url,
     cfg.ui_base,
-    'https://madv313.github.io/Stats-Leaderboard-UI'
+    // ✅ Correct fallback that exists:
+    'https://madv313.github.io/Leaderboard-UI'
   );
 }
+
 function resolveApiBase(cfg = {}) {
   return pickBase(
     process.env.API_BASE,
@@ -55,6 +58,17 @@ function resolveApiBase(cfg = {}) {
 const LEADERBOARD_BASE = resolveLeaderboardBase(CFG);
 const API_BASE = resolveApiBase(CFG);
 const apiQP = API_BASE ? `&api=${encodeURIComponent(API_BASE)}` : '';
+
+if (!LEADERBOARD_BASE) {
+  console.warn('[duelstats] No LEADERBOARD_BASE resolved — set STATS_LEADERBOARD_UI or config.stats_leaderboard_ui.');
+} else {
+  console.log('[duelstats] Leaderboard base =>', LEADERBOARD_BASE);
+}
+if (!API_BASE) {
+  console.warn('[duelstats] No API_BASE resolved — UI will use its defaults unless provided via query param.');
+} else {
+  console.log('[duelstats] API base =>', API_BASE);
+}
 
 const BATTLEFIELD_CHANNEL_ID = String(
   process.env.BATTLEFIELD_CHANNEL_ID ||
@@ -86,6 +100,16 @@ export default async function registerDuelStats(client) {
       if (String(interaction.channelId) !== BATTLEFIELD_CHANNEL_ID) {
         return interaction.reply({
           content: `🏆 Please use this command in <#${BATTLEFIELD_CHANNEL_ID}>.`,
+          ephemeral: true,
+        });
+      }
+
+      if (!LEADERBOARD_BASE) {
+        return interaction.reply({
+          content:
+            '⚠️ Leaderboard UI base URL is not configured.\n' +
+            'Set **STATS_LEADERBOARD_UI** (or `stats_leaderboard_ui` in config.json) to your GitHub Pages root, e.g.:\n' +
+            '`https://madv313.github.io/Leaderboard-UI`',
           ephemeral: true,
         });
       }
@@ -129,6 +153,7 @@ export default async function registerDuelStats(client) {
 
       const token = profile.token;
       const ts = Date.now();
+      // Use repo root. index.html isn’t needed with GitHub Pages.
       const url = `${LEADERBOARD_BASE}/?token=${encodeURIComponent(token)}${apiQP}&ts=${ts}`;
 
       const embed = new EmbedBuilder()
