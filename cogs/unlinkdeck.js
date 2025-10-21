@@ -4,6 +4,7 @@
 // - Paginated dropdown UI (25 per page)
 // - Purges: linked_decks, wallet, player_data, trade_limits, trades (sessions with user), duel_sessions (sessions with user)
 // - Best-effort cleanup of pack reveal artifacts
+// - NEW: Explicitly resets the player's daily sell counters before unlinking (for testing convenience)
 //
 // Config resolution order: ENV.CONFIG_JSON → config.json → defaults
 // Config / ENV keys used:
@@ -193,11 +194,26 @@ export default async function registerUnlinkDeck(client) {
         const display = prof?.discordName || userId;
         const token   = prof?.token || '';
 
-        // 1) Remove from linked_decks
-        const removed = purgeFromObject(linkedNow, userId);
-        if (removed) {
-          await saveJSON(PATHS.linkedDecks, linkedNow);
+        /* 0) Reset daily sell counters (best-effort) before unlinking */
+        try {
+          if (prof) {
+            prof.sellCountToday = 0;
+            prof.sellCountDate  = '1970-01-01'; // guarantees "not today" for any local checks
+            linkedNow[userId]   = prof;
+            await saveJSON(PATHS.linkedDecks, linkedNow);
+          }
+        } catch {
+          // ignore — this is only to ease testing
         }
+
+        // 1) Remove from linked_decks
+        let removed = false;
+        try {
+          removed = purgeFromObject(linkedNow, userId);
+          if (removed) {
+            await saveJSON(PATHS.linkedDecks, linkedNow);
+          }
+        } catch {}
 
         // 2) Remove from wallet
         try {
@@ -215,11 +231,22 @@ export default async function registerUnlinkDeck(client) {
           }
         } catch {}
 
-        // 4) Remove from trade_limits
+        // 4) Remove from trade_limits (this is where daily sell usage may be tracked by the API/UI)
         try {
           const limits = await loadJSON(PATHS.tradeLimits).catch(() => ({}));
           if (purgeFromObject(limits, userId)) {
             await saveJSON(PATHS.tradeLimits, limits);
+          }
+        } catch {}
+
+        // 4b) Optional: purge a dedicated sell-status store if your backend adds one later.
+        // Safe no-op when PATHS.sellStatus is undefined or file missing.
+        try {
+          if (PATHS?.sellStatus) {
+            const sellStatus = await loadJSON(PATHS.sellStatus).catch(() => ({}));
+            if (purgeFromObject(sellStatus, userId)) {
+              await saveJSON(PATHS.sellStatus, sellStatus);
+            }
           }
         } catch {}
 
@@ -243,7 +270,7 @@ export default async function registerUnlinkDeck(client) {
         try { await tryDeleteLocalRevealFiles(userId, token); } catch {}
 
         await interaction.editReply({
-          content: `✅ Successfully unlinked **${display}** and purged associated data.`,
+          content: `✅ Successfully unlinked **${display}**, reset daily sell counters, and purged associated data.`,
           embeds: [],
           components: []
         });
