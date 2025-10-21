@@ -34,18 +34,25 @@ function loadConfig() {
   return {};
 }
 
+// Belt & suspenders: if any config/env accidentally points to Stats-Leaderboard-UI,
+// rewrite it to Player-Stats-UI so we never 404.
+function normalizeStatsBase(u = '') {
+  return String(u).replace(/\/Stats-Leaderboard-UI\/?/i, '/Player-Stats-UI/');
+}
+
 function resolveStatsBase(cfg) {
-  // Prefer dedicated Player Stats UI; fall back to leaderboard/stats UIs
-  return trimBase(
+  // Prefer dedicated Player Stats UI; fall back to other UI bases
+  const base = (
     cfg.player_stats_ui ||
     cfg.ui_urls?.player_stats_ui ||
-    cfg.stats_leaderboard_ui ||
-    cfg.ui_urls?.stats_leaderboard_ui ||
+    cfg.stats_leaderboard_ui ||            // legacy mis-key (normalize below)
+    cfg.ui_urls?.stats_leaderboard_ui ||   // legacy mis-key (normalize below)
     cfg.frontend_url ||
     cfg.ui_base ||
     cfg.UI_BASE ||
-    'https://madv313.github.io/Stats-Leaderboard-UI'
+    'https://madv313.github.io/Player-Stats-UI'
   );
+  return trimBase(normalizeStatsBase(base));
 }
 
 export default async function registerMyStats(client) {
@@ -79,7 +86,7 @@ export default async function registerMyStats(client) {
       const userId = interaction.user.id;
       const username = interaction.user.username;
 
-      // Load linked profiles from Persistent Data server
+      // Load linked profiles from persistent store
       let linked = {};
       try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
 
