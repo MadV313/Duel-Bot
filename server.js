@@ -33,9 +33,6 @@ import createTradeRouter from './routes/trade.js';
 // 🧰 Persistent storage client (health check & optional debug endpoint)
 import { loadJSON, saveJSON, PATHS } from './utils/storageClient.js';
 
-// 🧩 NEW: tiny compatibility router for Duel UI (GET /duel/state, POST /bot/practice)
-import duelUiCompat from './routes/duelUiCompat.js';
-
 dotenvConfig();
 
 /* ──────────────────────────────────────────────────────────
@@ -167,7 +164,7 @@ async function doSyncCommands({ token, clientId, guildId, slashData, scope = 'gu
     console.timeEnd('⏱️ Slash Sync Duration');
   }
 
-  // 2) Fallback: sequential upsert (POST each) with verbose counters
+  // 2) Fallback: sequential upserts...
   console.log(`🛟 Falling back to sequential ${upper} upserts...`);
   const routePost = scope === 'global'
     ? Routes.applicationCommands(clientId)
@@ -435,8 +432,22 @@ app.use('/', meTokenRouter);
 // Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
 
-// 🧩 NEW: mount UI compatibility shims (GET /duel/state, POST /bot/practice)
-app.use('/', duelUiCompat);
+/* ──────────────────────────────────────────────────────────
+ * Duel-UI compatibility shims
+ * ────────────────────────────────────────────────────────── */
+
+// Heartbeat the UI pings on boot
+app.get('/duel/state', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, mode: 'compat', ts: Date.now() });
+});
+
+// Some UI builds post to /bot/turn; redirect to the canonical /duel/turn
+app.post('/bot/turn', (req, res) => {
+  res.redirect(307, '/duel/turn');
+});
+
+app.options('/bot/turn', cors());
 
 app.use('/public', express.static('public'));
 
