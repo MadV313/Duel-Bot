@@ -12,6 +12,9 @@ import crypto from 'crypto';
 import {
   SlashCommandBuilder,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js';
 
 import { requireSupporter } from '../utils/roleGuard.js';
@@ -165,8 +168,6 @@ function makeWeightedPicker(cards, weightsByRarity) {
   };
 }
 
-// ────────────────────────────────────────────────────────────
-// Command registration
 // ────────────────────────────────────────────────────────────
 export default async function registerBuyCard(client) {
   const CONFIG = loadConfig();
@@ -381,7 +382,8 @@ export default async function registerBuyCard(client) {
 
       const tokenUrl =
         `${PACK_REVEAL_BASE}/?token=${encodeURIComponent(profile.token)}${apiQP}` +
-        `&next=${encodeURIComponent(collectionUrlWithFlags)}`;
+        `&next=${encodeURIComponent(collectionUrlWithFlags)}` +
+        `&ts=${ts}`;
 
       // DM link (with pretty embed)
       let dmOk = true;
@@ -401,6 +403,18 @@ export default async function registerBuyCard(client) {
         console.warn(`⚠️ [buycard] Could not DM user ${buyerId}`, err);
       }
 
+      // Add the same quick links in the ephemeral confirmation (convenient for the buyer)
+      const qaRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel('🔎 Open Pack Reveal')
+          .setURL(tokenUrl),
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel('📇 Open Collection (highlighted)')
+          .setURL(collectionUrlWithFlags)
+      );
+
       // Confirmation
       const msg =
         `✅ Purchase successful! **${PACK_COST_COINS}** coins deducted.\n` +
@@ -409,7 +423,7 @@ export default async function registerBuyCard(client) {
           ? `📨 I’ve sent you a DM with your pack reveal link.`
           : `⚠️ I couldn’t DM you. Please enable DMs from server members and try again.`);
 
-      return interaction.reply({ content: msg, ephemeral: true });
+      return interaction.reply({ content: msg, components: [qaRow], ephemeral: true });
     },
   });
 }
