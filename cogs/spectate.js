@@ -122,9 +122,9 @@ function normalizeDuel(d, linked) {
 }
 
 /** Build personalized spectator URL */
-function buildSpectatorUrl({ sessionId, token, DUEL_UI_URL, PUBLIC_BACKEND_URL, IMAGE_BASE, PASS_API_QUERY }) {
+function buildSpectatorUrl({ sessionId, token, DUEL_UI_URL, PUBLIC_BACKEND_URL, IMAGE_BASE, PASS_API_QUERY, isPractice }) {
   const qp = new URLSearchParams();
-  qp.set('mode', 'duel');
+  qp.set('mode', isPractice ? 'practice' : 'duel');
   qp.set('session', sessionId);
   qp.set('role', 'spectator');
   if (token) qp.set('token', token);
@@ -242,7 +242,7 @@ export default async function registerSpectate(bot) {
         const slice = duels.slice(p * pageSize, (p + 1) * pageSize);
         const options = slice.map(d => ({
           label: `${d.aName} vs ${d.bName}`,
-          description: 'Live now — click to get spectator link',
+          description: d.isPractice ? 'Live (Practice) — click to get spectator link' : 'Live now — click to get spectator link',
           value: d.id
         }));
 
@@ -322,7 +322,8 @@ export default async function registerSpectate(bot) {
           DUEL_UI_URL,
           PUBLIC_BACKEND_URL,
           IMAGE_BASE,
-          PASS_API_QUERY
+          PASS_API_QUERY,
+          isPractice: picked.isPractice
         });
 
         const embed = new EmbedBuilder()
