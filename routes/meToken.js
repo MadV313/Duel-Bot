@@ -450,4 +450,143 @@ router.post('/me/:token/sell', async (req, res) => {
   }
 });
 
+/* ------------------------------ DECK ENDPOINTS ------------------------------ */
+/**
+ * Storage layout (in data/linked_decks.json):
+ * linked[userId] = {
+ *   ...,
+ *   collection: { "001": 2, "002": 1, ... },
+ *   deck: { name: "My Deck", cards: [ { id:"001", qty:2 }, ... ] }
+ * }
+ */
+
+const MAX_PER_CARD = 5;
+const MIN_DECK_SIZE = 20;
+const MAX_DECK_SIZE = 40;
+
+// helper: coalesce body.cards into [{id, qty}] with 3-digit ids
+function _normalizeDeckItems(rawCards = []) {
+  const coalesced = {};
+  for (const row of (Array.isArray(rawCards) ? rawCards : [])) {
+    const id = pad3(String(row.id ?? row.card_id ?? row.number ?? '').replace('#',''));
+    const qty = Number(row.qty ?? row.quantity ?? 0) || 0;
+    if (!id || id === '000' || qty <= 0) continue;
+    coalesced[id] = (coalesced[id] || 0) + qty;
+  }
+  return Object.entries(coalesced)
+    .map(([id, qty]) => ({ id, qty }));
+}
+
+/**
+ * GET /me/:token/deck → { ok:true, deck:{ name, cards:[{id,qty}] } }
+ */
+router.get('/me/:token/deck', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = await resolveUserIdByToken(token);
+    if (!userId) return res.status(404).json({ error: 'Invalid token' });
+
+    const linked = await readJsonRemote(LINKED_DECKS_FILE, {});
+    const profile = linked[userId] || {};
+    const deck = profile.deck && Array.isArray(profile.deck.cards)
+      ? profile.deck
+      : { name: 'My Deck', cards: [] };
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, deck });
+  } catch (e) {
+    console.error('[meToken] GET deck error:', e);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * PUT /me/:token/deck
+ * Body: { name?: string, cards:[{id,qty}] }
+ * Enforce: 20–40 total, per-card ≤5, and ≤ owned. Saves to linked_decks.json.
+ */
+router.put('/me/:token/deck', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = await resolveUserIdByToken(token);
+    if (!userId) return res.status(404).json({ error: 'Invalid token' });
+
+    const body = req.body || {};
+    const requested = _normalizeDeckItems(body.cards);
+
+    // Load ownership to enforce caps
+    const [linked, ownedMap] = await Promise.all([
+      readJsonRemote(LINKED_DECKS_FILE, {}),
+      getPlayerCollectionMap(userId)
+    ]);
+    const profile = linked[userId] || {};
+    const owned = ownedMap || {};
+
+    // Clamp per-card to owned and MAX_PER_CARD
+    const clamped = requested.map(({ id, qty }) => {
+      const have = Math.max(0, Number(owned[id] || 0));
+      return { id, qty: Math.max(0, Math.min(qty, MAX_PER_CARD, have)) };
+    }).filter(x => x.qty > 0);
+
+    const total = clamped.reduce((a,b) => a + b.qty, 0);
+    if (total < MIN_DECK_SIZE || total > MAX_DECK_SIZE) {
+      return res.status(400).json({
+        ok: false,
+        error: `DECK_SIZE_INVALID`,
+        details: { total, min: MIN_DECK_SIZE, max: MAX_DECK_SIZE }
+      });
+    }
+
+    // Sort numerically for stable storage
+    clamped.sort((a,b) => parseInt(a.id,10) - parseInt(b.id,10));
+
+    const deck = {
+      name: String(body.name || 'My Deck'),
+      cards: clamped
+    };
+
+    // Persist
+    const updated = { ...(linked || {}) };
+    const updatedProfile = { ...(profile || {}) };
+    updatedProfile.deck = deck;
+    // ensure we keep existing collection/coins/etc
+    if (!updatedProfile.collection) updatedProfile.collection = owned;
+    updated[userId] = updatedProfile;
+
+    await writeJsonRemote(LINKED_DECKS_FILE, updated);
+
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json({ ok: true, deck });
+  } catch (e) {
+    console.error('[meToken] PUT deck error:', e);
+    return res.status(500).json({ ok:false, error: 'Internal error' });
+  }
+});
+
+/**
+ * DELETE /me/:token/deck
+ * Wipes saved deck for the user.
+ */
+router.delete('/me/:token/deck', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = await resolveUserIdByToken(token);
+    if (!userId) return res.status(404).json({ error: 'Invalid token' });
+
+    const linked = await readJsonRemote(LINKED_DECKS_FILE, {});
+    const profile = linked[userId] || {};
+    profile.deck = { name: 'My Deck', cards: [] };
+
+    const updated = { ...(linked || {}) };
+    updated[userId] = profile;
+    await writeJsonRemote(LINKED_DECKS_FILE, updated);
+
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error('[meToken] DELETE deck error:', e);
+    return res.status(500).json({ ok:false, error: 'Internal error' });
+  }
+});
+
 export default router;
