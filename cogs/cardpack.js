@@ -320,7 +320,25 @@ export default async function registerCardPack(client) {
 
         const tokenUrl =
           `${PACK_REVEAL_BASE}/?token=${encodeURIComponent(userProfile.token)}${apiQP}` +
-          `&next=${encodeURIComponent(collectionUrlWithFlags)}`;
+          `&next=${encodeURIComponent(collectionUrlWithFlags)}&ts=${ts}`;
+
+        // --- Update the ephemeral admin message with QA links (keeps token private) ---
+        const qaRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setStyle(ButtonStyle.Link)
+            .setLabel('🔎 Open Pack Reveal (QA)')
+            .setURL(tokenUrl),
+          new ButtonBuilder()
+            .setStyle(ButtonStyle.Link)
+            .setLabel('📇 Open Collection (highlighted)')
+            .setURL(collectionUrlWithFlags)
+        );
+
+        await i.update({
+          content: `📦 Pack created for <@${userId}>. QA shortcuts:`,
+          embeds: [],
+          components: [qaRow]
+        });
 
         // --- DM the user with one clear masked link sentence ---
         try {
@@ -336,13 +354,17 @@ export default async function registerCardPack(client) {
           });
         } catch (err) {
           console.warn(`⚠️ [cardpack] Could not DM user ${userId}`, err);
-          return i.update({ content: '⚠️ Cards granted, but failed to send DM. Notify the player manually.', embeds: [], components: [] });
+          await interaction.followUp({
+            content: '⚠️ Cards granted, but failed to send DM. Notify the player manually.',
+            ephemeral: true
+          });
+          return;
         }
 
-        return i.update({
-          content: `✅ Pack sent to <@${userId}>. Added 3 cards to their collection and generated a tokenized reveal.`,
-          embeds: [],
-          components: []
+        // Optional: small confirmation follow-up (keeps the QA buttons visible)
+        await interaction.followUp({
+          content: `✅ Pack sent to <@${userId}>. Added 3 cards and generated a tokenized reveal.`,
+          ephemeral: true
         });
       });
     }
