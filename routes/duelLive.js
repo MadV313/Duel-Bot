@@ -1,5 +1,7 @@
 import express from 'express';
 import { duelState } from '../logic/duelState.js';
+// Optional multi-duel: will be a no-op if you haven't wired a registry yet
+import { getSessionState } from '../logic/duelRegistry.js';
 
 const router = express.Router();
 
@@ -12,33 +14,67 @@ const router = express.Router();
  * - spectatorCount
  * - wager
  *
- * Optional: ?safeView=true will redact all card hands
+ * Query params:
+ *   safeView=true  -> redact both players' hands (face-down placeholders)
+ *   session=<id>   -> return state for a specific session (falls back to global if missing)
  */
 router.get('/current', (req, res) => {
-  const { players, currentPlayer, winner, spectators, wagerAmount } = duelState;
+  const safeView = String(req.query.safeView || '').toLowerCase() === 'true';
+  const sessionId = (req.query.session ?? '').toString().trim();
 
-  const player1 = { ...players.player1 };
-  const player2 = players.player2 ? { ...players.player2 } : { ...players.bot };
+  // Resolve state: prefer per-session if provided and available; else global duelState
+  let state = null;
+  if (sessionId) {
+    try {
+      state = getSessionState?.(sessionId) || null;
+    } catch {
+      state = null;
+    }
+  }
+  if (!state) state = duelState;
 
-  if (!player1 || !player2) {
+  const {
+    players = {},
+    currentPlayer = null,
+    winner = null,
+    spectators = [],
+    wagerAmount = 0,
+    duelMode = 'none',
+    startedAt = null,
+  } = state || {};
+
+  // Normalize players (your schema sometimes uses "bot" instead of "player2")
+  const p1Raw = players.player1;
+  const p2Raw = players.player2 ? players.player2 : players.bot;
+
+  if (!p1Raw || !p2Raw) {
     return res.status(404).json({ error: 'No duel in progress.' });
   }
 
+  // Shallow copies so we never mutate live state
+  const player1 = { ...p1Raw, hand: Array.isArray(p1Raw.hand) ? [...p1Raw.hand] : [] };
+  const player2 = { ...p2Raw, hand: Array.isArray(p2Raw.hand) ? [...p2Raw.hand] : [] };
+
   // Handle safe view mode (hide hand card IDs)
-  if (req.query.safeView === 'true') {
-    player1.hand = player1.hand.map(() => ({ cardId: '000', isFaceDown: true }));
-    player2.hand = player2.hand.map(() => ({ cardId: '000', isFaceDown: true }));
+  if (safeView) {
+    const redact = (hand = []) => hand.map(() => ({ cardId: '000', isFaceDown: true }));
+    player1.hand = redact(player1.hand);
+    player2.hand = redact(player2.hand);
   }
 
-  res.status(200).json({
+  return res.status(200).json({
     players: {
       player1,
-      player2
+      player2,
     },
     currentPlayer,
     winner,
-    spectatorCount: spectators.length,
-    wager: wagerAmount || 0
+    spectatorCount: Array.isArray(spectators) ? spectators.length : 0,
+    wager: wagerAmount || 0,
+    // Helpful metadata (non-breaking)
+    mode: duelMode,
+    startedAt,
+    session: sessionId || null,
   });
 });
 
