@@ -141,42 +141,67 @@ export function startPracticeDuel(cardList) {
  * ---------------------------------------------------------*/
 
 /**
- * Start a live duel using two pre-validated decks (20–40 cards each).
- * Deck items must be objects like { cardId, isFaceDown?: boolean }.
+ * Start a live duel.
+ *
+ * Compatible signatures:
+ *   1) Object form (as documented here):
+ *      startLiveDuel({
+ *        player1Id, player2Id,
+ *        player1Name?, player2Name?,
+ *        player1Deck, player2Deck,
+ *        wagerAmount?
+ *      })
+ *
+ *   2) Positional form (as used in existing routes/duelStart.js):
+ *      startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wagerAmount?)
  */
-export function startLiveDuel({
-  player1Id,
-  player2Id,
-  player1Name = 'Challenger',
-  player2Name = 'Opponent',
-  player1Deck,
-  player2Deck,
-  wagerAmount = 0,
-}) {
+export function startLiveDuel(...args) {
+  // Normalize arguments to an options object
+  let opts;
+  if (args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+    opts = args[0];
+  } else {
+    const [player1Id, player2Id, player1Deck, player2Deck, wagerAmount] = args;
+    opts = { player1Id, player2Id, player1Deck, player2Deck, wagerAmount };
+  }
+
+  const {
+    player1Id,
+    player2Id,
+    player1Name = 'Challenger',
+    player2Name = (opts?.player2Id === 'bot' ? 'Practice Bot' : 'Opponent'),
+    player1Deck,
+    player2Deck,
+    wagerAmount = 0,
+  } = opts || {};
+
   // Basic validation (you can expand with full deck checks)
   if (!Array.isArray(player1Deck) || !Array.isArray(player2Deck)) {
     throw new Error('Invalid decks provided for live duel.');
   }
 
   const p1 = duelState.players.player1;
-  const p2 = duelState.players.bot; // In PvP you likely want this to be 'player2'; keeping existing shape aligned with your UI limits for now.
+  const p2 = duelState.players.bot; // NOTE: For symmetric PvP, rename 'bot' -> 'player2' across UI/handlers.
 
-  // If you want symmetric PvP (player1/player2), rename 'bot' to 'player2' across your UI.
+  // Assign identities
   p1.id = player1Id || null;
   p2.id = player2Id || null;
 
   p1.discordName = player1Name || 'Challenger';
   p2.discordName = player2Name || 'Opponent';
 
+  // Reset and assign decks
   resetPlayer(p1, p1.discordName);
   resetPlayer(p2, p2.discordName);
 
   p1.deck = shuffle(deepClone(player1Deck));
   p2.deck = shuffle(deepClone(player2Deck));
 
+  // Opening draws (3 each)
   drawCard('player1', 3);
   drawCard('bot', 3);
 
+  // Turn + meta
   duelState.currentPlayer = Math.random() < 0.5 ? 'player1' : 'bot';
   duelState.duelMode = 'live';
   duelState.wagerAmount = wagerAmount || 0;
