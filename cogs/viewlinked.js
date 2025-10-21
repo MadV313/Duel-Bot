@@ -72,6 +72,24 @@ function asObject(x, fallback = {}) {
   return fallback;
 }
 
+/** Count total cards from a deck object like { cards: [{ id, qty }, ...] }. */
+function countDeckCards(deckMaybe) {
+  try {
+    const deck = deckMaybe || {};
+    const cards = Array.isArray(deck.cards) ? deck.cards : [];
+    return cards.reduce((sum, c) => sum + (Number(c?.qty) || 0), 0);
+  } catch { return 0; }
+}
+
+/** Pick the best deck object across a few common keys. */
+function pickDeckObject(profile) {
+  if (!profile) return null;
+  if (profile.deck && typeof profile.deck === 'object') return profile.deck;
+  if (profile.savedDeck && typeof profile.savedDeck === 'object') return profile.savedDeck;
+  if (profile.currentDeck && typeof profile.currentDeck === 'object') return profile.currentDeck;
+  return null;
+}
+
 /* ───────────────────────── Command ───────────────────────── */
 export default async function registerViewLinked(client) {
   const data = new SlashCommandBuilder()
@@ -217,6 +235,11 @@ export default async function registerViewLinked(client) {
           return n >= 1 && n <= 127; // current base set window
         }).length;
 
+        // 🔧 Deck stats (fixed): count quantities from deck.cards
+        const deckObj   = pickDeckObject(prof);
+        const deckCount = countDeckCards(deckObj);
+        const DECK_TARGET = 40; // adjust if format changes
+
         // Build tokenized collection link
         const ts = Date.now();
         const qp = new URLSearchParams();
@@ -229,7 +252,7 @@ export default async function registerViewLinked(client) {
         const embed = new EmbedBuilder()
           .setTitle(`🧑‍🚀 Profile: ${prof.discordName || userId}`)
           .addFields(
-            { name: 'Deck Size', value: `${Array.isArray(prof.deck) ? prof.deck.length : 0}`, inline: true },
+            { name: 'Deck Size', value: `${deckCount} / ${DECK_TARGET}`, inline: true },
             { name: 'Collection Cards', value: `${totalOwned}`, inline: true },
             { name: 'Unique Unlocked (001–127)', value: `${uniqueUnlocked} / 127`, inline: true },
             { name: 'Coins', value: `${coins}`, inline: true },
