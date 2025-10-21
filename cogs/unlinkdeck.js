@@ -4,7 +4,7 @@
 // - Paginated dropdown UI (25 per page)
 // - Purges: linked_decks, wallet, player_data, trade_limits, trades (sessions with user), duel_sessions (sessions with user)
 // - Best-effort cleanup of pack reveal artifacts
-// - NEW: Explicitly resets the player's daily sell counters before unlinking (for testing convenience)
+// - NEW: Also resets/cleans daily sell counters wherever they may live (linked profile + trade limit stores)
 //
 // Config resolution order: ENV.CONFIG_JSON → config.json → defaults
 // Config / ENV keys used:
@@ -47,10 +47,10 @@ function hasAnyAdminRole(member) {
   return ADMIN_ROLE_IDS.some(rid => cache.has(rid));
 }
 
-function purgeFromObject(obj, userId) {
+function purgeFromObject(obj, key) {
   if (!obj || typeof obj !== 'object') return false;
-  if (Object.prototype.hasOwnProperty.call(obj, userId)) {
-    delete obj[userId];
+  if (Object.prototype.hasOwnProperty.call(obj, key)) {
+    delete obj[key];
     return true;
   }
   return false;
@@ -60,7 +60,7 @@ function purgeSessionsMap(obj, userId) {
   if (!obj || typeof obj !== 'object') return false;
   let changed = false;
   for (const [sid, sess] of Object.entries(obj)) {
-    // Try several shapes:
+    // Shapes:
     // - { players: [{userId}] }
     // - { challenger: {userId}, opponent: {userId} }
     // - flat { aId, bId }
@@ -86,6 +86,45 @@ async function tryDeleteLocalRevealFiles(userId, token) {
   for (const fp of files) {
     try { await fs.promises.unlink(fp); }
     catch { /* ignore */ }
+  }
+}
+
+async function resetSellCountersEverywhere({ userId, token }) {
+  // 1) Reset in linked_decks profile fields (sellCountDate/Today), and drop token (best-effort).
+  try {
+    const linked = await loadJSON(PATHS.linkedDecks).catch(() => ({}));
+    const prof = linked[userId];
+    if (prof) {
+      prof.sellCountToday = 0;
+      prof.sellCountDate  = '1970-01-01';      // ensures "not today" for any local checks
+      // Optional: nuke token so any stale server-side status keyed by token becomes orphaned
+      // (the profile will be deleted anyway; this just helps before save).
+      if (prof.token) prof.token = `UNLINKED_${Date.now()}`;
+      linked[userId] = prof;
+      await saveJSON(PATHS.linkedDecks, linked);
+    }
+  } catch { /* ignore */ }
+
+  // 2) Clean backend-side limit stores we know about:
+  //    Most setups use PATHS.tradeLimits. Some variants may use sellStatus/rateLimits-like files.
+  const candidateStores = [
+    'tradeLimits',
+    'sellStatus',     // optional (safe if missing)
+    'rateLimits',     // optional
+    'sellDaily',      // optional
+    'sellCounters',   // optional
+  ].map(k => PATHS?.[k]).filter(Boolean);
+
+  for (const storePath of candidateStores) {
+    try {
+      const store = await loadJSON(storePath).catch(() => ({}));
+      let changed = false;
+      // delete by userId
+      if (purgeFromObject(store, userId)) changed = true;
+      // also try by token (some systems key by token rather than uid)
+      if (token && purgeFromObject(store, token)) changed = true;
+      if (changed) await saveJSON(storePath, store);
+    } catch { /* ignore */ }
   }
 }
 
@@ -194,26 +233,14 @@ export default async function registerUnlinkDeck(client) {
         const display = prof?.discordName || userId;
         const token   = prof?.token || '';
 
-        /* 0) Reset daily sell counters (best-effort) before unlinking */
-        try {
-          if (prof) {
-            prof.sellCountToday = 0;
-            prof.sellCountDate  = '1970-01-01'; // guarantees "not today" for any local checks
-            linkedNow[userId]   = prof;
-            await saveJSON(PATHS.linkedDecks, linkedNow);
-          }
-        } catch {
-          // ignore — this is only to ease testing
-        }
+        // Reset daily sell counters everywhere we can (linked + trade limit stores)
+        await resetSellCountersEverywhere({ userId, token });
 
         // 1) Remove from linked_decks
-        let removed = false;
-        try {
-          removed = purgeFromObject(linkedNow, userId);
-          if (removed) {
-            await saveJSON(PATHS.linkedDecks, linkedNow);
-          }
-        } catch {}
+        const removed = purgeFromObject(linkedNow, userId);
+        if (removed) {
+          try { await saveJSON(PATHS.linkedDecks, linkedNow); } catch {}
+        }
 
         // 2) Remove from wallet
         try {
@@ -231,23 +258,13 @@ export default async function registerUnlinkDeck(client) {
           }
         } catch {}
 
-        // 4) Remove from trade_limits (this is where daily sell usage may be tracked by the API/UI)
+        // 4) Remove from trade_limits (already reset, but also purge the entry entirely)
         try {
           const limits = await loadJSON(PATHS.tradeLimits).catch(() => ({}));
-          if (purgeFromObject(limits, userId)) {
-            await saveJSON(PATHS.tradeLimits, limits);
-          }
-        } catch {}
-
-        // 4b) Optional: purge a dedicated sell-status store if your backend adds one later.
-        // Safe no-op when PATHS.sellStatus is undefined or file missing.
-        try {
-          if (PATHS?.sellStatus) {
-            const sellStatus = await loadJSON(PATHS.sellStatus).catch(() => ({}));
-            if (purgeFromObject(sellStatus, userId)) {
-              await saveJSON(PATHS.sellStatus, sellStatus);
-            }
-          }
+          let changed = false;
+          if (purgeFromObject(limits, userId)) changed = true;
+          if (token && purgeFromObject(limits, token)) changed = true; // some stores use token keys
+          if (changed) await saveJSON(PATHS.tradeLimits, limits);
         } catch {}
 
         // 5) Purge any trades involving this user
@@ -270,7 +287,7 @@ export default async function registerUnlinkDeck(client) {
         try { await tryDeleteLocalRevealFiles(userId, token); } catch {}
 
         await interaction.editReply({
-          content: `✅ Successfully unlinked **${display}**, reset daily sell counters, and purged associated data.`,
+          content: `✅ Successfully unlinked **${display}**, reset sell counters, and purged associated data.`,
           embeds: [],
           components: []
         });
