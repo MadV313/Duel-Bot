@@ -3,8 +3,8 @@
 // - Restricted to #battlefield (configurable)
 // - Requires the user to be linked (prompts to /linkdeck if not)
 // - Ensures/mints a per-user token and persists it via Persistent Data API
-// - Calls backend /bot/practice (INTERNAL url for server->server), then returns two links:
-//     • Use Saved Deck   (?mode=practice&practiceDeck=saved)
+// - Calls backend /bot/practice (INTERNAL url for server->server), then returns links:
+//     • Use Saved Deck   (?mode=practice&practiceDeck=saved)   — only if user has a valid saved deck
 //     • Use Random Deck  (?mode=practice&practiceDeck=random)
 // - Each link carries ?token=..., optional &api=..., &imgbase=..., and cache-busting &ts=...
 
@@ -130,6 +130,16 @@ async function ensureTokenIfLinked(userId, username) {
   return linked[userId].token;
 }
 
+// Count cards in saved deck (array of {id, qty})
+function countDeckCards(deck) {
+  try {
+    const cards = Array.isArray(deck?.cards) ? deck.cards : [];
+    return cards.reduce((n, c) => n + (Number(c?.qty) || 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
 // ─────────────────────────── Command registration ───────────────────────────
 export default async function registerPractice(bot) {
   const data = new SlashCommandBuilder()
@@ -196,48 +206,71 @@ export default async function registerPractice(bot) {
 
       // Ensure token on existing profile (mint only if missing)
       let token = profile.token;
-      try { token = await ensureTokenIfLinked(interaction.user.id, interaction.user.username) || token; }
+      try { token = (await ensureTokenIfLinked(interaction.user.id, interaction.user.username)) || token; }
       catch (e) { log.warn('token.ensure.fail', { userId: interaction.user.id, err: String(e) }); }
 
-      // Build two personalized Practice UI links
+      // Determine whether the user has a valid saved deck (≥20 cards)
+      const savedTotal = countDeckCards(profile.deck);
+      const hasSavedDeck = Number.isFinite(savedTotal) && savedTotal >= 20;
+
+      // Build personalized UI links
       const baseParams = new URLSearchParams();
       baseParams.set('mode', 'practice');
       baseParams.set('token', token || '');
       if (PASS_API_QUERY) baseParams.set('api', PUBLIC_BACKEND_URL);
       if (IMAGE_BASE) baseParams.set('imgbase', IMAGE_BASE);
 
-      const paramsSaved = new URLSearchParams(baseParams);
-      paramsSaved.set('practiceDeck', 'saved');
-      paramsSaved.set('ts', String(Date.now()));
-      const duelUrlSaved = `${DUEL_UI_URL}?${paramsSaved.toString()}`;
-
+      // Always provide Random deck
       const paramsRandom = new URLSearchParams(baseParams);
       paramsRandom.set('practiceDeck', 'random');
       paramsRandom.set('ts', String(Date.now() + 1));
       const duelUrlRandom = `${DUEL_UI_URL}?${paramsRandom.toString()}`;
 
+      // Provide Saved deck only when valid
+      let duelUrlSaved = null;
+      if (hasSavedDeck) {
+        const paramsSaved = new URLSearchParams(baseParams);
+        paramsSaved.set('practiceDeck', 'saved');
+        paramsSaved.set('ts', String(Date.now()));
+        duelUrlSaved = `${DUEL_UI_URL}?${paramsSaved.toString()}`;
+      }
+
+      // Embed text
+      const lines = [
+        'A fresh duel vs **Practice Bot** has been initialized.',
+        '',
+        '• Both sides start at **200 HP**',
+        '• Each draws **3 cards**',
+        '• **Coin flip** decides who goes first',
+        '',
+        '**Choose how you want to practice:**',
+      ];
+      if (hasSavedDeck) {
+        lines.push(
+          '• **Use Saved Deck**: your current saved deck from the Deck Builder',
+          '• **Use Random Deck**: a randomized premade deck for quick practice'
+        );
+      } else {
+        lines.push(
+          '• **Use Random Deck**: a randomized premade deck for quick practice'
+        );
+        lines.push('');
+        lines.push('_(No saved deck found or deck has fewer than 20 cards. Build & save a deck in the Deck Builder to enable the Saved Deck option.)_');
+      }
+      lines.push('', `Trace: \`${traceId}\``);
+
       const embed = new EmbedBuilder()
         .setTitle('Practice Duel Ready')
-        .setDescription(
-          [
-            'A fresh duel vs **Practice Bot** has been initialized.',
-            '',
-            '• Both sides start at **200 HP**',
-            '• Each draws **3 cards**',
-            '• **Coin flip** decides who goes first',
-            '',
-            '**Choose how you want to practice:**',
-            '• **Use Saved Deck**: your current saved deck from the Deck Builder',
-            '• **Use Random Deck**: a randomized premade deck for quick practice',
-            '',
-            `Trace: \`${traceId}\``
-          ].join('\n')
-        )
+        .setDescription(lines.join('\n'))
         .setColor(0x2ecc71)
         .setFooter({ text: 'This message is visible only to you (ephemeral).' });
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setLabel('Use Saved Deck').setStyle(ButtonStyle.Link).setURL(duelUrlSaved),
+      // Buttons
+      const row = new ActionRowBuilder();
+      if (hasSavedDeck && duelUrlSaved) {
+        row.addComponents(new ButtonBuilder().setLabel('Use Saved Deck').setStyle(ButtonStyle.Link).setURL(duelUrlSaved));
+      }
+      row.addComponents(
         new ButtonBuilder().setLabel('Use Random Deck').setStyle(ButtonStyle.Link).setURL(duelUrlRandom),
         new ButtonBuilder().setLabel('API Status').setStyle(ButtonStyle.Link).setURL(`${PUBLIC_BACKEND_URL}/duel/status`)
       );
@@ -249,6 +282,8 @@ export default async function registerPractice(bot) {
         publicApi: PUBLIC_BACKEND_URL,
         passApiParam: PASS_API_QUERY,
         hasToken: !!token,
+        hasSavedDeck,
+        savedTotal,
       });
     },
   });
