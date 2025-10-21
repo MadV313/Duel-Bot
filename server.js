@@ -33,6 +33,9 @@ import createTradeRouter from './routes/trade.js';
 // 🧰 Persistent storage client (health check & optional debug endpoint)
 import { loadJSON, saveJSON, PATHS } from './utils/storageClient.js';
 
+// 🧩 NEW: tiny compatibility router for Duel UI (GET /duel/state, POST /bot/practice)
+import duelUiCompat from './routes/duelUiCompat.js';
+
 dotenvConfig();
 
 /* ──────────────────────────────────────────────────────────
@@ -309,7 +312,18 @@ const corsOptions = {
     /duel-ui-production\.up\.railway\.app$/
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Bot-Key'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Bot-Key',
+    // ▼ added for Duel UI preflight
+    'X-Player-Token',
+    'X-Match-Id',
+    'X-Mode',
+    'X-App-Client',
+    'X-Requested-With'
+  ],
+  exposedHeaders: ['X-Match-Id'],
   optionsSuccessStatus: 204,
 };
 
@@ -420,6 +434,9 @@ app.use('/', meTokenRouter);
 
 // Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
+
+// 🧩 NEW: mount UI compatibility shims (GET /duel/state, POST /bot/practice)
+app.use('/', duelUiCompat);
 
 app.use('/public', express.static('public'));
 
