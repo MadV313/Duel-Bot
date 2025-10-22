@@ -315,7 +315,7 @@ const corsOptions = {
     'Content-Type',
     'Authorization',
     'X-Bot-Key',
-    // ▼ added for Duel UI preflight
+    // ▼ headers we sometimes use for authenticated UI calls (not needed for spectator)
     'X-Player-Token',
     'X-Match-Id',
     'X-Mode',
@@ -437,7 +437,7 @@ app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next
 // Core feature routes (legacy mounts kept for backward compatibility)
 app.use('/duel', duelRoutes);
 app.use('/bot', botPracticeAlias);
-app.use('/duel/live', spectatorLimiter, liveRoutes); // ← spectator limiter
+app.use('/duel/live', spectatorLimiter, liveRoutes); // ← legacy live path w/ spectator limiter
 app.use('/duel', duelStartRoutes);
 app.use('/summary', summaryRoutes);
 app.use('/user', userStatsRoutes);
@@ -445,11 +445,11 @@ app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
-// ✅ API-prefixed mounts so Spectator UI can call /api/duel/current
-app.use('/api/duel', duelRoutes);                 // /api/duel/status, /practice, /turn, /state
-app.use('/api/duel/live', spectatorLimiter, liveRoutes); // ← spectator limiter
-app.use('/api/bot', botPracticeAlias);            // /api/bot/status, /practice
-app.use('/api/duelstart', duelStartRoutes);       // /api/duelstart/start
+// ✅ API-prefixed mounts so Spectator UI can call /api/duel/live/current
+app.use('/api/duel', duelRoutes);                       // /api/duel/status, /practice, /turn, /state
+app.use('/api/duel/live', spectatorLimiter, liveRoutes); // /api/duel/live/current  ✅
+app.use('/api/bot', botPracticeAlias);                  // /api/bot/status, /practice
+app.use('/api/duelstart', duelStartRoutes);             // /api/duelstart/start
 
 // Token-aware endpoints mounted at root
 app.use('/', meTokenRouter);
