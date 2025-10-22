@@ -446,10 +446,10 @@ app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
 // ✅ API-prefixed mounts so Spectator UI can call /api/duel/live/current
-app.use('/api/duel', duelRoutes);                       // /api/duel/status, /practice, /turn, /state
+app.use('/api/duel', duelRoutes);                        // /api/duel/status, /practice, /turn, /state
 app.use('/api/duel/live', spectatorLimiter, liveRoutes); // /api/duel/live/current  ✅
-app.use('/api/bot', botPracticeAlias);                  // /api/bot/status, /practice
-app.use('/api/duelstart', duelStartRoutes);             // /api/duelstart/start
+app.use('/api/bot', botPracticeAlias);                   // /api/bot/status, /practice
+app.use('/api/duelstart', duelStartRoutes);              // /api/duelstart/start
 
 // Token-aware endpoints mounted at root
 app.use('/', meTokenRouter);
