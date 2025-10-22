@@ -306,7 +306,9 @@ const corsOptions = {
   origin: [
     'https://madv313.github.io',
     /localhost:5173$/,
-    /duel-ui-production\.up\.railway\.app$/
+    /duel-ui-production\.up\.railway\.app$/,
+    // ✅ also allow your backend host (spectator page calls this)
+    /duel-bot-production\.up\.railway\.app$/
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
@@ -326,7 +328,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // handle preflight globally
-app.use(helmet());
+app.use(helmet()));
 app.use(express.json({ limit: '256kb' }));
 
 // Rate limiter
@@ -406,6 +408,8 @@ app.get('/_storage', async (_req, res) => {
 /* ──────────────────────────────────────────────────────────
  * Routes
  * ────────────────────────────────────────────────────────── */
+
+// Apply limiter on both legacy and API-prefixed paths
 app.use('/duel', apiLimiter);
 app.use('/packReveal', apiLimiter);
 app.use('/user', apiLimiter);
@@ -415,7 +419,10 @@ app.use('/me', apiLimiter);
 app.use('/userStatsToken', apiLimiter);
 app.use('/trade', apiLimiter);
 
-// Core feature routes
+// 🔔 Also protect API namespace
+app.use('/api', apiLimiter);
+
+// Core feature routes (legacy mounts kept for backward compatibility)
 app.use('/duel', duelRoutes);
 app.use('/bot', botPracticeAlias);
 app.use('/duel/live', liveRoutes);
@@ -425,6 +432,12 @@ app.use('/user', userStatsRoutes);
 app.use('/packReveal', cardRoutes);
 app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
+
+// ✅ API-prefixed mounts so Spectator UI can call /api/duel/current
+app.use('/api/duel', duelRoutes);          // /api/duel/status, /practice, /turn, /state
+app.use('/api/duel', liveRoutes);          // /api/duel/current
+app.use('/api/bot', botPracticeAlias);     // /api/bot/status, /practice
+app.use('/api/duelstart', duelStartRoutes);// /api/duelstart/start
 
 // Token-aware endpoints mounted at root
 app.use('/', meTokenRouter);
@@ -474,7 +487,7 @@ app.use('/public', express.static('public'));
 /* ──────────────────────────────────────────────────────────
  * Fallbacks + listen
  * ────────────────────────────────────────────────────────── */
-app.get('/', (_req, res) => res.send('🌐 Duel Bot Backend is live.'));
+app.get('/' , (_req, res) => res.send('🌐 Duel Bot Backend is live.'));
 app.use((req, res) => res.status(404).json({ error: '🚫 Endpoint not found' }));
 app.use((err, _req, res, _next) => {
   console.error('🔥 Server Error:', err.stack || err);
