@@ -8,7 +8,8 @@
 //
 // Config (ENV CONFIG_JSON takes precedence over config.json):
 //   battlefield_channel_id
-//   duel_ui_url (or ui_urls.duel_ui)
+//   spectator_ui_url (or ui_urls.spectator_ui)  <-- NEW preferred for spectator links
+//   duel_ui_url (or ui_urls.duel_ui)            <-- still supported as fallback
 //   api_base
 //   image_base
 //
@@ -103,7 +104,7 @@ async function fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_
 }
 
 /** Normalize a duel record into a UI-friendly item. */
-function normalizeDuel(d, linked) {
+function normalizeDuel(d, linked, invokerName) {
   const id = String(d.id || d.session || d.sessionId || '').trim();
   const status = String(d.status || d.state || 'active').toLowerCase();
   const practice = !!(d.isPractice || d.practice);
@@ -115,23 +116,32 @@ function normalizeDuel(d, linked) {
   const aId = String(a.userId || a.id || a.discordId || '').trim();
   const bId = String(b.userId || b.id || b.discordId || '').trim();
 
-  const aName = (linked?.[aId]?.discordName) || a.name || (aId ? `<@${aId}>` : 'Unknown');
-  const bName = practice ? 'Practice Bot' : ((linked?.[bId]?.discordName) || b.name || (bId ? `<@${bId}>` : 'Unknown'));
+  // Prefer linked display names; for practice, fall back to the invoker's name to avoid "Player"
+  const aName = practice
+    ? (invokerName || (linked?.[aId]?.discordName) || a.name || (aId ? `<@${aId}>` : 'Player'))
+    : ((linked?.[aId]?.discordName) || a.name || (aId ? `<@${aId}>` : 'Unknown'));
+
+  const bName = practice
+    ? 'Practice Bot'
+    : ((linked?.[bId]?.discordName) || b.name || (bId ? `<@${bId}>` : 'Unknown'));
 
   return { id, status, aId, bId, aName, bName, isPractice: practice };
 }
 
-/** Build personalized spectator URL */
-function buildSpectatorUrl({ sessionId, token, DUEL_UI_URL, PUBLIC_BACKEND_URL, IMAGE_BASE, PASS_API_QUERY, isPractice }) {
+/** Build personalized spectator URL (points to Spectator UI) */
+function buildSpectatorUrl({ sessionId, token, SPECTATOR_UI_URL, PUBLIC_BACKEND_URL, IMAGE_BASE, PASS_API_QUERY, isPractice, userName }) {
   const qp = new URLSearchParams();
   qp.set('mode', isPractice ? 'practice' : 'duel');
-  qp.set('session', sessionId);
+  if (!isPractice && sessionId) qp.set('session', sessionId);
   qp.set('role', 'spectator');
+  if (userName) qp.set('user', userName);
   if (token) qp.set('token', token);
   if (PASS_API_QUERY) qp.set('api', PUBLIC_BACKEND_URL);
   if (IMAGE_BASE) qp.set('imgbase', IMAGE_BASE);
   qp.set('ts', String(Date.now()));
-  return `${DUEL_UI_URL}?${qp.toString()}`;
+  // Ensure we land on the actual spectator index.html if the base is a folder
+  const base = SPECTATOR_UI_URL.endsWith('.html') ? SPECTATOR_UI_URL : `${SPECTATOR_UI_URL.replace(/\/+$/,'')}/index.html`;
+  return `${base}?${qp.toString()}`;
 }
 
 /* ───────────────────────── Command registration ───────────────────────── */
@@ -162,11 +172,12 @@ export default async function registerSpectate(bot) {
     CFG
   );
 
-  const DUEL_UI_URL = pickUrl(
+  // NEW: prefer Spectator UI for links; fall back to Duel UI if not provided
+  const SPECTATOR_UI_URL = pickUrl(
     {
-      envKeys: ['DUEL_UI_URL', 'DUEL_UI'],
-      cfgKeys: ['duel_ui_url', 'ui_urls?.duel_ui'],
-      fallback: 'https://madv313.github.io/Duel-UI'
+      envKeys: ['SPECTATOR_UI_URL', 'SPEC_UI_URL', 'SPECTATOR_URL', 'DUEL_UI_URL', 'DUEL_UI'],
+      cfgKeys: ['spectator_ui_url', 'ui_urls?.spectator_ui', 'duel_ui_url', 'ui_urls?.duel_ui'],
+      fallback: 'https://madv313.github.io/Spectator-View-UI'
     },
     CFG
   );
@@ -219,7 +230,7 @@ export default async function registerSpectate(bot) {
       // Fetch active duels
       const raw = await fetchActiveDuels({ PUBLIC_BACKEND_URL, INTERNAL_BACKEND_URL, BOT_API_KEY });
       const duels = raw
-        .map(d => normalizeDuel(d, linked))
+        .map(d => normalizeDuel(d, linked, invokerName))
         // Accept common live statuses OR any session explicitly marked as practice.
         .filter(d => d.id && (
           ['active', 'live', 'running', 'in_progress', 'started'].includes(d.status) || d.isPractice
@@ -315,28 +326,32 @@ export default async function registerSpectate(bot) {
           });
         }
 
-        // Personalized spectator URL
+        // Personalized spectator URL (now points to Spectator UI)
         const specUrl = buildSpectatorUrl({
           sessionId: picked.id,
           token,
-          DUEL_UI_URL,
+          SPECTATOR_UI_URL,
           PUBLIC_BACKEND_URL,
           IMAGE_BASE,
           PASS_API_QUERY,
-          isPractice: picked.isPractice
+          isPractice: picked.isPractice,
+          userName: invokerName
         });
 
         const embed = new EmbedBuilder()
           .setTitle('🎥 Spectate Duel')
           .setDescription([
             `**Match:** ${picked.aName} vs ${picked.bName}`,
-            `**Status:** ${picked.isPractice ? 'Live (Practice)' : 'Live now'}`,
-            '',
-            `🔗 **Join as Spectator:** ${specUrl}`
+            `**Status:** ${picked.isPractice ? 'Live (Practice)' : 'Live now'}`
           ].join('\n'))
           .setColor(0x2ecc71);
 
-        await interaction.editReply({ embeds: [embed], components: [] });
+        // Make it a one-click link
+        const openBtn = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setLabel('Open Spectator View').setStyle(ButtonStyle.Link).setURL(specUrl)
+        );
+
+        await interaction.editReply({ embeds: [embed], components: [openBtn] });
         try { btnCollector.stop(); } catch {}
         try { ddCollector.stop(); } catch {}
       });
