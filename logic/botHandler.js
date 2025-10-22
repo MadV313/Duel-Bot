@@ -10,6 +10,9 @@
  * @param {object} duelState - The current duel state object
  * @returns {object} - Updated duelState
  */
+
+import { drawCard } from './duelState.js';
+
 export async function applyBotMove(duelState) {
   if (!duelState || typeof duelState !== 'object') {
     throw new Error('[Bot] duelState missing or invalid.');
@@ -32,10 +35,21 @@ export async function applyBotMove(duelState) {
     `🤖 [Bot Turn] HP: ${bot.hp ?? '?'} | Hand: ${bot.hand.length} | Field: ${bot.field.length} | Deck: ${bot.deck.length}`
   );
 
+  // If the bot has no cards in hand, try to draw 1 (with recycle)
+  if (bot.hand.length === 0) {
+    const { exhausted } = drawCard('bot', 1, { allowRecycle: true });
+    if (exhausted) {
+      console.log('[Bot] 🔻 Deck exhausted after recycle; cannot draw.');
+    }
+  }
+
   // 🔹 Simple logic: play a card if field has room, otherwise discard.
-  if (bot.hand.length > 0 && bot.field.length < 4) {
-    // Play the first card in hand (and remove from deck entirely)
+  const FIELD_LIMIT = 4;
+
+  if (bot.hand.length > 0 && bot.field.length < FIELD_LIMIT) {
+    // Play the first card in hand
     const playedCard = bot.hand.shift();
+    playedCard.isFaceDown = false;
     bot.field.push(playedCard);
 
     console.log(`[Bot] ➕ Played card: ${playedCard.cardId || '[Unknown Card]'}`);
@@ -48,57 +62,34 @@ export async function applyBotMove(duelState) {
     console.log(`[Bot] 🗑️ Discarded card: ${discardedCard.cardId || '[Unknown Card]'}`);
     duelState.lastBotAction = `Discarded ${discardedCard.cardId || 'Unknown'}`;
   } else {
-    // Try drawing if empty
-    if (bot.deck.length > 0) {
-      const drawnCard = bot.deck.shift(); // ✅ always remove from deck
-      bot.hand.push(drawnCard);
-      console.log(`[Bot] 🃏 Drew card: ${drawnCard.cardId}`);
-      duelState.lastBotAction = `Drew ${drawnCard.cardId}`;
-    } else {
-      console.log('[Bot] 🚫 No cards to play, discard, or draw.');
-      duelState.lastBotAction = 'Idle (no cards)';
-    }
+    console.log('[Bot] 🚫 No cards to play, discard, or draw.');
+    duelState.lastBotAction = 'Idle (no cards)';
   }
 
   // 🔹 Cleanup resolved cards (keeps the field tidy for spectators)
   const stillActive = [];
-  const toDiscard = [];
+  let cleaned = 0;
 
   for (const c of bot.field) {
     if (c?.toDiscard || c?.resolved) {
-      toDiscard.push(c);
+      // push a shallow copy so future mutations on field don't affect discard
+      bot.discardPile.push({ ...c });
+      cleaned++;
     } else {
       stillActive.push(c);
     }
   }
 
-  if (toDiscard.length > 0) {
-    console.log(`[Bot] 🧹 Cleaning ${toDiscard.length} resolved cards.`);
-    bot.discardPile.push(...toDiscard);
+  if (cleaned > 0) {
+    console.log(`[Bot] 🧹 Cleaning ${cleaned} resolved cards.`);
   }
 
   bot.field = stillActive;
 
-  // 🔹 De-duplicate deck and hand (avoid repeat cards)
-  const dedupeById = arr => {
-    const seen = new Set();
-    return arr.filter(c => {
-      if (!c || !c.cardId) return false;
-      if (seen.has(c.cardId)) return false;
-      seen.add(c.cardId);
-      return true;
-    });
-  };
-
-  bot.deck = dedupeById(bot.deck);
-  bot.hand = dedupeById(bot.hand);
-  bot.field = dedupeById(bot.field);
-  bot.discardPile = dedupeById(bot.discardPile);
-
   // 🔹 Mark timestamp for logs or spectator freshness display
   duelState.lastBotActionAt = new Date().toISOString();
 
-  // 🔹 End turn: pass back to player
+  // 🔹 End turn: pass back to player ALWAYS
   duelState.currentPlayer = 'player1';
 
   console.log(
