@@ -42,10 +42,12 @@ router.post('/start', async (req, res) => {
   // Prevent launching if duel already active (global duelState guard)
   // NOTE: This preserves current behavior. True concurrency will require
   // per-session state in logic/duelState.js (not just a single global duelState).
-  if (
-    duelState.players?.player1?.deck?.length ||
-    duelState.players?.player2?.deck?.length
-  ) {
+  const p1Len = duelState.players?.player1?.deck?.length || 0;
+  // allow either key for side B (your schema currently uses 'bot')
+  const pBLen =
+    (duelState.players?.player2?.deck?.length ||
+     duelState.players?.bot?.deck?.length || 0);
+  if (p1Len > 0 || pBLen > 0) {
     return res.status(409).json({ error: 'A duel is already in progress.' });
   }
 
