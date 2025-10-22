@@ -331,7 +331,7 @@ app.options('*', cors(corsOptions)); // handle preflight globally
 app.use(helmet());
 app.use(express.json({ limit: '256kb' }));
 
-// Rate limiter
+// Rate limiter (general)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -339,6 +339,15 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '🚫 Too many requests. Please try again later.' }
+});
+
+// ✅ Spectator-friendly limiter: allow frequent polling of /duel/live/current
+// The spectator page polls every ~2s → ~30 req/min. Give headroom per IP.
+const spectatorLimiter = rateLimit({
+  windowMs: 60 * 1000,   // 1 minute window
+  max: 240,              // up to 240 req/min per IP
+  standardHeaders: true,
+  legacyHeaders: false
 });
 
 /* ──────────────────────────────────────────────────────────
@@ -428,7 +437,7 @@ app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next
 // Core feature routes (legacy mounts kept for backward compatibility)
 app.use('/duel', duelRoutes);
 app.use('/bot', botPracticeAlias);
-app.use('/duel/live', liveRoutes);
+app.use('/duel/live', spectatorLimiter, liveRoutes); // ← spectator limiter
 app.use('/duel', duelStartRoutes);
 app.use('/summary', summaryRoutes);
 app.use('/user', userStatsRoutes);
@@ -437,10 +446,10 @@ app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
 // ✅ API-prefixed mounts so Spectator UI can call /api/duel/current
-app.use('/api/duel', duelRoutes);          // /api/duel/status, /practice, /turn, /state
-app.use('/api/duel', liveRoutes);          // /api/duel/current
-app.use('/api/bot', botPracticeAlias);     // /api/bot/status, /practice
-app.use('/api/duelstart', duelStartRoutes);// /api/duelstart/start
+app.use('/api/duel', duelRoutes);                 // /api/duel/status, /practice, /turn, /state
+app.use('/api/duel/live', spectatorLimiter, liveRoutes); // ← spectator limiter
+app.use('/api/bot', botPracticeAlias);            // /api/bot/status, /practice
+app.use('/api/duelstart', duelStartRoutes);       // /api/duelstart/start
 
 // Token-aware endpoints mounted at root
 app.use('/', meTokenRouter);
