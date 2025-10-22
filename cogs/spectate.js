@@ -211,7 +211,8 @@ export default async function registerSpectate(bot) {
     process.env.IMAGE_BASE ||
     CFG.image_base ||
     CFG.IMAGE_BASE ||
-    'https://madv313.github.io/Card-Collection-UI/images/cards'
+    // Default to Spectator-View-UI art path so images load out of the box
+    'https://madv313.github.io/Spectator-View-UI/images/cards'
   );
 
   const BOT_API_KEY = process.env.BOT_API_KEY || '';
