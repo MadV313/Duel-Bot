@@ -45,17 +45,15 @@ function clone(v) {
 
 /**
  * Build a spectator-safe snapshot of the current state.
- * - normalizes players.player2 ← bot if needed
+ * - normalizes players.player2 ← bot (read-only) when needed
  * - optional hand redaction (`safeView=true`): send facedown placeholders
  */
 function buildSpectatorState(srcState, { safeView = false, sessionId = null } = {}) {
-  if (!srcState || !srcState.players) {
-    return null;
-  }
+  if (!srcState || !srcState.players) return null;
 
+  // Read-only normalization (do not mutate the live duelState)
   const p1Raw = srcState.players.player1;
   const p2Raw = srcState.players.player2 ?? srcState.players.bot;
-
   if (!p1Raw || !p2Raw) return null;
 
   const p1 = clone(p1Raw);
@@ -63,7 +61,10 @@ function buildSpectatorState(srcState, { safeView = false, sessionId = null } = 
 
   if (safeView) {
     const redact = (hand = []) =>
-      Array.from({ length: Array.isArray(hand) ? hand.length : 0 }, () => ({ cardId: '000', isFaceDown: true }));
+      Array.from(
+        { length: Array.isArray(hand) ? hand.length : 0 },
+        () => ({ cardId: '000', isFaceDown: true })
+      );
     p1.hand = redact(p1.hand);
     p2.hand = redact(p2.hand);
   }
@@ -86,8 +87,7 @@ function buildSpectatorState(srcState, { safeView = false, sessionId = null } = 
 }
 
 // ────────────────────────────────────────────────────────────
-// Handlers
-// ────────────────────────────────────────────────────────────
+/** GET /duel/practice — initialize a practice duel vs the bot */
 async function startPracticeHandler(req, res) {
   const traceId =
     req.headers['x-trace-id'] ||
@@ -97,18 +97,22 @@ async function startPracticeHandler(req, res) {
     const cards = await loadCoreCards();
     startPracticeDuel(cards); // sets global duelState (200 HP, draw 3, coin flip)
 
-    // ✅ Fix: ensure Player 1 and Bot names are descriptive
-    duelState.players.player1.discordName = 'Challenger';
-    duelState.players.bot.discordName = 'Practice Bot';
+    // ✅ Clear names for spectator & UI alignment
+    if (duelState?.players?.player1) {
+      duelState.players.player1.discordName = duelState.players.player1.discordName || 'Challenger';
+    }
+    if (duelState?.players?.bot) {
+      duelState.players.bot.discordName = 'Practice Bot';
+    }
 
-    // NEW: also reflect the practice duel into the session registry
+    // Reflect the practice duel into the session registry
     const sessionId = 'practice';
     upsertSession({
       id: sessionId,
       status: 'live',
       isPractice: true,
       players: [
-        { userId: '', name: 'Challenger' },
+        { userId: '',    name: duelState?.players?.player1?.discordName || 'Challenger' },
         { userId: 'bot', name: 'Practice Bot' },
       ],
     });
@@ -141,6 +145,7 @@ async function startPracticeHandler(req, res) {
   }
 }
 
+/** POST /duel/turn — apply bot move (practice) */
 async function botTurnHandler(req, res) {
   const traceId =
     req.headers['x-trace-id'] ||
@@ -154,25 +159,8 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    // ✅ Ensure backend keeps authoritative state for spectator sync
+    // ✅ Use in-memory state; bot handler mutates it authoritatively
     const updated = await applyBotMove(duelState);
-
-    // ✅ Maintain deck and hand integrity (remove duplicates)
-    for (const playerKey of Object.keys(updated.players)) {
-      const p = updated.players[playerKey];
-      if (Array.isArray(p.deck) && Array.isArray(p.hand)) {
-        // Remove any duplicates by cardId reference
-        const uniqueDeck = [];
-        const seenIds = new Set();
-        for (const c of p.deck) {
-          if (!seenIds.has(c.cardId)) {
-            uniqueDeck.push(c);
-            seenIds.add(c.cardId);
-          }
-        }
-        p.deck = uniqueDeck;
-      }
-    }
 
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
@@ -199,6 +187,7 @@ async function botTurnHandler(req, res) {
   }
 }
 
+/** GET /duel/status — small health/status */
 function statusHandler(_req, res) {
   res.json({
     ok: true,
@@ -208,7 +197,7 @@ function statusHandler(_req, res) {
   });
 }
 
-// NEW: live/current endpoint for spectator UIs (and /bot alias)
+/** GET /duel/live/current — spectator-friendly state (and /bot alias) */
 function liveCurrentHandler(req, res) {
   const safeView = String(req.query.safeView || '').toLowerCase() === 'true';
   const sessionId = (req.query.session ?? '').toString().trim();
@@ -223,11 +212,7 @@ function liveCurrentHandler(req, res) {
   }
   if (!state) state = duelState;
 
-  // ✅ Make sure bot→player2 normalization occurs for spectators
-  if (state.players.bot && !state.players.player2) {
-    state.players.player2 = state.players.bot;
-  }
-
+  // Build a read-only normalized snapshot (player2 ← bot when needed)
   const snapshot = buildSpectatorState(state, { safeView, sessionId });
   if (!snapshot) {
     return res.status(404).json({ error: 'No duel in progress.' });
