@@ -98,3 +98,11 @@ export async function applyBotMove(duelState) {
 
   return duelState;
 }
+
+// --- Backward-compatibility exports ---
+// Guarantees these all work anywhere in the repo:
+//   import { applyBotMove } from './logic/botHandler.js'
+//   import { botTurn } from './logic/botHandler.js'
+//   import botTurn from './logic/botHandler.js'
+export const botTurn = applyBotMove;
+export default applyBotMove;
