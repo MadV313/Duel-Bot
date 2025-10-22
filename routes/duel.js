@@ -4,7 +4,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { startPracticeDuel, duelState } from '../logic/duelState.js';
-import { applyBotMove } from '../logic/botHandler.js';
+// ✅ Backward-compatible imports: supports old and new bot handler names
+import applyBotMoveCompat, {
+  applyBotMove as namedApply,
+  botTurn as legacyBotTurn,
+} from '../logic/botHandler.js';
 
 // NEW: session registry
 import {
@@ -145,7 +149,15 @@ async function startPracticeHandler(req, res) {
   }
 }
 
-/** POST /duel/turn — apply bot move (practice) */
+/**
+ * POST /duel/turn — minimal, SAFE turn handler (server is source of truth)
+ *
+ * - Does NOT accept/merge any client-provided zones (hand/field/discard/deck).
+ * - Flips to bot when needed and invokes the bot handler using any of the
+ *   supported export names (new, legacy, default).
+ * - After the bot move, currentPlayer is guaranteed to be 'player1'
+ *   because the handler sets it.
+ */
 async function botTurnHandler(req, res) {
   const traceId =
     req.headers['x-trace-id'] ||
@@ -159,8 +171,26 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    // ✅ Use in-memory state; bot handler mutates it authoritatively
-    const updated = await applyBotMove(duelState);
+    // 🚫 We intentionally ignore any client payload that might try to send zones.
+    // const { hand, field, discardPile, deck, ...rest } = req.body || {};
+
+    // Pick a compatible bot handler (supports renamed imports)
+    const botHandler =
+      (typeof namedApply === 'function' && namedApply) ||
+      (typeof applyBotMoveCompat === 'function' && applyBotMoveCompat) ||
+      (typeof legacyBotTurn === 'function' && legacyBotTurn);
+
+    if (!botHandler) {
+      throw new Error('No bot handler available (applyBotMove / botTurn export missing).');
+    }
+
+    // If it's currently the player's turn, flip to bot before invoking
+    if (duelState.currentPlayer === 'player1') {
+      duelState.currentPlayer = 'bot';
+    }
+
+    // Execute one bot move; the bot handler will ALWAYS set currentPlayer back to 'player1'
+    const updated = await botHandler(duelState);
 
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
@@ -170,6 +200,7 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
+    // Return authoritative server state ONLY
     res.json(updated);
   } catch (err) {
     console.error(
