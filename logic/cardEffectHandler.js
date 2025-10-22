@@ -1,7 +1,6 @@
 // logic/cardEffectHandler.js
 
 import { duelState } from './duelState.js';
-import { drawCard } from './duelState.js'; // ✅ add this import
 
 /**
  * Apply effects of a played card.
@@ -36,13 +35,15 @@ export function applyCardEffect(playerKey, card) {
         console.log(`[Effect] ❤️ ${card.cardId} healed ${effect.value} HP for ${playerKey}`);
         break;
 
-      case 'draw': {
-        const n = Number(effect.value) || 0;
-        if (n > 0) {
-          drawCard(playerKey, n, { allowRecycle: true }); // ✅ respect recycle/penalty rules
+      case 'draw':
+        for (let i = 0; i < effect.value; i++) {
+          if (player.hand.length < 4 && player.deck.length > 0) {
+            const drawn = player.deck.shift();
+            player.hand.push(drawn);
+            console.log(`[Effect] 🔄 ${playerKey} drew card ${drawn.cardId}`);
+          }
         }
         break;
-      }
 
       case 'force_discard':
         for (let i = 0; i < effect.value; i++) {
