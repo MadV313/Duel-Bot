@@ -47,63 +47,28 @@ export const duelState = {
  * Utilities
  * ---------------------------------------------------------*/
 
-/** Fisher–Yates shuffle (returns a NEW array) */
+/** Fisher–Yates shuffle (in place) */
 function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
+  for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  return a;
+  return arr;
 }
 
-/**
- * Draw up to `count` cards from a player's DECK.
- * If the deck is empty and `allowRecycle` is true, the DISCARD PILE is
- * shuffled and moved into the deck (then cleared). We NEVER draw directly
- * from the discard pile. If both deck and discard are empty, apply a
- * deck-exhaustion penalty (-10 HP) once and stop drawing.
- *
- * Hand limit is enforced elsewhere; we still guard against absurd draws.
- *
- * @param {'player1'|'bot'|'player2'} playerKey
- * @param {number} count
- * @param {{allowRecycle?: boolean}} opts
- * @returns {{drawn: any[], exhausted: boolean}}
- */
-export function drawCard(playerKey, count = 1, opts = {}) {
-  const { allowRecycle = true } = opts;
+/** Draw up to `count` cards from a player's deck */
+export function drawCard(playerKey, count = 1) {
   const p = duelState.players[playerKey];
-  if (!p) return { drawn: [], exhausted: false };
-
-  const drawn = [];
+  if (!p) return;
 
   for (let i = 0; i < count; i++) {
-    // Recycle discard -> deck (SHUFFLED) if needed
-    if (p.deck.length === 0 && allowRecycle && p.discardPile.length > 0) {
-      p.deck = shuffle(p.discardPile);
-      p.discardPile = []; // clear to avoid aliasing
-      console.log(`[draw] ♻️ Recycled discard → deck for ${playerKey} (${p.deck.length}).`);
-    }
-
-    // If still empty, exhaustion
-    if (p.deck.length === 0) {
-      console.warn(`⚠️ ${playerKey} deck exhausted. -10 HP penalty.`);
-      p.hp = Math.max(0, (p.hp || 0) - 10);
-      return { drawn, exhausted: true };
-    }
-
+    if (p.deck.length === 0) break;
     const card = p.deck.shift();
-    if (!card) break;
     p.hand.push(card);
-    drawn.push(card);
-    console.log(`🎴 ${playerKey} drew: ${card.cardId}`);
   }
-
-  return { drawn, exhausted: false };
 }
 
-/** Reset a player's zone arrays and HP (ALWAYS new array instances) */
+/** Reset a player's zone arrays and HP */
 function resetPlayer(player, discordNameFallback) {
   player.hp = 200;
   player.hand = [];
@@ -154,7 +119,7 @@ export function startPracticeDuel(cardList) {
   duelState.players.player1.deck = buildPracticeDeck(cardList);
   duelState.players.bot.deck = buildPracticeDeck(cardList);
 
-  // Opening draws (3 each; recycle enabled by default)
+  // Opening draws (3 each)
   drawCard('player1', 3);
   drawCard('bot', 3);
 
