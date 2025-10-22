@@ -175,8 +175,20 @@ export default async function registerSpectate(bot) {
   // NEW: prefer Spectator UI for links; fall back to Duel UI if not provided
   const SPECTATOR_UI_URL = pickUrl(
     {
-      envKeys: ['SPECTATOR_UI_URL', 'SPEC_UI_URL', 'SPECTATOR_URL', 'DUEL_UI_URL', 'DUEL_UI'],
-      cfgKeys: ['spectator_ui_url', 'ui_urls?.spectator_ui', 'duel_ui_url', 'ui_urls?.duel_ui'],
+      envKeys: [
+        'SPECTATOR_VIEW_UI',     // ✅ your correct env override
+        'SPECTATOR_UI_URL',
+        'SPEC_UI_URL',
+        'SPECTATOR_URL',
+        'DUEL_UI_URL',
+        'DUEL_UI'
+      ],
+      cfgKeys: [
+        'spectator_ui_url',
+        'ui_urls?.spectator_ui',
+        'duel_ui_url',
+        'ui_urls?.duel_ui'
+      ],
       fallback: 'https://madv313.github.io/Spectator-View-UI'
     },
     CFG
