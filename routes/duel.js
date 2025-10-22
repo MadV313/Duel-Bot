@@ -53,7 +53,6 @@ function buildSpectatorState(srcState, { safeView = false, sessionId = null } = 
     return null;
   }
 
-  // Some code paths still store the opponent under "bot". Normalize to player2 for the UI.
   const p1Raw = srcState.players.player1;
   const p2Raw = srcState.players.player2 ?? srcState.players.bot;
 
@@ -69,7 +68,6 @@ function buildSpectatorState(srcState, { safeView = false, sessionId = null } = 
     p2.hand = redact(p2.hand);
   }
 
-  // Count spectators from array if present; otherwise 0
   const spectatorCount = Array.isArray(srcState.spectators) ? srcState.spectators.length : 0;
 
   return {
@@ -99,16 +97,18 @@ async function startPracticeHandler(req, res) {
     const cards = await loadCoreCards();
     startPracticeDuel(cards); // sets global duelState (200 HP, draw 3, coin flip)
 
+    // ✅ Fix: ensure Player 1 and Bot names are descriptive
+    duelState.players.player1.discordName = 'Challenger';
+    duelState.players.bot.discordName = 'Practice Bot';
+
     // NEW: also reflect the practice duel into the session registry
     const sessionId = 'practice';
     upsertSession({
       id: sessionId,
       status: 'live',
       isPractice: true,
-      // You can fill names if your duelState tracks them; safe defaults here:
       players: [
-        // viewer name resolution is handled client-side; ids can be empty here
-        { userId: '', name: 'Player' },
+        { userId: '', name: 'Challenger' },
         { userId: 'bot', name: 'Practice Bot' },
       ],
     });
@@ -154,8 +154,25 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    // ✅ Use the live in-memory duelState
+    // ✅ Ensure backend keeps authoritative state for spectator sync
     const updated = await applyBotMove(duelState);
+
+    // ✅ Maintain deck and hand integrity (remove duplicates)
+    for (const playerKey of Object.keys(updated.players)) {
+      const p = updated.players[playerKey];
+      if (Array.isArray(p.deck) && Array.isArray(p.hand)) {
+        // Remove any duplicates by cardId reference
+        const uniqueDeck = [];
+        const seenIds = new Set();
+        for (const c of p.deck) {
+          if (!seenIds.has(c.cardId)) {
+            uniqueDeck.push(c);
+            seenIds.add(c.cardId);
+          }
+        }
+        p.deck = uniqueDeck;
+      }
+    }
 
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
@@ -206,6 +223,11 @@ function liveCurrentHandler(req, res) {
   }
   if (!state) state = duelState;
 
+  // ✅ Make sure bot→player2 normalization occurs for spectators
+  if (state.players.bot && !state.players.player2) {
+    state.players.player2 = state.players.bot;
+  }
+
   const snapshot = buildSpectatorState(state, { safeView, sessionId });
   if (!snapshot) {
     return res.status(404).json({ error: 'No duel in progress.' });
@@ -216,14 +238,11 @@ function liveCurrentHandler(req, res) {
 // ────────────────────────────────────────────────────────────
 // NEW: multi-lobby endpoints (non-breaking)
 // ────────────────────────────────────────────────────────────
-
-// List all currently active sessions (practice + any future PvP)
 function listActiveHandler(_req, res) {
   const list = listActiveSessions();
   res.json({ duels: list });
 }
 
-// Return duel state; supports ?session=... (falls back to global practice for backward-compat)
 function stateHandler(req, res) {
   const sessionId = String(req.query.session || '').trim();
   if (sessionId) {
@@ -231,7 +250,6 @@ function stateHandler(req, res) {
     if (state) return res.json(state);
     return res.status(404).json({ error: 'Session not found', session: sessionId });
   }
-  // Backward-compat: no session param returns the global duelState
   return res.json(duelState);
 }
 
@@ -244,12 +262,10 @@ botAlias.get('/practice', startPracticeHandler);   // /bot/practice
 
 router.post('/turn', botTurnHandler);              // /duel/turn
 
-// NEW (non-breaking additions)
 router.get('/active', listActiveHandler);          // /duel/active
 router.get('/state', stateHandler);                // /duel/state[?session=...]
 
-// ✅ NEW spectator-friendly state (used by the Spectator View UI)
-router.get('/live/current', liveCurrentHandler);
-botAlias.get('/live/current', liveCurrentHandler); // /bot/live/current
+router.get('/live/current', liveCurrentHandler);   // ✅ used by Spectator View UI
+botAlias.get('/live/current', liveCurrentHandler);
 
 export default router;
