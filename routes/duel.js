@@ -102,7 +102,8 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    const updated = await applyBotMove(req.body);
+    // ✅ Pass the real in-memory duelState, not req.body
+    const updated = await applyBotMove(duelState);
 
     // If this was a practice move, refresh "practice" session updatedAt implicitly.
     // (If needed later, call upsertSession({id:'practice', ...same fields }) here.)
