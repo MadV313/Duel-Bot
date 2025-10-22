@@ -90,7 +90,7 @@ const loadCommands = async () => {
       if (typeof cog === 'function') {
         await cog(bot);
         const lastCmd = bot.slashData.at(-1);
-        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)');
+        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)`);
       } else {
         console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
@@ -421,6 +421,9 @@ app.use('/trade', apiLimiter);
 
 // 🔔 Also protect API namespace
 app.use('/api', apiLimiter);
+
+// 🔒 No-cache for all API responses (prevents stale duel state in Spectator UI)
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 // Core feature routes (legacy mounts kept for backward compatibility)
 app.use('/duel', duelRoutes);
