@@ -136,11 +136,22 @@ function buildSpectatorUrl({ sessionId, token, SPECTATOR_UI_URL, PUBLIC_BACKEND_
   qp.set('role', 'spectator');
   if (userName) qp.set('user', userName);
   if (token) qp.set('token', token);
-  if (PASS_API_QUERY) qp.set('api', PUBLIC_BACKEND_URL);
+
+  // ✅ Normalize API base to ensure it includes '/api'
+  if (PASS_API_QUERY) {
+    const base = (PUBLIC_BACKEND_URL || '').replace(/\/+$/, '');
+    const apiBase = base.endsWith('/api') ? base : `${base}/api`;
+    qp.set('api', apiBase);
+  }
+
   if (IMAGE_BASE) qp.set('imgbase', IMAGE_BASE);
   qp.set('ts', String(Date.now()));
+
   // Ensure we land on the actual spectator index.html if the base is a folder
-  const base = SPECTATOR_UI_URL.endsWith('.html') ? SPECTATOR_UI_URL : `${SPECTATOR_UI_URL.replace(/\/+$/,'')}/index.html`;
+  const base = SPECTATOR_UI_URL.endsWith('.html')
+    ? SPECTATOR_UI_URL
+    : `${SPECTATOR_UI_URL.replace(/\/+$/,'')}/index.html`;
+
   return `${base}?${qp.toString()}`;
 }
 
