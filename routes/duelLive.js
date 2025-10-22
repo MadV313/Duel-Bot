@@ -41,11 +41,9 @@ router.get('/current', (req, res) => {
     wagerAmount = 0,
     duelMode = 'none',
     startedAt = null,
-    lastBotAction = null,
-    lastBotActionAt = null,
   } = state || {};
 
-  // Normalize players (schema sometimes uses "bot" instead of "player2")
+  // Normalize players (your schema sometimes uses "bot" instead of "player2")
   const p1Raw = players.player1;
   const p2Raw = players.player2 ? players.player2 : players.bot;
 
@@ -53,17 +51,9 @@ router.get('/current', (req, res) => {
     return res.status(404).json({ error: 'No duel in progress.' });
   }
 
-  // Shallow copies so we never mutate live state (copy hand & field arrays)
-  const player1 = {
-    ...p1Raw,
-    hand: Array.isArray(p1Raw.hand) ? [...p1Raw.hand] : [],
-    field: Array.isArray(p1Raw.field) ? [...p1Raw.field] : [],
-  };
-  const player2 = {
-    ...p2Raw,
-    hand: Array.isArray(p2Raw.hand) ? [...p2Raw.hand] : [],
-    field: Array.isArray(p2Raw.field) ? [...p2Raw.field] : [],
-  };
+  // Shallow copies so we never mutate live state
+  const player1 = { ...p1Raw, hand: Array.isArray(p1Raw.hand) ? [...p1Raw.hand] : [] };
+  const player2 = { ...p2Raw, hand: Array.isArray(p2Raw.hand) ? [...p2Raw.hand] : [] };
 
   // Handle safe view mode (hide hand card IDs)
   if (safeView) {
@@ -73,7 +63,10 @@ router.get('/current', (req, res) => {
   }
 
   return res.status(200).json({
-    players: { player1, player2 },
+    players: {
+      player1,
+      player2,
+    },
     currentPlayer,
     winner,
     spectatorCount: Array.isArray(spectators) ? spectators.length : 0,
@@ -82,9 +75,6 @@ router.get('/current', (req, res) => {
     mode: duelMode,
     startedAt,
     session: sessionId || null,
-    lastBotAction,
-    lastBotActionAt,
-    ts: Date.now(),
   });
 });
 
