@@ -40,7 +40,10 @@ router.post('/start', async (req, res) => {
   const { player1Id, player2Id, wager = 0 } = req.body || {};
 
   // Prevent launching if duel already active (global duelState guard)
+  // NOTE: This preserves current behavior. True concurrency will require
+  // per-session state in logic/duelState.js (not just a single global duelState).
   const p1Len = duelState.players?.player1?.deck?.length || 0;
+  // allow either key for side B (your schema currently uses 'bot')
   const pBLen =
     (duelState.players?.player2?.deck?.length ||
      duelState.players?.bot?.deck?.length || 0);
@@ -85,20 +88,30 @@ router.post('/start', async (req, res) => {
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager);
 
     // ────────────────────────────────────────────────────────────
-    // ✅ NEW: Sync discordName / player names for both participants
+    // ✅ Sync discordName / player names for both participants
     // ────────────────────────────────────────────────────────────
-    const linkedProfile1 = profileById[player1Id] || {};
-    const linkedProfile2 = player2Id === 'bot' ? { discordName: 'Practice Bot' } : (profileById[player2Id] || {});
+    const linkedProfile1 =
+      (player1Id && profileById[player1Id]) || { discordName: 'Player 1' };
+    const linkedProfile2 =
+      player2Id === 'bot'
+        ? { discordName: 'Practice Bot' }
+        : ((player2Id && profileById[player2Id]) || { discordName: 'Player 2' });
 
     if (duelState.players?.player1) {
-      duelState.players.player1.discordName = linkedProfile1.discordName || 'Player 1';
+      duelState.players.player1.discordName =
+        linkedProfile1.discordName || 'Player 1';
+      duelState.players.player1.id = player1Id ?? duelState.players.player1.id;
     }
 
     // Respect your schema: player2 or bot may exist
     if (duelState.players?.player2) {
-      duelState.players.player2.discordName = linkedProfile2.discordName || 'Player 2';
+      duelState.players.player2.discordName =
+        linkedProfile2.discordName || 'Player 2';
+      duelState.players.player2.id = player2Id ?? duelState.players.player2.id;
     } else if (duelState.players?.bot) {
-      duelState.players.bot.discordName = linkedProfile2.discordName || 'Practice Bot';
+      duelState.players.bot.discordName =
+        linkedProfile2.discordName || 'Practice Bot';
+      duelState.players.bot.id = 'bot';
     }
 
     // ────────────────────────────────────────────────────────────
@@ -115,6 +128,7 @@ router.post('/start', async (req, res) => {
     });
 
     // Expose a state provider. For now, we return the global duelState to retain behavior.
+    // When you move to per-session state, replace this with a per-session getter.
     setSessionStateProvider(duelId, () => duelState);
 
     const uiBase = process.env.FRONTEND_URL || '';
