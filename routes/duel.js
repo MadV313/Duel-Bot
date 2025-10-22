@@ -36,6 +36,58 @@ async function loadCoreCards() {
 }
 
 // ────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────
+function clone(v) {
+  try { return JSON.parse(JSON.stringify(v)); }
+  catch { return v; }
+}
+
+/**
+ * Build a spectator-safe snapshot of the current state.
+ * - normalizes players.player2 ← bot if needed
+ * - optional hand redaction (`safeView=true`): send facedown placeholders
+ */
+function buildSpectatorState(srcState, { safeView = false, sessionId = null } = {}) {
+  if (!srcState || !srcState.players) {
+    return null;
+  }
+
+  // Some code paths still store the opponent under "bot". Normalize to player2 for the UI.
+  const p1Raw = srcState.players.player1;
+  const p2Raw = srcState.players.player2 ?? srcState.players.bot;
+
+  if (!p1Raw || !p2Raw) return null;
+
+  const p1 = clone(p1Raw);
+  const p2 = clone(p2Raw);
+
+  if (safeView) {
+    const redact = (hand = []) =>
+      Array.from({ length: Array.isArray(hand) ? hand.length : 0 }, () => ({ cardId: '000', isFaceDown: true }));
+    p1.hand = redact(p1.hand);
+    p2.hand = redact(p2.hand);
+  }
+
+  // Count spectators from array if present; otherwise 0
+  const spectatorCount = Array.isArray(srcState.spectators) ? srcState.spectators.length : 0;
+
+  return {
+    players: {
+      player1: p1,
+      player2: p2,
+    },
+    currentPlayer: srcState.currentPlayer ?? null,
+    winner: srcState.winner ?? null,
+    spectatorCount,
+    wager: srcState.wagerAmount || 0,
+    mode: srcState.duelMode || 'none',
+    startedAt: srcState.startedAt || null,
+    session: sessionId || null,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
 // Handlers
 // ────────────────────────────────────────────────────────────
 async function startPracticeHandler(req, res) {
@@ -102,11 +154,8 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    // ✅ Pass the real in-memory duelState, not req.body
+    // ✅ Use the live in-memory duelState
     const updated = await applyBotMove(duelState);
-
-    // If this was a practice move, refresh "practice" session updatedAt implicitly.
-    // (If needed later, call upsertSession({id:'practice', ...same fields }) here.)
 
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
@@ -140,6 +189,28 @@ function statusHandler(_req, res) {
     currentPlayer: duelState.currentPlayer || null,
     startedAt: duelState.startedAt || null,
   });
+}
+
+// NEW: live/current endpoint for spectator UIs (and /bot alias)
+function liveCurrentHandler(req, res) {
+  const safeView = String(req.query.safeView || '').toLowerCase() === 'true';
+  const sessionId = (req.query.session ?? '').toString().trim();
+
+  let state = null;
+  if (sessionId) {
+    try {
+      state = getSessionState?.(sessionId) || null;
+    } catch {
+      state = null;
+    }
+  }
+  if (!state) state = duelState;
+
+  const snapshot = buildSpectatorState(state, { safeView, sessionId });
+  if (!snapshot) {
+    return res.status(404).json({ error: 'No duel in progress.' });
+  }
+  return res.json(snapshot);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -176,5 +247,9 @@ router.post('/turn', botTurnHandler);              // /duel/turn
 // NEW (non-breaking additions)
 router.get('/active', listActiveHandler);          // /duel/active
 router.get('/state', stateHandler);                // /duel/state[?session=...]
+
+// ✅ NEW spectator-friendly state (used by the Spectator View UI)
+router.get('/live/current', liveCurrentHandler);
+botAlias.get('/live/current', liveCurrentHandler); // /bot/live/current
 
 export default router;
