@@ -40,10 +40,7 @@ router.post('/start', async (req, res) => {
   const { player1Id, player2Id, wager = 0 } = req.body || {};
 
   // Prevent launching if duel already active (global duelState guard)
-  // NOTE: This preserves current behavior. True concurrency will require
-  // per-session state in logic/duelState.js (not just a single global duelState).
   const p1Len = duelState.players?.player1?.deck?.length || 0;
-  // allow either key for side B (your schema currently uses 'bot')
   const pBLen =
     (duelState.players?.player2?.deck?.length ||
      duelState.players?.bot?.deck?.length || 0);
@@ -62,11 +59,13 @@ router.post('/start', async (req, res) => {
     }
 
     const deckById = {};
+    const profileById = {};
     for (const entry of deckMap.players) {
       deckById[entry.discordId] = entry.deck.map(cardId => ({
         cardId,
         isFaceDown: false
       }));
+      profileById[entry.discordId] = entry;
     }
 
     const player1Deck = deckById[player1Id];
@@ -85,19 +84,37 @@ router.post('/start', async (req, res) => {
     duelState.duelId = duelId;
     startLiveDuel(player1Id, player2Id, player1Deck, player2Deck, wager);
 
-    // ── NEW: Register this duel in the session registry for /duel/active discovery
+    // ────────────────────────────────────────────────────────────
+    // ✅ NEW: Sync discordName / player names for both participants
+    // ────────────────────────────────────────────────────────────
+    const linkedProfile1 = profileById[player1Id] || {};
+    const linkedProfile2 = player2Id === 'bot' ? { discordName: 'Practice Bot' } : (profileById[player2Id] || {});
+
+    if (duelState.players?.player1) {
+      duelState.players.player1.discordName = linkedProfile1.discordName || 'Player 1';
+    }
+
+    // Respect your schema: player2 or bot may exist
+    if (duelState.players?.player2) {
+      duelState.players.player2.discordName = linkedProfile2.discordName || 'Player 2';
+    } else if (duelState.players?.bot) {
+      duelState.players.bot.discordName = linkedProfile2.discordName || 'Practice Bot';
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Register this duel in the session registry for /duel/active discovery
+    // ────────────────────────────────────────────────────────────
     upsertSession({
       id: duelId,
       status: 'live',
       isPractice: false,
       players: [
-        { userId: String(player1Id || ''), name: 'Player 1' },
-        { userId: String(player2Id || ''), name: (player2Id === 'bot' ? 'Practice Bot' : 'Player 2') },
+        { userId: String(player1Id || ''), name: duelState.players?.player1?.discordName || 'Player 1' },
+        { userId: String(player2Id || ''), name: duelState.players?.player2?.discordName || duelState.players?.bot?.discordName || 'Player 2' },
       ],
     });
 
     // Expose a state provider. For now, we return the global duelState to retain behavior.
-    // When you move to per-session state, replace this with a per-session getter.
     setSessionStateProvider(duelId, () => duelState);
 
     const uiBase = process.env.FRONTEND_URL || '';
@@ -106,7 +123,7 @@ router.post('/start', async (req, res) => {
       : undefined;
 
     console.log(
-      `[DUEL] Started live duel ${duelId} between ${player1Id} and ${player2Id} (wager=${wager})`
+      `[DUEL] Started live duel ${duelId} between ${duelState.players?.player1?.discordName} and ${duelState.players?.player2?.discordName || duelState.players?.bot?.discordName} (wager=${wager})`
     );
 
     return res.status(200).json({
