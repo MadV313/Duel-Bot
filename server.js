@@ -328,7 +328,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // handle preflight globally
-app.use(helmet()));
+app.use(helmet());
 app.use(express.json({ limit: '256kb' }));
 
 // Rate limiter
