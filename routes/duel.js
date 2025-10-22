@@ -91,19 +91,46 @@ function buildSpectatorState(srcState, { safeView = false, sessionId = null } = 
 }
 
 // ────────────────────────────────────────────────────────────
-/** GET /duel/practice — initialize a practice duel vs the bot */
+/**
+ * GET /duel/practice — initialize practice duel vs the bot
+ * Idempotent: unless ?reset=true is sent, returns existing practice match.
+ * Supports one-time naming via ?name=... or header X-Player-Name.
+ */
 async function startPracticeHandler(req, res) {
   const traceId =
     req.headers['x-trace-id'] ||
     `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   try {
+    const forceReset = String(req.query.reset || '').toLowerCase() === 'true';
+
+    // If a practice duel is already live and not forced to reset, return it as-is
+    if (!forceReset && duelState?.duelMode === 'practice' && duelState.startedAt) {
+      // Accept/lock name if provided (first call wins)
+      const suppliedName =
+        (req.query.name && String(req.query.name).trim()) ||
+        (req.headers['x-player-name'] && String(req.headers['x-player-name']).trim()) ||
+        null;
+
+      if (suppliedName && duelState.players?.player1) {
+        duelState.players.player1.discordName = suppliedName;
+      }
+
+      return res.json(duelState);
+    }
+
     const cards = await loadCoreCards();
     startPracticeDuel(cards); // sets global duelState (200 HP, draw 3, coin flip)
 
-    // ✅ Clear names for spectator & UI alignment
+    // ✅ Lock names for spectator & UI alignment
+    const suppliedName =
+      (req.query.name && String(req.query.name).trim()) ||
+      (req.headers['x-player-name'] && String(req.headers['x-player-name']).trim()) ||
+      null;
+
     if (duelState?.players?.player1) {
-      duelState.players.player1.discordName = duelState.players.player1.discordName || 'Challenger';
+      duelState.players.player1.discordName =
+        suppliedName || duelState.players.player1.discordName || 'Challenger';
     }
     if (duelState?.players?.bot) {
       duelState.players.bot.discordName = 'Practice Bot';
@@ -151,12 +178,9 @@ async function startPracticeHandler(req, res) {
 
 /**
  * POST /duel/turn — minimal, SAFE turn handler (server is source of truth)
- *
- * - Does NOT accept/merge any client-provided zones (hand/field/discard/deck).
- * - Flips to bot when needed and invokes the bot handler using any of the
- *   supported export names (new, legacy, default).
- * - After the bot move, currentPlayer is guaranteed to be 'player1'
- *   because the handler sets it.
+ * - Does NOT accept/merge any client-provided zones.
+ * - Calls the bot handler via new/legacy/default export.
+ * - After the bot move, currentPlayer is guaranteed to be 'player1'.
  */
 async function botTurnHandler(req, res) {
   const traceId =
@@ -171,10 +195,10 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    // 🚫 We intentionally ignore any client payload that might try to send zones.
-    // const { hand, field, discardPile, deck, ...rest } = req.body || {};
+    // 🚫 Ignore all client-sent zones (hand/field/discard/deck)
+    // We only operate on the in-memory duelState.
 
-    // Pick a compatible bot handler (supports renamed imports)
+    // Choose a compatible handler
     const botHandler =
       (typeof namedApply === 'function' && namedApply) ||
       (typeof applyBotMoveCompat === 'function' && applyBotMoveCompat) ||
@@ -184,13 +208,11 @@ async function botTurnHandler(req, res) {
       throw new Error('No bot handler available (applyBotMove / botTurn export missing).');
     }
 
-    // If it's currently the player's turn, flip to bot before invoking
     if (duelState.currentPlayer === 'player1') {
       duelState.currentPlayer = 'bot';
     }
 
-    // Execute one bot move; the bot handler will ALWAYS set currentPlayer back to 'player1'
-    const updated = await botHandler(duelState);
+    const updated = await botHandler(duelState); // handler sets currentPlayer='player1'
 
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
@@ -200,7 +222,6 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    // Return authoritative server state ONLY
     res.json(updated);
   } catch (err) {
     console.error(
@@ -243,7 +264,6 @@ function liveCurrentHandler(req, res) {
   }
   if (!state) state = duelState;
 
-  // Build a read-only normalized snapshot (player2 ← bot when needed)
   const snapshot = buildSpectatorState(state, { safeView, sessionId });
   if (!snapshot) {
     return res.status(404).json({ error: 'No duel in progress.' });
@@ -273,7 +293,7 @@ function stateHandler(req, res) {
 router.get('/status', statusHandler);
 botAlias.get('/status', statusHandler);
 
-router.get('/practice', startPracticeHandler);     // /duel/practice
+router.get('/practice', startPracticeHandler);     // /duel/practice (idempotent)
 botAlias.get('/practice', startPracticeHandler);   // /bot/practice
 
 router.post('/turn', botTurnHandler);              // /duel/turn
