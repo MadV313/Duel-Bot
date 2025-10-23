@@ -82,11 +82,26 @@ async function _saveJSONSafe(name, data, client) {
   }
 }
 
-/* ---------------- optional webhook server ---------------- */
+/* ---------------- optional webhook server (port-safe) ---------------- */
 function startWebhookServerOnce(client, CONFIG) {
+  const MAIN_PORT = Number(process.env.PORT || 0); // Railway main port
   const PORT = Number(CONFIG.trade_webhook_port || process.env.TRADE_WEBHOOK_PORT || 0);
   const SECRET = String(CONFIG.trade_webhook_secret || process.env.TRADE_WEBHOOK_SECRET || '');
-  if (!PORT || client.__tradeWebhookStarted) return;
+  if (client.__tradeWebhookStarted) return;
+
+  // If not configured, just skip silently (trade flow still works without webhook)
+  if (!PORT) {
+    console.log('[tradecard] Webhook disabled (no TRADE_WEBHOOK_PORT set).');
+    client.__tradeWebhookStarted = true; // prevent re-attempts
+    return;
+  }
+
+  // Avoid binding to the same port as Express
+  if (MAIN_PORT && PORT === MAIN_PORT) {
+    console.warn(`[tradecard] Webhook NOT started: TRADE_WEBHOOK_PORT (${PORT}) equals main PORT (${MAIN_PORT}). Set a different port or mount on Express.`);
+    client.__tradeWebhookStarted = true;
+    return;
+  }
 
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/trade/notify') {
@@ -157,10 +172,15 @@ function startWebhookServerOnce(client, CONFIG) {
     });
   });
 
-  server.listen(PORT, () => {
+  try {
+    server.listen(PORT, () => {
+      client.__tradeWebhookStarted = true;
+      console.log(`[tradecard] Webhook listening on :${PORT}`);
+    });
+  } catch (err) {
+    console.warn(`[tradecard] Webhook listen failed on :${PORT} (${err?.code || err}) — continuing without webhook.`);
     client.__tradeWebhookStarted = true;
-    console.log(`[tradecard] Webhook listening on :${PORT}`);
-  });
+  }
 }
 
 /* ---------------- command registration ---------------- */
@@ -191,7 +211,7 @@ export default async function registerTradeCard(client) {
   client.commands.set('tradecard', {
     data: cmd,
     async execute(interaction) {
-      // ✅ ROLE GATE (runs BEFORE any other messages)
+      // ✅ ROLE GATE
       if (!requireSupporter(interaction.member)) {
         return interaction.reply({
           ephemeral: true,
@@ -230,7 +250,6 @@ export default async function registerTradeCard(client) {
       const entries = Object.entries(linked)
         .filter(([id, data]) => id !== userId && isTokenValid(data?.token));
 
-      // This message will now only be hit AFTER the role check above
       if (!entries.length) {
         return interaction.reply({ content: '⚠️ No other linked users available to trade with.', ephemeral: true });
       }
@@ -297,7 +316,7 @@ export default async function registerTradeCard(client) {
           });
         }
 
-        // 🔎 DEBUG: confirm envs are present at runtime (added)
+        // 🔎 DEBUG: confirm envs are present at runtime
         console.log('[tradecard] start -> API_BASE=', API_BASE, 'BOT_KEY present?', !!BOT_KEY);
 
         // Create backend trade session
