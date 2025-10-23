@@ -77,6 +77,10 @@ const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
 bot.commands = new Collection();
 bot.slashData = [];
 
+// 🔁 Shared place to stash trade webhook payloads (so other modules can read them)
+bot.tradeSessionCache = bot.tradeSessionCache || new Map();
+global.tradeSessionCache = bot.tradeSessionCache; // optional alias if other files use global
+
 const cogsDir = path.resolve('./cogs');
 
 const loadCommands = async () => {
@@ -444,6 +448,42 @@ app.use('/', meTokenRouter);
 
 // Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
+
+/* ──────────────────────────────────────────────────────────
+ * Optional webhook: /trade/notify (uses same Express app; no second listener)
+ * ────────────────────────────────────────────────────────── */
+app.post('/trade/notify', express.json(), async (req, res) => {
+  try {
+    const SECRET = process.env.TRADE_WEBHOOK_SECRET || '';
+    const json = req.body || {};
+    if (!SECRET) return res.status(501).json({ error: 'webhook not configured' });
+    if (json.secret !== SECRET) return res.status(401).json({ error: 'Unauthorized' });
+
+    const {
+      sessionId, initiatorId, partnerId,
+      initiatorName, partnerName,
+      initiatorPicks = [], partnerPicks = []
+    } = json;
+
+    // Stash for downstream handlers (e.g., /tradecard button handler)
+    bot.tradeSessionCache.set(sessionId, { initiatorId, partnerId, initiatorPicks, partnerPicks });
+
+    console.log('[trade/notify] stored session', sessionId, {
+      initiatorId, partnerId,
+      inCount: initiatorPicks?.length || 0,
+      outCount: partnerPicks?.length || 0
+    });
+
+    // If another module registered a handler, let it react
+    if (typeof global.onTradeNotify === 'function') {
+      try { await global.onTradeNotify(bot, json); } catch {}
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: String(e?.message || e) });
+  }
+});
 
 /* ──────────────────────────────────────────────────────────
  * Duel-UI compatibility shims
