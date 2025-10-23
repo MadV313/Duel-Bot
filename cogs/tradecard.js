@@ -297,8 +297,11 @@ export default async function registerTradeCard(client) {
           });
         }
 
+        // 🔎 DEBUG: confirm envs are present at runtime (added)
+        console.log('[tradecard] start -> API_BASE=', API_BASE, 'BOT_KEY present?', !!BOT_KEY);
+
         // Create backend trade session
-        let resp, json;
+        let resp, json, text;
         try {
           resp = await fetch(`${API_BASE}/trade/start`, {
             method: 'POST',
@@ -310,13 +313,18 @@ export default async function registerTradeCard(client) {
               collectionUiBase: UI_BASE
             })
           });
-          json = await resp.json().catch(() => ({}));
+          text = await resp.text(); // read first so we can show raw on error
+          try { json = JSON.parse(text); } catch { json = {}; }
         } catch (e) {
           return interaction.editReply({ content: `❌ Failed to contact server: ${String(e)}`, components: [] });
         }
+
         if (!resp.ok) {
           const emsg = json?.error || json?.message || `${resp.status} ${resp.statusText}`;
-          return interaction.editReply({ content: `❌ Could not start trade: ${emsg}`, components: [] });
+          return interaction.editReply({
+            content: `❌ Could not start trade: ${emsg}\n— raw: ${text?.slice(0, 300) || '(no body)'}`,
+            components: []
+          });
         }
 
         const sessionId = json.sessionId || json.session || '';
@@ -336,9 +344,7 @@ export default async function registerTradeCard(client) {
         await interaction.editReply({
           content:
             `✅ Trade session created with <@${partnerId}>.\n` +
-            `I’ve sent you a link${
-              json.urlInitiator ? '' : ' (constructed)'
-            } to pick cards.\n` +
+            `I’ve sent you a link${json.urlInitiator ? '' : ' (constructed)'} to pick cards.\n` +
             `Session: \`${sessionId}\`\n\n` +
             `If you didn’t get a DM, click here: ${urlInitiator}`,
           components: []
