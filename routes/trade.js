@@ -21,9 +21,9 @@ import {
 } from '../utils/deckUtils.js';
 import { load_file, save_file } from '../utils/storageClient.js';
 
-const LINKED_DECKS_FILE = 'linked_decks.json';     // persistent
-const TRADES_FILE       = 'trades.json';           // persistent
-const TRADE_LIMITS_FILE = 'trade_limits.json';     // persistent
+const LINKED_DECKS_FILE = 'data/linked_decks.json';
+const TRADES_FILE       = 'data/trades.json';
+const TRADE_LIMITS_FILE = 'data/trade_limits.json';
 
 const cardListPath      = path.resolve('./logic/CoreMasterReference.json'); // static asset
 
