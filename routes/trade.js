@@ -156,7 +156,7 @@ function constantTimeEq(a = '', b = '') {
   return mismatch === 0;
 }
 
-/* ---------------- Profile token helper ---------------- */
+/* ---------------- Profile token helpers ---------------- */
 function getProfileToken(profile) {
   if (!profile) return '';
   // Try several plausible fields in case schema differs
@@ -167,6 +167,18 @@ function getProfileToken(profile) {
     profile.accessToken ||
     ''
   ).trim();
+}
+
+// Fallback scan: find a profile by token if the key lookup fails
+function findProfileByToken(linked, wantedToken) {
+  if (!wantedToken) return null;
+  for (const [uid, prof] of Object.entries(linked || {})) {
+    const t = getProfileToken(prof);
+    if (t && t === wantedToken) {
+      return { uid: String(uid), profile: prof, token: t };
+    }
+  }
+  return null;
 }
 
 export default function createTradeRouter(bot) {
@@ -227,10 +239,24 @@ export default function createTradeRouter(bot) {
         readJsonRemote(TRADE_LIMITS_FILE, {})
       ]);
 
-      const iniProfile = linked[initiatorId];
-      const parProfile = linked[partnerId];
-      const iniToken   = getProfileToken(iniProfile);
-      const parToken   = getProfileToken(parProfile);
+      // Primary lookups
+      let iniProfile = linked[initiatorId];
+      let parProfile = linked[partnerId];
+      let iniToken   = getProfileToken(iniProfile);
+      let parToken   = getProfileToken(parProfile);
+
+      // 🔁 Fallback: if initiator not found by key, try to match the token across the file
+      if ((!iniProfile || !iniToken) && initiatorToken) {
+        const found = findProfileByToken(linked, String(initiatorToken));
+        if (found) {
+          iniProfile = found.profile;
+          iniToken   = found.token;
+          // correct initiatorId to the actual key to avoid later mismatches
+          initiatorId = found.uid;
+        }
+      }
+
+      // (Partner usually comes from the dropdown → exact key; token fallback rarely needed.)
 
       // Small diagnostic so we can see which side is missing
       console.log('[trade/start] profiles', {
