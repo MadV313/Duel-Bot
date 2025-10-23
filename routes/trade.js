@@ -38,16 +38,24 @@ function randomId(len=24) {
 }
 
 // ---- Persistent storage helpers (remote) ----
+// ✅ load_file already returns parsed JSON from the persistent service.
+//    Handle both object and string just in case a backend ever returns text.
 async function readJsonRemote(name, fb) {
   try {
     const raw = await load_file(name);
-    return raw ? JSON.parse(raw) : fb;
+    if (raw == null) return fb;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch { return fb; }
+    }
+    return fb;
   } catch {
     return fb;
   }
 }
 async function writeJsonRemote(name, data) {
-  await save_file(name, JSON.stringify(data, null, 2));
+  // ✅ save_file expects a JS value; do NOT JSON.stringify here.
+  await save_file(name, data);
 }
 
 // ---- Local read helper for static card master ----
