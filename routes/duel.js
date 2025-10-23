@@ -36,7 +36,7 @@ async function loadCoreCards() {
 }
 
 // ────────────────────────────────────────────────────────────
-// Handlers
+/* Handlers */
 // ────────────────────────────────────────────────────────────
 async function startPracticeHandler(req, res) {
   const traceId =
@@ -47,16 +47,14 @@ async function startPracticeHandler(req, res) {
     const cards = await loadCoreCards();
     startPracticeDuel(cards); // sets global duelState (200 HP, draw 3, coin flip)
 
-    // NEW: also reflect the practice duel into the session registry
+    // reflect the practice duel into the session registry
     const sessionId = 'practice';
     upsertSession({
       id: sessionId,
       status: 'live',
       isPractice: true,
-      // You can fill names if your duelState tracks them; safe defaults here:
       players: [
-        // viewer name resolution is handled client-side; ids can be empty here
-        { userId: '', name: 'Player' },
+        { userId: '',   name: 'Player' },
         { userId: 'bot', name: 'Practice Bot' },
       ],
     });
@@ -102,11 +100,10 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
-    const updated = await applyBotMove(duelState);  // mutate the real global state
-    res.json(updated);
+    // ✅ mutate the real global state, not req.body
+    const updated = await applyBotMove(duelState);
 
-    // If this was a practice move, refresh "practice" session updatedAt implicitly.
-    // (If needed later, call upsertSession({id:'practice', ...same fields }) here.)
+    // (optional) refresh "practice" session updatedAt later if needed
 
     console.log(
       `[duel] bot.turn.ok ${JSON.stringify({
@@ -143,6 +140,48 @@ function statusHandler(_req, res) {
 }
 
 // ────────────────────────────────────────────────────────────
+// NEW: /duel/sync — mirror client snapshot for spectator
+// (guarded merge: only fields spectators need to see)
+// ────────────────────────────────────────────────────────────
+function syncHandler(req, res) {
+  try {
+    const s = req.body?.players;
+    if (!s?.player1 || !s?.bot) {
+      return res.status(400).json({ error: 'bad payload' });
+    }
+
+    // HP
+    duelState.players.player1.hp = Number(s.player1.hp ?? duelState.players.player1.hp);
+    duelState.players.bot.hp     = Number(s.bot.hp ?? duelState.players.bot.hp);
+
+    // Field
+    if (Array.isArray(s.player1.field)) duelState.players.player1.field = s.player1.field;
+    if (Array.isArray(s.bot.field))     duelState.players.bot.field     = s.bot.field;
+
+    // Discard piles
+    if (Array.isArray(s.player1.discardPile)) duelState.players.player1.discardPile = s.player1.discardPile;
+    if (Array.isArray(s.bot.discardPile))     duelState.players.bot.discardPile     = s.bot.discardPile;
+
+    // (optional) hands / decks for accurate counts
+    if (Array.isArray(s.player1.hand)) duelState.players.player1.hand = s.player1.hand;
+    if (Array.isArray(s.bot.hand))     duelState.players.bot.hand     = s.bot.hand;
+    if (Array.isArray(s.player1.deck)) duelState.players.player1.deck = s.player1.deck;
+    if (Array.isArray(s.bot.deck))     duelState.players.bot.deck     = s.bot.deck;
+
+    // Turn indicator (optional)
+    if (typeof req.body.currentPlayer === 'string') {
+      duelState.currentPlayer = req.body.currentPlayer;
+    }
+
+    // (optional) startedAt remains as-in unless you want to update
+
+    return res.json({ ok: true, state: duelState });
+  } catch (e) {
+    return res.status(500).json({ error: 'sync failed', details: String(e) });
+  }
+}
+
+// ────────────────────────────────────────────────────────────
 // NEW: multi-lobby endpoints (non-breaking)
 // ────────────────────────────────────────────────────────────
 
@@ -172,6 +211,9 @@ router.get('/practice', startPracticeHandler);     // /duel/practice
 botAlias.get('/practice', startPracticeHandler);   // /bot/practice
 
 router.post('/turn', botTurnHandler);              // /duel/turn
+
+// NEW
+router.post('/sync', syncHandler);                 // /duel/sync
 
 // NEW (non-breaking additions)
 router.get('/active', listActiveHandler);          // /duel/active
