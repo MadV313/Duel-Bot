@@ -139,15 +139,44 @@ function collectionToArray(collection = {}, idx = {}) {
   return out;
 }
 
+/* ---------------- Bot-key helpers (header/env) ---------------- */
+function getBotKeyFromHeaders(req) {
+  const direct = req.get('X-Bot-Key') || req.get('x-bot-key');
+  if (direct) return direct.trim();
+  const auth = req.get('Authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : '';
+}
+function constantTimeEq(a = '', b = '') {
+  const al = a.length, bl = b.length;
+  let mismatch = al ^ bl;
+  for (let i = 0; i < Math.max(al, bl); i++) {
+    mismatch |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return mismatch === 0;
+}
+
 export default function createTradeRouter(bot) {
   const router = express.Router();
 
   // POST /trade/start  (bot-only)
   router.post('/trade/start', async (req, res) => {
     try {
-      const botKey = req.get('x-bot-key') || req.get('X-Bot-Key');
-      const expected = process.env.BOT_API_KEY || '';
-      if (!expected || botKey !== expected) {
+      // ⛓️ Accept X-Bot-Key or Authorization: Bearer ... ; env BOT_API_KEY or BOT_KEY
+      const headerKey = getBotKeyFromHeaders(req);
+      const expected  = (process.env.BOT_API_KEY || process.env.BOT_KEY || '').trim();
+
+      // helpful diagnostics (appears in Railway logs)
+      console.log('[auth/trade/start]', {
+        hdr_present: !!headerKey,
+        env_present: !!expected,
+        eq: headerKey && expected ? constantTimeEq(headerKey, expected) : false,
+        hdr_len: headerKey ? headerKey.length : 0,
+        env_len: expected ? expected.length : 0
+      });
+
+      if (!expected) return res.status(500).json({ error: 'Server BOT key not configured' });
+      if (!headerKey || !constantTimeEq(headerKey, expected)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
