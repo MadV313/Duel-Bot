@@ -156,6 +156,19 @@ function constantTimeEq(a = '', b = '') {
   return mismatch === 0;
 }
 
+/* ---------------- Profile token helper ---------------- */
+function getProfileToken(profile) {
+  if (!profile) return '';
+  // Try several plausible fields in case schema differs
+  return String(
+    profile.token ||
+    profile.deckToken ||
+    profile.viewerToken ||
+    profile.accessToken ||
+    ''
+  ).trim();
+}
+
 export default function createTradeRouter(bot) {
   const router = express.Router();
 
@@ -184,20 +197,23 @@ export default function createTradeRouter(bot) {
       const {
         initiatorToken,
         initiatorId: initiatorIdRaw,
-        partnerId,
+        partnerId: partnerIdRaw,
         apiBase,
         collectionUiBase
       } = req.body || {};
 
-      if (!partnerId || (!initiatorToken && !initiatorIdRaw)) {
+      if (!partnerIdRaw || (!initiatorToken && !initiatorIdRaw)) {
         return res.status(400).json({ error: 'Missing initiator and/or partner.' });
       }
 
-      let initiatorId = initiatorIdRaw;
+      // Normalize IDs to strings for map lookups
+      const partnerId   = String(partnerIdRaw);
+      let   initiatorId = initiatorIdRaw ? String(initiatorIdRaw) : '';
+
       if (initiatorToken && !initiatorId) {
         const resolved = await resolveUserIdByToken(String(initiatorToken));
         if (!resolved) return res.status(400).json({ error: 'Invalid initiator token' });
-        initiatorId = resolved;
+        initiatorId = String(resolved);
       }
       if (!initiatorId) {
         return res.status(400).json({ error: 'Cannot resolve initiator' });
@@ -213,8 +229,21 @@ export default function createTradeRouter(bot) {
 
       const iniProfile = linked[initiatorId];
       const parProfile = linked[partnerId];
-      if (!iniProfile?.token || !parProfile?.token) {
-        return res.status(400).json({ error: 'Both users must be linked first.' });
+      const iniToken   = getProfileToken(iniProfile);
+      const parToken   = getProfileToken(parProfile);
+
+      // Small diagnostic so we can see which side is missing
+      console.log('[trade/start] profiles', {
+        initiatorId, partnerId,
+        iniFound: !!iniProfile, parFound: !!parProfile,
+        iniHasToken: !!iniToken, parHasToken: !!parToken,
+      });
+
+      if (!iniProfile || !iniToken) {
+        return res.status(400).json({ error: 'Initiator must be linked first.' });
+      }
+      if (!parProfile || !parToken) {
+        return res.status(400).json({ error: 'Partner must be linked first.' });
       }
 
       // Enforce 3/day (initiations)
@@ -234,13 +263,13 @@ export default function createTradeRouter(bot) {
         stage: 'pickMine',          // pickMine → pickTheirs → decision
         initiator: {
           userId: initiatorId,
-          token: iniProfile.token,
+          token: iniToken,
           name: iniProfile.discordName || initiatorId,
           selection: [],            // up to 3 (ids)
         },
         partner: {
           userId: partnerId,
-          token: parProfile.token,
+          token: parToken,
           name: parProfile.discordName || partnerId,
           selection: [],            // up to 3 (ids)
         }
@@ -263,7 +292,7 @@ export default function createTradeRouter(bot) {
 
       const initLink = buildUiLink({
         base: uiBase,
-        token: iniProfile.token,
+        token: iniToken,
         apiBase,
         sessionId,
         role: 'initiator',
