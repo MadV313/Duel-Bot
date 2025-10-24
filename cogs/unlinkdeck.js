@@ -1,8 +1,10 @@
 // cogs/unlinkdeck.js
 // Admin-only: unlink a user's TCG profile and purge related data.
-// Adds hard purges for backend files used by /routes/trade.js:
-//   - data/trade_limits.json
-//   - data/trades.json
+// Now also clears the authoritative daily trade usage scanned by routes/trade.js
+// by editing the remote-persisted files via storageClient:
+//   • data/trades.json (remove/expire today's sessions initiated by the user)
+//   • data/trade_limits.json (sync / cleanup legacy counters)
+//
 // (alongside existing PATHS.* public/data purges)
 
 import fs from 'fs';
@@ -71,6 +73,51 @@ async function tryDeleteLocalRevealFiles(userId, token) {
   for (const fp of files) { try { await fs.promises.unlink(fp); } catch {} }
 }
 
+/* Date helpers used for trade reset logic */
+function todayStr() { return new Date().toISOString().slice(0,10); }
+function dayOf(iso) { try { return new Date(iso).toISOString().slice(0,10); } catch { return todayStr(); } }
+
+/* Purge TODAY's trade initiations from the authoritative remote store.
+   This is the one the backend routes/trade.js scans to enforce the 3/day rule. */
+async function purgeTodaysTradeStartsFromAuthoritativeStore(userId, alsoDeleteLegacy = true) {
+  const TRADES_PATH = 'data/trades.json';
+  const LIMITS_PATH = 'data/trade_limits.json';
+  const day = todayStr();
+
+  // 1) Remove (or expire) today's sessions where this user is the initiator
+  let trades = {};
+  try { trades = await loadJSON(TRADES_PATH); } catch { trades = {}; }
+
+  let changed = false;
+  // Remove ONLY today's non-expired sessions initiated by this user
+  for (const [sid, s] of Object.entries(trades || {})) {
+    if (!s) continue;
+    if (String(s?.initiator?.userId) !== String(userId)) continue;
+    if (dayOf(s.createdAt) !== day) continue;
+    if (s.status === 'expired') continue;
+
+    // Either delete or mark expired; deleting keeps the file lean.
+    delete trades[sid];
+    changed = true;
+  }
+
+  if (changed) {
+    await saveJSON(TRADES_PATH, trades);
+  }
+
+  // 2) Legacy counter file: sync or remove today's bucket for this user
+  if (alsoDeleteLegacy) {
+    try {
+      const limits = await loadJSON(LIMITS_PATH).catch(() => ({}));
+      if (limits?.[userId]?.[day] != null) {
+        delete limits[userId][day];
+        if (!Object.keys(limits[userId]).length) delete limits[userId];
+        await saveJSON(LIMITS_PATH, limits);
+      }
+    } catch {}
+  }
+}
+
 /* Reset daily sell counters (profile) + nuke rate/limit stores */
 async function resetSellCountersEverywhere({ userId, token }) {
   // 1) Linked profile counters
@@ -105,25 +152,8 @@ async function resetSellCountersEverywhere({ userId, token }) {
     } catch {}
   }
 
-  // 3) 🔴 Backend’s *data/* stores used by routes/trade.js (exact filenames)
-  //    These are accessed via load_file/save_file on the server.
-  const HARD_BACKEND_FILES = [
-    'data/trade_limits.json',
-    'data/trades.json',
-  ];
-  for (const file of HARD_BACKEND_FILES) {
-    try {
-      const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
-      let changed = false;
-      if (purgeFromObject(raw, userId)) changed = true;
-      if (token && purgeFromObject(raw, token)) changed = true; // defensive: if keyed by token
-      // trades.json is a sessions map; remove any sessions involving the user
-      if (file.endsWith('trades.json')) {
-        if (purgeSessionsMap(raw, userId)) changed = true;
-      }
-      if (changed) fs.writeFileSync(file, JSON.stringify(raw, null, 2));
-    } catch {}
-  }
+  // 3) Authoritative trade usage (remote data/*) — handled via storageClient, not FS
+  await purgeTodaysTradeStartsFromAuthoritativeStore(userId, /*alsoDeleteLegacy*/ true);
 }
 
 /* ───────────────────────── Command ───────────────────────── */
@@ -139,7 +169,8 @@ export default async function registerUnlinkDeck(client) {
     data,
     async execute(interaction) {
       // Role & channel guard
-      if (!hasAnyAdminRole(interaction.member)) {
+      const inAdminRole = hasAnyAdminRole(interaction.member);
+      if (!inAdminRole) {
         return interaction.reply({ content: '🚫 You do not have permission to use this command.', ephemeral: true });
       }
       if (String(interaction.channelId) !== String(ADMIN_CHANNEL_ID)) {
@@ -231,7 +262,7 @@ export default async function registerUnlinkDeck(client) {
         const display = prof?.discordName || userId;
         const token   = prof?.token || '';
 
-        // 🔄 Reset counters/limits in *both* public/data and backend data/*
+        // 🔄 Reset counters/limits in public/data and the authoritative backend data/*
         await resetSellCountersEverywhere({ userId, token });
 
         // 1) Remove from linked_decks (public/data)
@@ -256,7 +287,7 @@ export default async function registerUnlinkDeck(client) {
           }
         } catch {}
 
-        // 4) Remove from trade_limits (public/data)
+        // 4) Remove from trade_limits (public/data view copy)
         try {
           const limits = await loadJSON(PATHS.tradeLimits).catch(() => ({}));
           let changed = false;
@@ -265,7 +296,7 @@ export default async function registerUnlinkDeck(client) {
           if (changed) await saveJSON(PATHS.tradeLimits, limits);
         } catch {}
 
-        // 5) Purge any trades involving this user (public/data)
+        // 5) Purge any trades involving this user (public/data mirror, if present)
         try {
           const trades = await loadJSON(PATHS.trades).catch(() => ({}));
           if (purgeSessionsMap(trades, userId)) {
@@ -285,7 +316,7 @@ export default async function registerUnlinkDeck(client) {
         try { await tryDeleteLocalRevealFiles(userId, token); } catch {}
 
         await interaction.editReply({
-          content: `✅ Successfully unlinked **${display}**, reset trade limits (both stores), reset sell counters, and purged associated data.`,
+          content: `✅ Successfully unlinked **${display}**, reset **today’s trade usage** (authoritative store), synced legacy trade limits, reset sell counters, and purged associated data.`,
           embeds: [],
           components: []
         });
