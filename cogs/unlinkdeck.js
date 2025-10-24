@@ -4,7 +4,7 @@
 // - Paginated dropdown UI (25 per page)
 // - Purges: linked_decks, wallet, player_data, trade_limits, trades (sessions with user), duel_sessions (sessions with user)
 // - Best-effort cleanup of pack reveal artifacts
-// - NEW: Also resets/cleans daily sell counters wherever they may live (linked profile + trade limit stores)
+// - Also resets daily sell counters AND daily trade limits/sessions.
 //
 // Config resolution order: ENV.CONFIG_JSON → config.json → defaults
 // Config / ENV keys used:
@@ -35,7 +35,7 @@ function loadConfig() {
 }
 const CFG = loadConfig();
 const FALLBACK_ADMIN_ROLE   = '1173049392371085392';
-const FALLBACK_ADMIN_CHAN   = '1368023977519222895';
+the const FALLBACK_ADMIN_CHAN   = '1368023977519222895';
 const ADMIN_ROLE_IDS        = Array.isArray(CFG.admin_role_ids) && CFG.admin_role_ids.length ? CFG.admin_role_ids : [FALLBACK_ADMIN_ROLE];
 const ADMIN_CHANNEL_ID      = String(CFG.admin_payout_channel_id || FALLBACK_ADMIN_CHAN);
 const LOCAL_REVEALS_DIR     = String(CFG.reveals_dir || './public/data').replace(/\/+$/, ''); // FS fallback
@@ -56,20 +56,32 @@ function purgeFromObject(obj, key) {
   return false;
 }
 
+// Old generic session purge (kept for backwards compat)
 function purgeSessionsMap(obj, userId) {
   if (!obj || typeof obj !== 'object') return false;
   let changed = false;
   for (const [sid, sess] of Object.entries(obj)) {
-    // Shapes:
-    // - { players: [{userId}] }
-    // - { challenger: {userId}, opponent: {userId} }
-    // - flat { aId, bId }
     const players = Array.isArray(sess?.players) ? sess.players : [];
     const matchPlayers = players.some(p => String(p?.userId || p?.id) === String(userId));
     const aMatch = String(sess?.aId || sess?.challenger?.userId || sess?.challenger?.id || '') === String(userId);
     const bMatch = String(sess?.bId || sess?.opponent?.userId   || sess?.opponent?.id   || '') === String(userId);
     if (matchPlayers || aMatch || bMatch) {
       delete obj[sid];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// NEW: Purge sessions matching the *trade router* shape ({ initiator.userId, partner.userId })
+function purgeTradeSessionsForUser(tradesObj, userId) {
+  if (!tradesObj || typeof tradesObj !== 'object') return false;
+  let changed = false;
+  for (const [sid, sess] of Object.entries(tradesObj)) {
+    const ini = String(sess?.initiator?.userId || '');
+    const par = String(sess?.partner?.userId || '');
+    if (ini === String(userId) || par === String(userId)) {
+      delete tradesObj[sid];
       changed = true;
     }
   }
@@ -97,8 +109,6 @@ async function resetSellCountersEverywhere({ userId, token }) {
     if (prof) {
       prof.sellCountToday = 0;
       prof.sellCountDate  = '1970-01-01';      // ensures "not today" for any local checks
-      // Optional: nuke token so any stale server-side status keyed by token becomes orphaned
-      // (the profile will be deleted anyway; this just helps before save).
       if (prof.token) prof.token = `UNLINKED_${Date.now()}`;
       linked[userId] = prof;
       await saveJSON(PATHS.linkedDecks, linked);
@@ -106,7 +116,6 @@ async function resetSellCountersEverywhere({ userId, token }) {
   } catch { /* ignore */ }
 
   // 2) Clean backend-side limit stores we know about:
-  //    Most setups use PATHS.tradeLimits. Some variants may use sellStatus/rateLimits-like files.
   const candidateStores = [
     'tradeLimits',
     'sellStatus',     // optional (safe if missing)
@@ -119,13 +128,34 @@ async function resetSellCountersEverywhere({ userId, token }) {
     try {
       const store = await loadJSON(storePath).catch(() => ({}));
       let changed = false;
-      // delete by userId
       if (purgeFromObject(store, userId)) changed = true;
-      // also try by token (some systems key by token rather than uid)
       if (token && purgeFromObject(store, token)) changed = true;
       if (changed) await saveJSON(storePath, store);
     } catch { /* ignore */ }
   }
+}
+
+// NEW: Reset daily TRADE usage as well
+async function resetTradeCountersEverywhere({ userId, token }) {
+  // a) Remove user (and token) from trade_limits.json completely
+  try {
+    const limits = await loadJSON(PATHS.tradeLimits).catch(() => ({}));
+    let changed = false;
+    if (purgeFromObject(limits, userId)) changed = true;
+    if (token && purgeFromObject(limits, token)) changed = true;
+    if (changed) await saveJSON(PATHS.tradeLimits, limits);
+  } catch { /* ignore */ }
+
+  // b) Purge all trade sessions (TRADES_FILE) that involve this user, including today's
+  try {
+    const trades = await loadJSON(PATHS.trades).catch(() => ({}));
+    // Support BOTH new (initiator/partner) and legacy shapes
+    const changedNew = purgeTradeSessionsForUser(trades, userId);
+    const changedOld = purgeSessionsMap(trades, userId);
+    if (changedNew || changedOld) {
+      await saveJSON(PATHS.trades, trades);
+    }
+  } catch { /* ignore */ }
 }
 
 /* ───────────────────────── Command ───────────────────────── */
@@ -233,8 +263,11 @@ export default async function registerUnlinkDeck(client) {
         const display = prof?.discordName || userId;
         const token   = prof?.token || '';
 
-        // Reset daily sell counters everywhere we can (linked + trade limit stores)
+        // Reset daily SELL counters & any related limit stores
         await resetSellCountersEverywhere({ userId, token });
+
+        // Reset daily TRADE counters & purge trade sessions (new & old shapes)
+        await resetTradeCountersEverywhere({ userId, token });
 
         // 1) Remove from linked_decks
         const removed = purgeFromObject(linkedNow, userId);
@@ -258,24 +291,9 @@ export default async function registerUnlinkDeck(client) {
           }
         } catch {}
 
-        // 4) Remove from trade_limits (already reset, but also purge the entry entirely)
-        try {
-          const limits = await loadJSON(PATHS.tradeLimits).catch(() => ({}));
-          let changed = false;
-          if (purgeFromObject(limits, userId)) changed = true;
-          if (token && purgeFromObject(limits, token)) changed = true; // some stores use token keys
-          if (changed) await saveJSON(PATHS.tradeLimits, limits);
-        } catch {}
+        // (Trade limits already cleared in resetTradeCountersEverywhere)
 
-        // 5) Purge any trades involving this user
-        try {
-          const trades = await loadJSON(PATHS.trades).catch(() => ({}));
-          if (purgeSessionsMap(trades, userId)) {
-            await saveJSON(PATHS.trades, trades);
-          }
-        } catch {}
-
-        // 6) Purge any duel sessions involving this user
+        // 5) Purge any *legacy* duel sessions involving this user
         try {
           const duels = await loadJSON(PATHS.duelSessions).catch(() => ({}));
           if (purgeSessionsMap(duels, userId)) {
@@ -283,11 +301,11 @@ export default async function registerUnlinkDeck(client) {
           }
         } catch {}
 
-        // 7) Best-effort cleanup of local reveal files (if they exist)
+        // 6) Best-effort cleanup of local reveal files (if they exist)
         try { await tryDeleteLocalRevealFiles(userId, token); } catch {}
 
         await interaction.editReply({
-          content: `✅ Successfully unlinked **${display}**, reset sell counters, and purged associated data.`,
+          content: `✅ Successfully unlinked **${display}**, reset sell *and* trade daily counters, and purged associated data.`,
           embeds: [],
           components: []
         });
