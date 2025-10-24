@@ -190,15 +190,19 @@ export default async function registerTradeCard(client) {
   const MANAGE_CARDS_CHANNEL_ID =
     String(CONFIG.manage_cards_channel_id || CONFIG.manage_cards || CONFIG['manage-cards'] || '1367977677658656868');
 
+  // Allow env COLLECTION_UI_BASE to override config (per API example)
   const UI_BASE  = trimBase(
+    process.env.COLLECTION_UI_BASE ||
     CONFIG.collection_ui ||
     CONFIG.ui_urls?.card_collection_ui ||
     CONFIG.frontend_url ||
     CONFIG.ui_base ||
     'https://madv313.github.io/Card-Collection-UI'
   );
+
   const API_BASE = trimBase(CONFIG.api_base || process.env.API_BASE || '');
   const BOT_KEY  = process.env.BOT_API_KEY || '';
+  const BOT_BEARER = process.env.BOT_AUTH_BEARER || ''; // optional alt header
 
   startWebhookServerOnce(client, CONFIG);
 
@@ -309,28 +313,38 @@ export default async function registerTradeCard(client) {
 
         const partnerId = i.values[0];
 
-        if (!API_BASE || !BOT_KEY) {
+        if (!API_BASE || (!BOT_KEY && !BOT_BEARER)) {
           return interaction.editReply({
-            content: '⚠️ Server is missing API_BASE or BOT_API_KEY. Ask an admin.',
+            content: '⚠️ Server is missing API_BASE or bot auth (BOT_API_KEY / BOT_AUTH_BEARER). Ask an admin.',
             components: []
           });
         }
 
         // 🔎 DEBUG: confirm envs are present at runtime
-        console.log('[tradecard] start -> API_BASE=', API_BASE, 'BOT_KEY present?', !!BOT_KEY);
+        console.log('[tradecard] start -> API_BASE=', API_BASE, 'X-Bot-Key?', !!BOT_KEY, 'Bearer?', !!BOT_BEARER);
+
+        // Build request headers per example (prefer X-Bot-Key; support Bearer alt)
+        const headers = { 'Content-Type': 'application/json' };
+        if (BOT_KEY) headers['X-Bot-Key'] = BOT_KEY;
+        if (BOT_BEARER) headers['Authorization'] = `Bearer ${BOT_BEARER}`;
+
+        // Build payload per /trade/start example:
+        // include either initiatorToken (preferred) or initiatorId, plus partnerId
+        const payload = {
+          partnerId,
+          apiBase: API_BASE,
+          collectionUiBase: UI_BASE // optional
+        };
+        if (mine.token && isTokenValid(mine.token)) payload.initiatorToken = mine.token;
+        else payload.initiatorId = userId;
 
         // Create backend trade session
         let resp, json, text;
         try {
           resp = await fetch(`${API_BASE}/trade/start`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Bot-Key': BOT_KEY },
-            body: JSON.stringify({
-              initiatorToken: mine.token,
-              partnerId,
-              apiBase: API_BASE,
-              collectionUiBase: UI_BASE
-            })
+            headers,
+            body: JSON.stringify(payload)
           });
           text = await resp.text(); // read first so we can show raw on error
           try { json = JSON.parse(text); } catch { json = {}; }
@@ -338,7 +352,7 @@ export default async function registerTradeCard(client) {
           return interaction.editReply({ content: `❌ Failed to contact server: ${String(e)}`, components: [] });
         }
 
-        if (!resp.ok) {
+        if (!resp.ok || !json.ok) {
           const emsg = json?.error || json?.message || `${resp.status} ${resp.statusText}`;
           return interaction.editReply({
             content: `❌ Could not start trade: ${emsg}\n— raw: ${text?.slice(0, 300) || '(no body)'}`,
