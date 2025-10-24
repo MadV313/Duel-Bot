@@ -115,12 +115,13 @@ async function loadCardIndex() {
   const list = Array.isArray(raw) ? raw : (raw.cards || []);
   const index = {};
   for (const c of list) {
-    const id = pad3(c.card_id);
+    const id  = pad3(c.card_id);
+    const img = c.filename || c.image || '';
     index[id] = {
       name: c.name,
       rarity: c.rarity || 'Common',
       type: c.type || '',
-      filename: c.filename || `${id}_${String(c.name||'').replace(/[^a-zA-Z0-9._-]/g,'')}_${String(c.type||'').replace(/[^a-zA-Z0-9._-]/g,'')}.png`
+      filename: img || `${id}_${String(c.name||'').replace(/[^a-zA-Z0-9._-]/g,'')}_${String(c.type||'').replace(/[^a-zA-Z0-9._-]/g,'')}.png`
     };
   }
   __cardIndex = index;
@@ -491,7 +492,7 @@ export default function createTradeRouter(bot) {
       if (!token || !Array.isArray(cards)) {
         return res.status(400).json({ error: 'Missing token or cards' });
       }
-
+  
       const trades = await readJsonRemote(TRADES_FILE, {});
       const s = trades[session];
       if (!s) return res.status(404).json({ error: 'Session not found' });
@@ -501,12 +502,12 @@ export default function createTradeRouter(bot) {
         await writeJsonRemote(TRADES_FILE, trades);
         return res.status(410).json({ error: 'Session expired' });
       }
-
+  
       const idFromToken = await resolveUserIdByToken(token);
       if (!idFromToken) return res.status(403).json({ error: 'Invalid token' });
-
+  
       const sel = clampCards(cards);
-
+  
       // Initiator selects their cards
       if (s.stage === 'pickMine') {
         if (idFromToken !== s.initiator.userId) {
@@ -516,7 +517,7 @@ export default function createTradeRouter(bot) {
         s.stage = 'pickTheirs';
         trades[session] = s;
         await writeJsonRemote(TRADES_FILE, trades);
-
+  
         // DM partner to review & pick
         try {
           const uiBase = (process.env.COLLECTION_UI_BASE ||
@@ -539,7 +540,7 @@ export default function createTradeRouter(bot) {
         } catch (e) {
           console.warn('[trade/select] Failed to DM partner:', e?.message || e);
         }
-
+  
         return res.json({
           ok: true,
           stage: s.stage,
@@ -548,27 +549,51 @@ export default function createTradeRouter(bot) {
           message: 'Your selection is saved. Waiting for partner.'
         });
       }
-
-      // Partner selects their requested cards
+  
+      // Initiator selects FROM partner’s collection
       if (s.stage === 'pickTheirs') {
-        if (idFromToken !== s.partner.userId) {
-          return res.status(403).json({ error: 'Not partner turn' });
+        if (idFromToken !== s.initiator.userId) {
+          return res.status(403).json({ error: 'Not initiator turn' });
         }
-        s.partner.selection = sel;
-        s.stage = 'decision'; // partner will decide accept/deny after viewing summary
+        s.partner.selection = sel;           // initiator picks FROM partner’s collection
+        s.stage = 'decision';                // next: partner reviews & accepts/denies
         trades[session] = s;
         await writeJsonRemote(TRADES_FILE, trades);
-
+  
+        // (Optional) DM partner a link that opens straight to decision stage
+        try {
+          const uiBase = (process.env.COLLECTION_UI_BASE ||
+            process.env.COLLECTION_UI ||
+            'https://madv313.github.io/Card-Collection-UI');
+          const apiBase = process.env.API_BASE || process.env.api_base || '';
+          const partnerLink = buildUiLink({
+            base: uiBase,
+            token: s.partner.token,
+            apiBase,
+            sessionId: s.id,
+            role: 'partner',
+            stage: 'decision',
+            partnerName: s.initiator.name
+          });
+          const partnerUser = await bot.users.fetch(s.partner.userId);
+          await partnerUser.send({
+            content: `📨 **Trade proposal from <@${s.initiator.userId}>**\nReview and decide: ${partnerLink}`
+          });
+        } catch (e) {
+          console.warn('[trade/select] Failed to DM partner (decision):', e?.message || e);
+        }
+  
         return res.json({
           ok: true,
           stage: s.stage,
           initiator: { selection: s.initiator.selection },
-          partner: { selection: s.partner.selection },
-          message: 'Your selection is saved. Review and decide.'
+          partner:   { selection: s.partner.selection },
+          message: 'Your request is saved. Waiting for partner decision.'
         });
       }
-
-      return res.status(400).json({ error: 'Invalid stage for selection' });
+  
+      // Any other stage is invalid for /select
+      return res.status(400).json({ error: `Cannot select cards during stage "${s.stage}"` });
     } catch (e) {
       console.error('[trade/select] error:', e);
       return res.status(500).json({ error: 'Internal error' });
