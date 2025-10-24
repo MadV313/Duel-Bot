@@ -90,6 +90,23 @@ function hasExpired(session) {
   if (!session?.expiresAt) return false;
   return Date.now() > new Date(session.expiresAt).getTime();
 }
+function dayOf(isoLike) {
+  try { return new Date(isoLike).toISOString().slice(0,10); } catch { return todayStr(); }
+}
+
+// Count how many sessions the user has *started today* by scanning TRADES_FILE.
+// We purposely do not count "expired" sessions; everything else (active/decision/accepted/denied) counts.
+function countInitiationsToday(tradesObj = {}, initiatorId, day = todayStr()) {
+  let n = 0;
+  for (const s of Object.values(tradesObj || {})) {
+    if (!s || s?.initiator?.userId !== initiatorId) continue;
+    const d = dayOf(s.createdAt);
+    if (d !== day) continue;
+    if (s.status === 'expired') continue;
+    n += 1;
+  }
+  return n;
+}
 
 // Build a Collection UI link following the UI/cog contract:
 // ?mode=trade&tradeSession=<id>&role=<initiator|partner>[&stage=...&partner=...]
@@ -243,9 +260,10 @@ export default function createTradeRouter(bot) {
         return res.status(400).json({ error: 'Cannot trade with yourself.' });
       }
 
-      const [linked, limits] = await Promise.all([
+      const [linked, limits, tradesBefore] = await Promise.all([
         readJsonRemote(LINKED_DECKS_FILE, {}),
-        readJsonRemote(TRADE_LIMITS_FILE, {})
+        readJsonRemote(TRADE_LIMITS_FILE, {}),
+        readJsonRemote(TRADES_FILE, {})
       ]);
 
       // Primary lookups
@@ -281,9 +299,14 @@ export default function createTradeRouter(bot) {
         return res.status(400).json({ error: 'Partner must be linked first.' });
       }
 
-      // Enforce 3/day (initiations)
+      // Enforce 3/day (initiations) — compute from TRADES file (authoritative for "starts today")
       const day = todayStr();
-      const used = getUsed(limits, initiatorId, day);
+      const usedFromFile = getUsed(limits, initiatorId, day);
+      const usedFromTrades = countInitiationsToday(tradesBefore, initiatorId, day);
+      const used = Math.max(usedFromTrades, Math.min(usedFromFile, usedFromTrades)); // favor real count
+      // Debug to help catch mismatches
+      console.log('[trade/start] limit check', { day, initiatorId, usedFromFile, usedFromTrades, used, MAX_PER_DAY });
+
       if (used >= MAX_PER_DAY) {
         return res.status(429).json({ error: `Trade limit reached (${MAX_PER_DAY}/day).` });
       }
@@ -310,14 +333,17 @@ export default function createTradeRouter(bot) {
         }
       };
 
-      // Persist
-      const trades = await readJsonRemote(TRADES_FILE, {});
+      // Persist session
+      const trades = { ...(tradesBefore || {}) };
       trades[sessionId] = session;
       await writeJsonRemote(TRADES_FILE, trades);
 
-      // Increment initiator daily usage (reserve a slot)
-      incLimit(limits, initiatorId, day);
-      await writeJsonRemote(TRADE_LIMITS_FILE, limits);
+      // Mirror today's count into TRADE_LIMITS_FILE (optional; keeps legacy endpoint happy)
+      // We DO NOT rely on this to enforce limits anymore — source of truth is TRADES_FILE scan.
+      const limitsCopy = { ...(limits || {}) };
+      limitsCopy[initiatorId] ||= {};
+      limitsCopy[initiatorId][day] = countInitiationsToday(trades, initiatorId, day);
+      await writeJsonRemote(TRADE_LIMITS_FILE, limitsCopy);
 
       // Build link for initiator (role=initiator)
       const uiBase = (collectionUiBase ||
@@ -727,9 +753,25 @@ export default function createTradeRouter(bot) {
       const userId = await resolveUserIdByToken(String(token||''));
       if (!userId) return res.status(404).json({ error: 'Invalid token' });
 
-      const limits = await readJsonRemote(TRADE_LIMITS_FILE, {});
+      const [limits, trades] = await Promise.all([
+        readJsonRemote(TRADE_LIMITS_FILE, {}),
+        readJsonRemote(TRADES_FILE, {})
+      ]);
+
       const day = todayStr();
-      const used = getUsed(limits, userId, day);
+      const usedFromFile = getUsed(limits, userId, day);
+      const usedFromTrades = countInitiationsToday(trades, userId, day);
+      // Source of truth is the scan; expose that number
+      const used = usedFromTrades;
+
+      // Keep legacy file in sync for transparency (optional)
+      if ((limits?.[userId]?.[day] || 0) !== used) {
+        const copy = { ...(limits || {}) };
+        copy[userId] ||= {};
+        copy[userId][day] = used;
+        await writeJsonRemote(TRADE_LIMITS_FILE, copy);
+      }
+
       const remaining = Math.max(0, MAX_PER_DAY - used);
       return res.json({ ok: true, userId, day, usedToday: used, remaining, maxPerDay: MAX_PER_DAY });
     } catch (e) {
