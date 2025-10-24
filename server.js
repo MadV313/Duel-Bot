@@ -36,6 +36,17 @@ import { loadJSON, saveJSON, PATHS } from './utils/storageClient.js';
 dotenvConfig();
 
 /* ──────────────────────────────────────────────────────────
+ * ✨ NEW: socket.io chat imports
+ * ────────────────────────────────────────────────────────── */
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import chatHistoryRoutes from './routes/chatHistory.js';
+import {
+  joinRoom, leaveRoom, appendMessage,
+  getHistory, getPresence, setTyping
+} from './logic/chatRegistry.js';
+
+/* ──────────────────────────────────────────────────────────
  * Paths / App
  * ────────────────────────────────────────────────────────── */
 const __filename = fileURLToPath(import.meta.url);
@@ -306,14 +317,15 @@ process.on('uncaughtException', e => console.error('⚠️ UncaughtException:', 
 /* ──────────────────────────────────────────────────────────
  * Express middleware
  * ────────────────────────────────────────────────────────── */
+const corsOrigins = [
+  'https://madv313.github.io',
+  /localhost:5173$/,
+  /duel-ui-production\.up\.railway\.app$/,
+  /duel-bot-production\.up\.railway\.app$/,
+];
+
 const corsOptions = {
-  origin: [
-    'https://madv313.github.io',
-    /localhost:5173$/,
-    /duel-ui-production\.up\.railway\.app$/,
-    // ✅ also allow your backend host (spectator page calls this)
-    /duel-bot-production\.up\.railway\.app$/
-  ],
+  origin: corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
@@ -440,14 +452,17 @@ app.use('/reveal', revealRoute);
 // ✅ API-prefixed mounts so Spectator UI can call /api/duel/current
 app.use('/api/duel', duelRoutes);          // /api/duel/status, /practice, /turn, /state
 app.use('/api/duel', liveRoutes);          // /api/duel/current
-app.use('/api/bot', botPracticeAlias);     // /api/bot/status, /practice
 app.use('/api/duelstart', duelStartRoutes);// /api/duelstart/start
+app.use('/api/bot', botPracticeAlias);     // /api/bot/status, /practice
 
 // Token-aware endpoints mounted at root
 app.use('/', meTokenRouter);
 
 // Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
+
+/* ✨ NEW: optional REST history for spectator chat */
+app.use('/chat', chatHistoryRoutes);
 
 /* ──────────────────────────────────────────────────────────
  * Optional webhook: /trade/notify (uses same Express app; no second listener)
@@ -525,6 +540,66 @@ app.use('/public', express.static('public'));
 })(app);
 
 /* ──────────────────────────────────────────────────────────
+ * ✨ NEW: socket.io spectator chat namespace
+ * ────────────────────────────────────────────────────────── */
+
+// Create HTTP server so Socket.IO can share the same port
+const httpServer = createServer(app);
+
+// Mirror CORS origins for websockets
+const io = new SocketIOServer(httpServer, {
+  cors: { origin: corsOrigins, methods: ['GET','POST'] }
+});
+
+// Namespace for spectator chat
+const chatNs = io.of('/spectator-chat');
+
+chatNs.on('connection', (socket) => {
+  let roomId = null;
+  let userId = socket.id;
+  let name = 'Spectator';
+
+  socket.on('join_room', (payload = {}) => {
+    roomId = (payload.roomId || '').toString();
+    userId = (payload.userId || socket.id).toString();
+    name   = (payload.name || 'Spectator').toString().slice(0, 32);
+
+    if (!roomId) { socket.emit('error', { error: 'roomId required' }); return; }
+    socket.join(roomId);
+    joinRoom(roomId, userId, name);
+
+    // send history + presence to the joiner
+    socket.emit('history', { roomId, messages: getHistory(roomId) });
+    // broadcast presence to room
+    chatNs.to(roomId).emit('presence', { roomId, ...getPresence(roomId) });
+  });
+
+  socket.on('typing', (isTyping) => {
+    if (!roomId) return;
+    const typingUsers = setTyping(roomId, userId, !!isTyping);
+    chatNs.to(roomId).emit('typing', { roomId, users: typingUsers });
+  });
+
+  socket.on('chat_message', (textRaw) => {
+    if (!roomId) return;
+    const text = String(textRaw || '').replace(/[<>]/g, '').trim();
+    if (!text) return;
+    if (text.length > 500) return; // cap
+
+    const msg = { id: `${Date.now()}_${Math.random().toString(36).slice(2,8)}`, roomId, userId, name, text, ts: Date.now() };
+    appendMessage(roomId, msg);
+    chatNs.to(roomId).emit('message', msg);
+  });
+
+  socket.on('disconnect', () => {
+    if (roomId) {
+      leaveRoom(roomId, userId);
+      chatNs.to(roomId).emit('presence', { roomId, ...getPresence(roomId) });
+    }
+  });
+});
+
+/* ──────────────────────────────────────────────────────────
  * Fallbacks + listen
  * ────────────────────────────────────────────────────────── */
 app.get('/' , (_req, res) => res.send('🌐 Duel Bot Backend is live.'));
@@ -534,6 +609,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Duel Bot Backend running on port ${PORT}`);
+// NOTE: replaced app.listen with httpServer.listen so websockets work
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Duel Bot Backend running on port ${PORT} (ws enabled)`);
 });
