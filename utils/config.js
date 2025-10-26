@@ -118,6 +118,15 @@ export const config = {
   image_base:
     trimTrailingSlash(process.env.IMAGE_BASE || process.env.image_base || 'https://madv313.github.io/Card-Collection-UI/images/cards'),
 
+  // 👉 NEW (non-breaking): optional fallbacks for image hosting
+  image_base_fallbacks: [
+    trimTrailingSlash(process.env.IMAGE_BASE_FALLBACK_1 || 'https://raw.githubusercontent.com/MadV313/Duel-Bot/main/images/cards'),
+    trimTrailingSlash(process.env.IMAGE_BASE_FALLBACK_2 || '')
+  ].filter(Boolean),
+
+  // 👉 NEW (non-breaking): standard card back filename (used by UIs/DMs if desired)
+  card_back_filename: process.env.CARD_BACK_FILENAME || '000_CardBack_Unique.png',
+
   // Convenience flags
   debug_mode: String(process.env.DEBUG_MODE || 'false').toLowerCase() === 'true',
 };
@@ -150,6 +159,8 @@ export const rarityWeights = {
 /** Convenience passthroughs used around the codebase (stays stable). */
 export const api_base = config.api_base;
 export const image_base = config.image_base;
+export const image_base_fallbacks = config.image_base_fallbacks;
+export const card_back_filename = config.card_back_filename;
 
 /** UI helpers (returns trimmed, with trailing slash) */
 export const UI = {
