@@ -21,6 +21,19 @@ import {
 } from '../utils/deckUtils.js';
 import { load_file, save_file } from '../utils/storageClient.js';
 
+// ✅ NEW: for decision receipts w/ thumbnails
+import { EmbedBuilder } from 'discord.js';
+
+// ✅ Try to read image_base from central config, but keep hard fallbacks
+let CONFIG_IMAGE_BASE = '';
+try {
+  // eslint-disable-next-line import/no-unresolved
+  const cfg = await import('../utils/config.js');
+  CONFIG_IMAGE_BASE = (cfg?.image_base || cfg?.IMAGE_BASE || '').trim();
+} catch (_) {
+  // no-op; will use envs/fallbacks below
+}
+
 const LINKED_DECKS_FILE = 'data/linked_decks.json';
 const TRADES_FILE       = 'data/trades.json';
 const TRADE_LIMITS_FILE = 'data/trade_limits.json';
@@ -163,6 +176,27 @@ function collectionToArray(collection = {}, idx = {}) {
     return a.id.localeCompare(b.id);
   });
   return out;
+}
+
+// ✅ Image base + fallback resolver
+function getImageBase() {
+  const env = (process.env.IMAGE_BASE || process.env.image_base || '').trim();
+  const cfg = CONFIG_IMAGE_BASE;
+  // Prefer configured base; then env; then stable fallbacks
+  return (
+    cfg ||
+    env ||
+    'https://madv313.github.io/Card-Collection-UI/images/cards'
+  );
+}
+function cardImageUrl(filename) {
+  const base = getImageBase().replace(/\/+$/, '');
+  return `${base}/${filename}`; // filename expected from CoreMasterReference.json
+}
+function cardBackUrl() {
+  const base = getImageBase().replace(/\/+$/, '');
+  // Use your standard back image filename
+  return `${base}/000_CardBack_Unique.png`;
 }
 
 /* ---------------- Bot-key helpers (header/env) ---------------- */
@@ -361,7 +395,7 @@ export default function createTradeRouter(bot) {
         partnerName: parProfile.discordName || ''
       });
 
-      // DM initiator a convenience link
+      // DM initiator a convenience link (server-side; cog also DMs a clean Link Button)
       try {
         const user = await bot.users.fetch(initiatorId);
         await user.send({
@@ -665,16 +699,46 @@ export default function createTradeRouter(bot) {
         return res.status(400).json({ error: 'Not in decision stage' });
       }
 
+      // Load card index once (for thumbnails)
+      const idx = await loadCardIndex();
+
+      // Helper to build up to 3 card embeds with thumbnails
+      function buildCardEmbeds(ids = [], titlePrefix = '') {
+        const embeds = [];
+        for (const id of ids) {
+          const m = metaFor(id, idx);
+          const img = m.filename ? cardImageUrl(m.filename) : cardBackUrl();
+          const emb = new EmbedBuilder()
+            .setTitle(`${titlePrefix} #${id} — ${m.name}`)
+            .setThumbnail(img)
+            .setColor(0x00ccff)
+            .setFooter({ text: `${m.rarity}${m.type ? ` • ${m.type}` : ''}` });
+          embeds.push(emb);
+        }
+        return embeds;
+      }
+
       if (decision === 'deny') {
         s.status = 'denied';
         trades[session] = s;
         await writeJsonRemote(TRADES_FILE, trades);
 
-        // DM initiator outcome
+        // Build concise header embed
+        const header = new EmbedBuilder()
+          .setTitle(`❌ Trade with <@${s.initiator.userId}> denied.`)
+          .setDescription('No cards were exchanged.')
+          .setColor(0xff3b30);
+
+        // DM both sides (keep existing text semantics but with a nicer embed)
         try {
           const u = await bot.users.fetch(s.initiator.userId);
-          await u.send(`❌ Your trade with <@${s.partner.userId}> was **denied**.`);
+          await u.send({ embeds: [header] });
         } catch {}
+        try {
+          const p = await bot.users.fetch(s.partner.userId);
+          await p.send({ embeds: [header] });
+        } catch {}
+
         return res.json({ ok: true, status: s.status, message: 'Trade denied.' });
       }
 
@@ -725,14 +789,59 @@ export default function createTradeRouter(bot) {
       trades[session] = s;
       await writeJsonRemote(TRADES_FILE, trades);
 
-      // Notify both
+      // ✅ Build rich DM receipts with thumbnails for BOTH players
+      const headerIni = new EmbedBuilder()
+        .setTitle(`✅ Trade with <@${s.partner.userId}> accepted.`)
+        .setDescription('Cards have been swapped.')
+        .setColor(0x34c759);
+
+      const headerPar = new EmbedBuilder()
+        .setTitle(`✅ Trade with <@${s.initiator.userId}> accepted.`)
+        .setDescription('Cards have been swapped.')
+        .setColor(0x34c759);
+
+      // From initiator perspective: "You’ll receive" = giveB, "You’ll give" = giveA
+      const receiveIni = new EmbedBuilder()
+        .setTitle('You’ll receive')
+        .setDescription(giveB.length ? giveB.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
+        .setColor(0x34c759);
+
+      const giveIni = new EmbedBuilder()
+        .setTitle('You’ll give')
+        .setDescription(giveA.length ? giveA.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
+        .setColor(0x34c759);
+
+      // From partner perspective: "You’ll receive" = giveA, "You’ll give" = giveB
+      const receivePar = new EmbedBuilder()
+        .setTitle('You’ll receive')
+        .setDescription(giveA.length ? giveA.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
+        .setColor(0x34c759);
+
+      const givePar = new EmbedBuilder()
+        .setTitle('You’ll give')
+        .setDescription(giveB.length ? giveB.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
+        .setColor(0x34c759);
+
+      // Thumbnail card embeds (cap at 3 per side) — Discord allows up to 10 embeds per message
+      const iniCardThumbs = [
+        ...buildCardEmbeds(giveB.slice(0, 3), 'Receive'),
+        ...buildCardEmbeds(giveA.slice(0, 3), 'Give')
+      ];
+      const parCardThumbs = [
+        ...buildCardEmbeds(giveA.slice(0, 3), 'Receive'),
+        ...buildCardEmbeds(giveB.slice(0, 3), 'Give')
+      ];
+
+      // Send to initiator
       try {
         const ini = await bot.users.fetch(s.initiator.userId);
-        await ini.send(`✅ Trade with <@${s.partner.userId}> **accepted**. Cards have been swapped.`);
+        await ini.send({ embeds: [headerIni, receiveIni, giveIni, ...iniCardThumbs] });
       } catch {}
+
+      // Send to partner
       try {
         const par = await bot.users.fetch(s.partner.userId);
-        await par.send(`✅ Trade with <@${s.initiator.userId}> **accepted**. Cards have been swapped.`);
+        await par.send({ embeds: [headerPar, receivePar, givePar, ...parCardThumbs] });
       } catch {}
 
       return res.json({
