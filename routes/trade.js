@@ -398,8 +398,7 @@ export default function createTradeRouter(bot) {
         partnerName: parProfile.discordName || ''
       });
 
-      // ⛔️ Removed redundant raw-URL DM from the server (now handled cleanly by cogs/tradecard via Link Button).
-      // If you ever want the server to DM as well, set SEND_SERVER_TRADE_DM=true.
+      // ⛔️ Server-side raw URL DM is disabled by default (use SEND_SERVER_TRADE_DM=true to re-enable)
       if (SEND_SERVER_TRADE_DM) {
         try {
           const user = await bot.users.fetch(initiatorId);
@@ -708,7 +707,7 @@ export default function createTradeRouter(bot) {
       // Load card index once (for thumbnails)
       const idx = await loadCardIndex();
 
-      // Helper to build up to 3 card embeds with thumbnails
+      // Helper to build up to 3 card embeds with thumbnails (with past-tense titles)
       function buildCardEmbeds(ids = [], titlePrefix = '') {
         const embeds = [];
         for (const id of ids) {
@@ -729,20 +728,25 @@ export default function createTradeRouter(bot) {
         trades[session] = s;
         await writeJsonRemote(TRADES_FILE, trades);
 
-        // Build concise header embed
-        const header = new EmbedBuilder()
-          .setTitle(`❌ Trade with <@${s.initiator.userId}> denied.`)
-          .setDescription('No cards were exchanged.')
+        // Build concise headers (mention in description so it renders)
+        const headerIniDeny = new EmbedBuilder()
+          .setTitle('❌ Trade denied.')
+          .setDescription(`With <@${s.partner.userId}>. No cards were exchanged.`)
           .setColor(0xff3b30);
 
-        // DM both sides (keep existing text semantics but with a nicer embed)
+        const headerParDeny = new EmbedBuilder()
+          .setTitle('❌ Trade denied.')
+          .setDescription(`With <@${s.initiator.userId}>. No cards were exchanged.`)
+          .setColor(0xff3b30);
+
+        // DM both sides
         try {
           const u = await bot.users.fetch(s.initiator.userId);
-          await u.send({ embeds: [header] });
+          await u.send({ embeds: [headerIniDeny] });
         } catch {}
         try {
           const p = await bot.users.fetch(s.partner.userId);
-          await p.send({ embeds: [header] });
+          await p.send({ embeds: [headerParDeny] });
         } catch {}
 
         return res.json({ ok: true, status: s.status, message: 'Trade denied.' });
@@ -796,58 +800,39 @@ export default function createTradeRouter(bot) {
       await writeJsonRemote(TRADES_FILE, trades);
 
       // ✅ Build rich DM receipts with thumbnails for BOTH players
+      // Header embeds: mentions in description so they render
       const headerIni = new EmbedBuilder()
-        .setTitle(`✅ Trade with <@${s.partner.userId}> accepted.`)
-        .setDescription('Cards have been swapped.')
+        .setTitle('✅ Trade accepted.')
+        .setDescription(`With <@${s.partner.userId}>. Cards have been swapped.`)
         .setColor(0x34c759);
 
       const headerPar = new EmbedBuilder()
-        .setTitle(`✅ Trade with <@${s.initiator.userId}> accepted.`)
-        .setDescription('Cards have been swapped.')
+        .setTitle('✅ Trade accepted.')
+        .setDescription(`With <@${s.initiator.userId}>. Cards have been swapped.`)
         .setColor(0x34c759);
 
-      // From initiator perspective: "You’ll receive" = giveB, "You’ll give" = giveA
-      const receiveIni = new EmbedBuilder()
-        .setTitle('You’ll receive')
-        .setDescription(giveB.length ? giveB.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
-        .setColor(0x34c759);
-
-      const giveIni = new EmbedBuilder()
-        .setTitle('You’ll give')
-        .setDescription(giveA.length ? giveA.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
-        .setColor(0x34c759);
-
-      // From partner perspective: "You’ll receive" = giveA, "You’ll give" = giveB
-      const receivePar = new EmbedBuilder()
-        .setTitle('You’ll receive')
-        .setDescription(giveA.length ? giveA.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
-        .setColor(0x34c759);
-
-      const givePar = new EmbedBuilder()
-        .setTitle('You’ll give')
-        .setDescription(giveB.length ? giveB.map(id => `• #${id} — ${metaFor(id, idx).name}`).join('\n') : '• (none)')
-        .setColor(0x34c759);
-
-      // Thumbnail card embeds (cap at 3 per side) — Discord allows up to 10 embeds per message
+      // Thumbnail card embeds (cap at 3 per side) — titles in past tense
+      // Initiator's perspective
       const iniCardThumbs = [
-        ...buildCardEmbeds(giveB.slice(0, 3), 'Receive'),
-        ...buildCardEmbeds(giveA.slice(0, 3), 'Give')
+        ...buildCardEmbeds(giveB.slice(0, 3), 'Received'),
+        ...buildCardEmbeds(giveA.slice(0, 3), 'Gave')
       ];
+      // Partner's perspective
       const parCardThumbs = [
-        ...buildCardEmbeds(giveA.slice(0, 3), 'Receive'),
-        ...buildCardEmbeds(giveB.slice(0, 3), 'Give')
+        ...buildCardEmbeds(giveA.slice(0, 3), 'Received'),
+        ...buildCardEmbeds(giveB.slice(0, 3), 'Gave')
       ];
 
       // Send to initiator
       try {
         const ini = await bot.users.fetch(s.initiator.userId);
-        await ini.send({ embeds: [headerIni, receiveIni, giveIni, ...iniCardThumbs] });
+        await ini.send({ embeds: [headerIni, ...iniCardThumbs] });
       } catch {}
 
       // Send to partner
       try {
         const par = await bot.users.fetch(s.partner.userId);
-        await par.send({ embeds: [headerPar, receivePar, givePar, ...parCardThumbs] });
+        await par.send({ embeds: [headerPar, ...parCardThumbs] });
       } catch {}
 
       return res.json({
