@@ -355,8 +355,8 @@ export default async function registerTradeCard(client) {
         if (!resp.ok || !json.ok) {
           const emsg = json?.error || json?.message || `${resp.status} ${resp.statusText}`;
           return interaction.editReply({
-            content: `❌ Could not start trade: ${emsg}\n— raw: ${text?.slice(0, 300) || '(no body)'}`,
-            components: []
+            content: `❌ Could not start trade: ${emsg}\n— raw: ${text?.slice(0, 300) || '(no body)'}`
+          , components: []
           });
         }
 
@@ -365,22 +365,41 @@ export default async function registerTradeCard(client) {
           json.urlInitiator ||
           `${UI_BASE}/?mode=trade&tradeSession=${encodeURIComponent(sessionId)}&role=initiator&token=${encodeURIComponent(mine.token)}&api=${encodeURIComponent(API_BASE)}`;
 
-        // DM initiator link
-        try {
-          await interaction.user.send(
-            `🤝 **Trade started!**\nPartner: <@${partnerId}>\nSession: \`${sessionId}\`\n\n` +
-            `👉 **Open your collection to pick cards:** ${urlInitiator}\n\n` +
-            `_Note: You’ll be able to **view your partner’s collection** within the trade interface via this session._`
-          );
-        } catch {}
+        // 🔗 Build a clean Link Button (no raw URL in text)
+        const linkRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setStyle(ButtonStyle.Link)
+            .setLabel('Click here')
+            .setURL(urlInitiator)
+        );
 
+        // DM initiator — embed + link button (no raw URL)
+        try {
+          const dmEmbed = new EmbedBuilder()
+            .setTitle('🤝 Trade started!')
+            .setDescription([
+              `**Partner:** <@${partnerId}>`,
+              `**Session:** \`${sessionId}\``,
+              '',
+              'Select up to **3 cards** to offer.',
+              '',
+              '👉 **Open your collection to pick cards:** (button below)',
+              '_You’ll be able to view your partner’s collection within the trade interface via this session._'
+            ].join('\n'))
+            .setColor(0x00ccff);
+
+          await interaction.user.send({ embeds: [dmEmbed], components: [linkRow] });
+        } catch {
+          // keep silent to preserve existing behavior
+        }
+
+        // Ephemeral confirmation in #manage-cards — with Link Button, no raw URL
         await interaction.editReply({
           content:
             `✅ Trade session created with <@${partnerId}>.\n` +
-            `I’ve sent you a link${json.urlInitiator ? '' : ' (constructed)'} to pick cards.\n` +
-            `Session: \`${sessionId}\`\n\n` +
-            `If you didn’t get a DM, click here: ${urlInitiator}`,
-          components: []
+            `I’ve sent you a link to pick cards.\n` +
+            `Session: \`${sessionId}\``,
+          components: [linkRow]
         });
 
         try { btnCollector.stop(); } catch {}
