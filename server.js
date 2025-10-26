@@ -105,7 +105,7 @@ const loadCommands = async () => {
       if (typeof cog === 'function') {
         await cog(bot);
         const lastCmd = bot.slashData.at(-1);
-        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)`);
+        console.log(`[cmd] registered from ${file}:`, (lastCmd?.data?.name ?? lastCmd?.name ?? '❌ missing'), '-', (lastCmd?.data?.description ?? lastCmd?.description ?? '(no desc)'));
       } else {
         console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
