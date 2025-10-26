@@ -336,9 +336,13 @@ const corsOptions = {
     'X-Match-Id',
     'X-Mode',
     'X-App-Client',
-    'X-Requested-With'
+    'X-Requested-With',
+    // ✅ needed for spectator polling with ETags
+    'Cache-Control',
+    'If-None-Match',
   ],
-  exposedHeaders: ['X-Match-Id'],
+  // expose ETag so the browser can reuse it on the next poll
+  exposedHeaders: ['X-Match-Id', 'ETag'],
   optionsSuccessStatus: 204,
 };
 
