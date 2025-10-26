@@ -43,6 +43,9 @@ const cardListPath      = path.resolve('./logic/CoreMasterReference.json'); // s
 const MAX_PER_DAY = 3;
 const SESSION_TTL_HOURS = 24;
 
+// 🔧 NEW: Toggle whether the server also DMs the initiator on /trade/start
+const SEND_SERVER_TRADE_DM = String(process.env.SEND_SERVER_TRADE_DM || 'false').toLowerCase() === 'true';
+
 function todayStr() {
   return new Date().toISOString().slice(0,10);
 }
@@ -395,14 +398,17 @@ export default function createTradeRouter(bot) {
         partnerName: parProfile.discordName || ''
       });
 
-      // DM initiator a convenience link (server-side; cog also DMs a clean Link Button)
-      try {
-        const user = await bot.users.fetch(initiatorId);
-        await user.send({
-          content: `🔄 **Trade started with <@${partnerId}>**\nSelect up to 3 cards to offer: ${initLink}`
-        });
-      } catch (e) {
-        console.warn('[trade] Failed to DM initiator:', e?.message || e);
+      // ⛔️ Removed redundant raw-URL DM from the server (now handled cleanly by cogs/tradecard via Link Button).
+      // If you ever want the server to DM as well, set SEND_SERVER_TRADE_DM=true.
+      if (SEND_SERVER_TRADE_DM) {
+        try {
+          const user = await bot.users.fetch(initiatorId);
+          await user.send({
+            content: `🔄 **Trade started with <@${partnerId}>**\nSelect up to 3 cards to offer: ${initLink}`
+          });
+        } catch (e) {
+          console.warn('[trade] Failed to DM initiator:', e?.message || e);
+        }
       }
 
       return res.json({
