@@ -1,6 +1,8 @@
 // logic/duelRegistry.js
 // Minimal in-memory registry for multiple concurrent duels (PvP + practice)
 
+import { getSpectatorCount, getAllSpectatorCounts } from './chatRegistry.js';
+
 const _sessions = new Map(); // sessionId -> { id, status, isPractice, players, createdAt, updatedAt, stateProvider? }
 
 /** Create or update a session entry. */
@@ -47,6 +49,8 @@ export function listActiveSessions() {
       players: Array.isArray(s.players) ? s.players : [],
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
+      // ✨ additive: include current spectator count (safe, non-breaking)
+      spectatorCount: safeSpectatorCount(s.id),
     }));
 }
 
@@ -70,4 +74,35 @@ export function removeSession(id) {
 export function ensureSession(id, init = {}) {
   if (_sessions.has(id)) return _sessions.get(id);
   return upsertSession({ id, ...init });
+}
+
+/* ──────────────────────────────────────────────────────────
+ * 🆕 Additive helpers (non-breaking)
+ * ────────────────────────────────────────────────────────── */
+
+/** Get spectator count for a given session, via chatRegistry (safe). */
+export function getSpectatorCountForSession(id) {
+  return safeSpectatorCount(id);
+}
+
+/** Snapshot all spectator counts keyed by session id. */
+export function getAllSessionSpectatorCounts() {
+  try {
+    return getAllSpectatorCounts();
+  } catch {
+    // Fallback shape
+    const out = {};
+    for (const [sid] of _sessions.entries()) out[sid] = 0;
+    return out;
+  }
+}
+
+/** Internal: wrap chatRegistry getter safely. */
+function safeSpectatorCount(id) {
+  try {
+    const n = getSpectatorCount?.(id);
+    return Number.isFinite(n) ? Number(n) : 0;
+  } catch {
+    return 0;
+  }
 }
