@@ -105,7 +105,7 @@ const loadCommands = async () => {
       if (typeof cog === 'function') {
         await cog(bot);
         const lastCmd = bot.slashData.at(-1);
-        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)');
+        console.log(`📋 Command registered from ${file}:`, lastCmd?.name || '❌ missing', '-', lastCmd?.description || '(no desc)`);
       } else {
         console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
@@ -347,8 +347,8 @@ app.options('*', cors(corsOptions)); // handle preflight globally
 app.use(helmet());
 app.use(express.json({ limit: '256kb' }));
 
-// Rate limiter
-const apiLimiter = rateLimit({
+// Base limiter (used via wrappers below)
+const baseLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   limit: 100,
@@ -356,6 +356,20 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: '🚫 Too many requests. Please try again later.' }
 });
+
+// 🔕 NEW: Exempt spectator-safe GETs from the limiter (prevents 429s on /state polls)
+function isSpectatorStatePath(req) {
+  const u = req.originalUrl || req.url || '';
+  const isGet = req.method === 'GET';
+  return isGet && (
+    /\/duel\/state(\?|$)/.test(u) ||
+    /\/duel\/current(\?|$)/.test(u)
+  );
+}
+const apiLimiterExceptState = (req, res, next) => {
+  if (isSpectatorStatePath(req)) return next();
+  return baseLimiter(req, res, next);
+};
 
 /* ──────────────────────────────────────────────────────────
  * Health + route inventory + debug
@@ -425,18 +439,18 @@ app.get('/_storage', async (_req, res) => {
  * Routes
  * ────────────────────────────────────────────────────────── */
 
-// Apply limiter on both legacy and API-prefixed paths
-app.use('/duel', apiLimiter);
-app.use('/packReveal', apiLimiter);
-app.use('/user', apiLimiter);
-app.use('/collection', apiLimiter);
-app.use('/reveal', apiLimiter);
-app.use('/me', apiLimiter);
-app.use('/userStatsToken', apiLimiter);
-app.use('/trade', apiLimiter);
+// Apply limiter on both legacy and API-prefixed paths (but exempt spectator-safe GETs)
+app.use('/duel', apiLimiterExceptState);
+app.use('/packReveal', baseLimiter);
+app.use('/user', baseLimiter);
+app.use('/collection', baseLimiter);
+app.use('/reveal', baseLimiter);
+app.use('/me', baseLimiter);
+app.use('/userStatsToken', baseLimiter);
+app.use('/trade', baseLimiter);
 
-// 🔔 Also protect API namespace
-app.use('/api', apiLimiter);
+// 🔔 Also protect API namespace (with spectator exemption)
+app.use('/api', apiLimiterExceptState);
 
 // Core feature routes (legacy mounts kept for backward compatibility)
 app.use('/duel', duelRoutes);
@@ -463,6 +477,18 @@ app.use('/', createTradeRouter(bot));
 
 /* ✨ NEW: optional REST history for spectator chat */
 app.use('/chat', chatHistoryRoutes);
+
+/* ✨ NEW: Spectator presence REST (handy for UI/debug) */
+app.get('/api/spectators/:session', (req, res) => {
+  try {
+    const session = String(req.params.session || '').trim();
+    const { count = 0, users = [] } = getPresence(session) || {};
+    res.set('Cache-Control', 'no-store');
+    res.json({ session, count, users });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
 
 /* ──────────────────────────────────────────────────────────
  * Optional webhook: /trade/notify (uses same Express app; no second listener)
