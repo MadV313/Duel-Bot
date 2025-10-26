@@ -12,6 +12,7 @@ import {
   setSessionStateProvider,
   listActiveSessions,
   getSessionState,
+  getSpectatorCountForSession, // 👈 additive (safe)
 } from '../logic/duelRegistry.js';
 
 const router = express.Router();          // mounted at /duel
@@ -54,7 +55,7 @@ async function startPracticeHandler(req, res) {
       status: 'live',
       isPractice: true,
       players: [
-        { userId: '',   name: 'Player' },
+        { userId: '',    name: 'Player' },
         { userId: 'bot', name: 'Practice Bot' },
       ],
     });
@@ -70,7 +71,14 @@ async function startPracticeHandler(req, res) {
       })}`
     );
 
-    res.json(duelState);
+    // Include a non-breaking spectatorCount for clients that surface it
+    const out = {
+      ...duelState,
+      spectatorCount: Number(getSpectatorCountForSession?.(sessionId) || 0),
+    };
+
+    res.set('Cache-Control', 'no-store');
+    res.json(out);
   } catch (err) {
     console.error(
       `[duel] practice.error ${JSON.stringify({
@@ -113,6 +121,7 @@ async function botTurnHandler(req, res) {
       })}`
     );
 
+    res.set('Cache-Control', 'no-store');
     res.json(updated);
   } catch (err) {
     console.error(
@@ -131,6 +140,7 @@ async function botTurnHandler(req, res) {
 }
 
 function statusHandler(_req, res) {
+  res.set('Cache-Control', 'no-store');
   res.json({
     ok: true,
     mode: duelState.duelMode || 'none',
@@ -175,6 +185,7 @@ function syncHandler(req, res) {
 
     // (optional) startedAt remains as-in unless you want to update
 
+    res.set('Cache-Control', 'no-store');
     return res.json({ ok: true, state: duelState });
   } catch (e) {
     return res.status(500).json({ error: 'sync failed', details: String(e) });
@@ -188,19 +199,36 @@ function syncHandler(req, res) {
 // List all currently active sessions (practice + any future PvP)
 function listActiveHandler(_req, res) {
   const list = listActiveSessions();
+  res.set('Cache-Control', 'no-store');
   res.json({ duels: list });
 }
 
 // Return duel state; supports ?session=... (falls back to global practice for backward-compat)
+// Adds spectatorCount (server-truth) when possible so Spectator UI doesn't show 0.
 function stateHandler(req, res) {
   const sessionId = String(req.query.session || '').trim();
+
   if (sessionId) {
     const state = getSessionState(sessionId);
-    if (state) return res.json(state);
+    if (state) {
+      const out = {
+        ...state,
+        spectatorCount: Number(getSpectatorCountForSession?.(sessionId) || 0),
+      };
+      res.set('Cache-Control', 'no-store');
+      return res.json(out);
+    }
+    res.set('Cache-Control', 'no-store');
     return res.status(404).json({ error: 'Session not found', session: sessionId });
   }
+
   // Backward-compat: no session param returns the global duelState
-  return res.json(duelState);
+  const out = {
+    ...duelState,
+    spectatorCount: Number(getSpectatorCountForSession?.('practice') || 0),
+  };
+  res.set('Cache-Control', 'no-store');
+  return res.json(out);
 }
 
 // ────────────────────────────────────────────────────────────
