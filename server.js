@@ -105,7 +105,12 @@ const loadCommands = async () => {
       if (typeof cog === 'function') {
         await cog(bot);
         const lastCmd = bot.slashData.at(-1);
-        console.log(`[cmd] registered from ${file}:`, (lastCmd?.data?.name ?? lastCmd?.name ?? '❌ missing'), '-', (lastCmd?.data?.description ?? lastCmd?.description ?? '(no desc)'));
+        console.log(
+          `[cmd] registered from ${file}:`,
+          (lastCmd?.data?.name ?? lastCmd?.name ?? '❌ missing'),
+          '-',
+          (lastCmd?.data?.description ?? lastCmd?.description ?? '(no desc)'),
+        );
       } else {
         console.warn(`⚠️ Skipped ${file}: Invalid export`);
       }
@@ -315,7 +320,7 @@ process.on('unhandledRejection', r => console.error('⚠️ UnhandledRejection:'
 process.on('uncaughtException', e => console.error('⚠️ UncaughtException:', e));
 
 /* ──────────────────────────────────────────────────────────
- * Express middleware
+ * Express middleware (CORS hardening for Spectator UI)
  * ────────────────────────────────────────────────────────── */
 const corsOrigins = [
   'https://madv313.github.io',
@@ -327,27 +332,29 @@ const corsOrigins = [
 const corsOptions = {
   origin: corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  // ⬇⬇⬇ include both normal & lowercase to satisfy strict preflights
   allowedHeaders: [
     'Content-Type',
     'Authorization',
     'X-Bot-Key',
-    // ▼ added for Duel UI preflight
     'X-Player-Token',
     'X-Match-Id',
     'X-Mode',
     'X-App-Client',
     'X-Requested-With',
-    // ✅ needed for spectator polling with ETags
-    'Cache-Control',
-    'If-None-Match',
+    'Cache-Control', 'cache-control',
+    'If-None-Match', 'if-none-match',
+    'Pragma', 'pragma'
   ],
-  // expose ETag so the browser can reuse it on the next poll
-  exposedHeaders: ['X-Match-Id', 'ETag'],
+  exposedHeaders: ['X-Match-Id', 'ETag', 'Cache-Control'],
   optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // handle preflight globally
+// 🔁 Be explicit about preflights for the hot endpoints Spectator UI hits
+app.options('*', cors(corsOptions));
+app.options(['/api/duel/state', '/api/duel/current', '/duel/state', '/duel/current'], cors(corsOptions));
+
 app.use(helmet());
 app.use(express.json({ limit: '256kb' }));
 
@@ -361,13 +368,15 @@ const baseLimiter = rateLimit({
   message: { error: '🚫 Too many requests. Please try again later.' }
 });
 
-// 🔕 NEW: Exempt spectator-safe GETs from the limiter (prevents 429s on /state polls)
+// 🔕 Exempt spectator-safe GETs from limiter (prevents 429s on /state polls)
 function isSpectatorStatePath(req) {
   const u = req.originalUrl || req.url || '';
   const isGet = req.method === 'GET';
   return isGet && (
     /\/duel\/state(\?|$)/.test(u) ||
-    /\/duel\/current(\?|$)/.test(u)
+    /\/duel\/current(\?|$)/.test(u) ||
+    /\/api\/duel\/state(\?|$)/.test(u) ||
+    /\/api\/duel\/current(\?|$)/.test(u)
   );
 }
 const apiLimiterExceptState = (req, res, next) => {
