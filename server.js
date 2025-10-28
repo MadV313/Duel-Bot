@@ -462,6 +462,10 @@ app.use('/me', baseLimiter);
 app.use('/userStatsToken', baseLimiter);
 app.use('/trade', baseLimiter);
 
+// ✅ NEW: protect API/me namespace as well (so Hub stats/collection don’t 404)
+app.use('/api/me', baseLimiter);
+app.use('/api/meToken', baseLimiter);
+
 // 🔔 Also protect API namespace (with spectator exemption)
 app.use('/api', apiLimiterExceptState);
 
@@ -477,13 +481,16 @@ app.use('/collection', collectionRoute);
 app.use('/reveal', revealRoute);
 
 // ✅ API-prefixed mounts so Spectator UI can call /api/duel/current
-app.use('/api/duel', duelRoutes);          // /api/duel/status, /practice, /turn, /state
-app.use('/api/duel', liveRoutes);          // /api/duel/current
-app.use('/api/duelstart', duelStartRoutes);// /api/duelstart/start
-app.use('/api/bot', botPracticeAlias);     // /api/bot/status, /practice
+app.use('/api/duel', duelRoutes);           // /api/duel/status, /practice, /turn, /state
+app.use('/api/duel', liveRoutes);           // /api/duel/current
+app.use('/api/duelstart', duelStartRoutes); // /api/duelstart/start
+app.use('/api/bot', botPracticeAlias);      // /api/bot/status, /practice
 
-// Token-aware endpoints mounted at root
-app.use('/', meTokenRouter);
+// ✅ Token-aware endpoints at BOTH root and /api for Hub compatibility
+app.use('/me', meTokenRouter);
+app.use('/meToken', meTokenRouter);   // legacy alias if router expects /meToken
+app.use('/api/me', meTokenRouter);    // <— this fixes GET /api/me/:token/stats & /collection
+app.use('/api/meToken', meTokenRouter);
 
 // Trade endpoints mounted at root (need the live Discord client for DMs)
 app.use('/', createTradeRouter(bot));
