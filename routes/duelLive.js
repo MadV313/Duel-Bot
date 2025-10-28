@@ -22,11 +22,13 @@ const router = express.Router();
  *   allowEmpty=true-> (non-breaking) if no duel, returns an empty stub with 200 instead of 404
  */
 router.get('/current', (req, res) => {
-  // Do not cache by proxies/CDNs; clients may still use ETag below for 304s
+  // Do not cache by proxies/CDNs; clients use ETag below for 304s
   res.set('Cache-Control', 'no-store');
+  // Helps conditional requests behave consistently
+  res.set('Vary', 'If-None-Match');
 
-  const safeView  = String(req.query.safeView || '').toLowerCase() === 'true';
-  const sessionId = (req.query.session ?? '').toString().trim();
+  const safeView   = String(req.query.safeView || '').toLowerCase() === 'true';
+  const sessionId  = (req.query.session ?? '').toString().trim();
   const allowEmpty = String(req.query.allowEmpty || '').toLowerCase() === 'true';
 
   // Resolve state: prefer per-session if provided and available; else global duelState
@@ -75,22 +77,41 @@ router.get('/current', (req, res) => {
       if (etag && req.headers['if-none-match'] === etag) {
         return res.status(304).end();
       }
-      res.set('ETag', etag);
+      if (etag) res.set('ETag', etag);
       return res.status(200).json(emptyPayload);
     }
     return res.status(404).json({ error: 'No duel in progress.' });
   }
 
-  // Shallow copies so we never mutate live state
-  const player1 = { ...p1Raw, hand: Array.isArray(p1Raw.hand) ? [...p1Raw.hand] : [] };
-  const player2 = { ...p2Raw, hand: Array.isArray(p2Raw.hand) ? [...p2Raw.hand] : [] };
+  // Helper to normalize a player snapshot and ensure counts are present
+  const normalizePlayer = (src) => {
+    const handArr    = Array.isArray(src.hand) ? src.hand : [];
+    const fieldArr   = Array.isArray(src.field) ? src.field : (Array.isArray(src.board) ? src.board : []);
+    const deckArr    = Array.isArray(src.deck) ? src.deck : [];
+    const discardArr = Array.isArray(src.discardPile) ? src.discardPile : [];
 
-  // Handle safe view mode (hide hand card IDs)
-  if (safeView) {
-    const redact = (hand = []) => hand.map(() => ({ cardId: '000', isFaceDown: true }));
-    player1.hand = redact(player1.hand);
-    player2.hand = redact(player2.hand);
-  }
+    const base = {
+      ...src,
+      hp: Number(src.hp ?? src.HP ?? src.health ?? 200) || 0,
+      field: fieldArr.slice(0),
+      // Always surface numerics, even if arrays aren't present on the raw state
+      handCount: Number(src.handCount ?? handArr.length) || 0,
+      deckCount: Number(src.deckCount ?? deckArr.length) || 0,
+      discardCount: Number(src.discardCount ?? discardArr.length) || 0
+    };
+
+    // Respect safeView by stripping hand array but keeping the count for the UI
+    if (safeView) {
+      base.hand = []; // no actual cards sent
+    } else {
+      base.hand = handArr.slice(0);
+    }
+    return base;
+  };
+
+  // Shallow-safe copies so we never mutate live state
+  const player1 = normalizePlayer(p1Raw);
+  const player2 = normalizePlayer(p2Raw);
 
   // Prefer an explicit numeric spectatorCount, fallback to array length, else 0
   const spectatorCount =
@@ -103,7 +124,7 @@ router.get('/current', (req, res) => {
     currentPlayer,
     winner,
     spectatorCount,
-    wager: wagerAmount || 0,
+    wager: Number(wagerAmount) || 0,
     // Helpful metadata (non-breaking)
     mode: duelMode,
     startedAt,
