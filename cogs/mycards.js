@@ -3,7 +3,7 @@
 // - Restricted to #manage-cards
 // - Requires linked profile (prompts to /linkdeck if missing)
 // - Ensures/mints per-user token and persists it
-// - Builds URL with ?token=... &api=... &imgbase=... &ts=...
+// - Builds URL with ?token=... &api=... &me=... &imgbase=... &ts=...
 
 import fs from 'fs';
 import crypto from 'crypto';
@@ -41,6 +41,17 @@ function resolveCollectionBase(cfg) {
   );
 }
 
+// NEW: prefer explicit me_base from config/env; fallback empty (UI will then try API_BASE)
+function resolveMeBase(cfg) {
+  return trimBase(
+    cfg.me_base ||
+    cfg.ME_BASE ||
+    process.env.ME_BASE ||
+    process.env.PERSISTENT_DATA_BASE || // alt env name if you used this earlier
+    '' // if blank, CCUI will fall back to API_BASE (not ideal, but safe)
+  );
+}
+
 export default async function registerMyCards(client) {
   const commandData = new SlashCommandBuilder()
     .setName('mycards')
@@ -72,7 +83,7 @@ export default async function registerMyCards(client) {
       const userId = interaction.user.id;
       const userName = interaction.user.username;
 
-      // Load linked profiles from Persistent Data server
+      // Load linked profiles from Persistent Data (PATHS.linkedDecks should point there)
       let linked = {};
       try { linked = await loadJSON(PATHS.linkedDecks); } catch { linked = {}; }
 
@@ -103,16 +114,20 @@ export default async function registerMyCards(client) {
         console.warn('[mycards] Failed to persist profile updates:', e?.message || e);
       }
 
-      const BASE = resolveCollectionBase(CFG);
-      const page = /\.(html?)$/i.test(BASE) ? BASE : `${BASE}/index.html`;
-
-      const API_BASE   = trimBase(CFG.api_base || CFG.API_BASE || process.env.API_BASE || '');
+      const BASE       = resolveCollectionBase(CFG);
+      const page       = /\.(html?)$/i.test(BASE) ? BASE : `${BASE}/index.html`;
+      const API_BASE   = trimBase(CFG.api_base   || CFG.API_BASE   || process.env.API_BASE   || '');
       const IMAGE_BASE = trimBase(CFG.image_base || CFG.IMAGE_BASE || 'https://madv313.github.io/Card-Collection-UI/images/cards');
-      const ts         = Date.now();
+
+      // ✅ NEW: ME base (persistent-data service hosting /me/:token/*)
+      const ME_BASE    = resolveMeBase(CFG);
+
+      const ts = Date.now();
 
       const qp = new URLSearchParams();
       qp.set('token', profile.token);
       if (API_BASE)   qp.set('api', API_BASE);
+      if (ME_BASE)    qp.set('me', ME_BASE); // <-- critical so CCUI hits the right service
       if (IMAGE_BASE) qp.set('imgbase', IMAGE_BASE);
       qp.set('ts', String(ts));
 
