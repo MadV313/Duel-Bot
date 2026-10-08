@@ -6,6 +6,8 @@ import { expandDeck, getPlayerProfileByUserId, loadMaster, validateSavedDeckForU
 const SESSION_RE = /^[A-Za-z0-9_-]{12,128}$/;
 const sha = value => crypto.createHash('sha256').update(String(value || '')).digest('hex');
 const now = () => new Date().toISOString();
+export const CHALLENGE_LIFETIME_MS = 24 * 60 * 60 * 1000;
+export const challengeDeadline = session => Date.parse(session?.expiresAt || new Date(Date.parse(session?.createdAt || 0) + CHALLENGE_LIFETIME_MS).toISOString());
 const randomId = () => crypto.randomBytes(18).toString('base64url');
 const shuffle = input => { const a = [...input]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
@@ -50,7 +52,7 @@ async function addToIndex(session) {
   await updateJSONAtomic(PATHS.duelSessionIndex, index => {
     index[session.id] = {
       id: session.id, mode: session.mode, status: session.status, revision: session.revision,
-      createdAt: session.createdAt, updatedAt: session.updatedAt, finishedAt: session.finishedAt || null,
+      createdAt: session.createdAt, updatedAt: session.updatedAt, expiresAt: session.expiresAt || null, finishedAt: session.finishedAt || null,
       players: [
         { userId: session.player1.userId, displayName: session.player1.displayName, controller: session.player1.controller },
         { userId: session.player2.userId, displayName: session.player2.displayName, controller: session.player2.controller },
@@ -102,7 +104,7 @@ export async function createChallengeSession({ challengerId, challengerToken, ch
   if (!d1.ok || !d2.ok) throw Object.assign(new Error(`Both players need valid saved decks. ${[...d1.errors, ...d2.errors].join(' ')}`), { status: 400 });
   const id = randomId(), createdAt = now();
   const session = {
-    version: 1, id, mode: 'pvp', status: 'pending', revision: 1, createdAt, updatedAt: createdAt, finishedAt: null,
+    version: 1, id, mode: 'pvp', status: 'pending', revision: 1, createdAt, updatedAt: createdAt, expiresAt: new Date(Date.parse(createdAt) + CHALLENGE_LIFETIME_MS).toISOString(), finishedAt: null,
     player1: playerRecord({ userId: challengerId, displayName: challengerName || p1.discordName, token: challengerToken }),
     player2: playerRecord({ userId: opponentId, displayName: opponentName || p2.discordName, token: opponentToken }),
     pendingDecks: { player1: { name: d1.deck.name, cards: expandDeck(d1.deck) }, player2: { name: d2.deck.name, cards: expandDeck(d2.deck) } },
@@ -126,6 +128,7 @@ export async function decideChallenge(sessionId, token, decision) {
   const current = await getSession(sessionId);
   if (!current) throw Object.assign(new Error('Session not found'), { status: 404 });
   if (current.mode !== 'pvp' || current.status !== 'pending') throw Object.assign(new Error('Challenge is not pending'), { status: 409 });
+  if (Date.now() >= challengeDeadline(current)) { await expireChallenge(sessionId); throw Object.assign(new Error('Challenge expired'), { status: 410 }); }
   if (resolveSeat(current, token) !== 'player2') throw Object.assign(new Error('Only the challenged player may decide'), { status: 403 });
   const d = String(decision || '').toLowerCase();
   if (!['accept', 'deny'].includes(d)) throw Object.assign(new Error('Decision must be accept or deny'), { status: 400 });
@@ -145,6 +148,7 @@ export async function decideChallenge(sessionId, token, decision) {
 
   return mutateSession(sessionId, session => {
     if (session.mode !== 'pvp' || session.status !== 'pending') throw Object.assign(new Error('Challenge is no longer pending'), { status: 409 });
+    if (Date.now() >= challengeDeadline(session)) throw Object.assign(new Error('Challenge expired'), { status: 410 });
     if (resolveSeat(session, token) !== 'player2') throw Object.assign(new Error('Only the challenged player may decide'), { status: 403 });
     if (d === 'deny') {
       session.status = 'denied'; session.finishedAt = now(); session.reason = 'denied'; delete session.pendingDecks; return session;
@@ -196,7 +200,7 @@ export function serializeSpectator(session, spectatorCount = 0) {
   return {
     version: session.version || 1,
     id: session.id, mode: session.mode, status: session.status, revision: session.revision,
-    createdAt: session.createdAt, updatedAt: session.updatedAt, finishedAt: session.finishedAt,
+    createdAt: session.createdAt, updatedAt: session.updatedAt, expiresAt: session.expiresAt || null, finishedAt: session.finishedAt,
     currentPlayer: session.state?.currentPlayer || null,
     turn: Number(session.state?.turn || 0),
     winner: session.winner, reason: session.reason,
