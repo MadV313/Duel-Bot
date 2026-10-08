@@ -123,6 +123,16 @@ test('practice sessions are unique and spectator serializer never leaks hands or
   assert.ok(Array.isArray(privateView.hand));
 });
 
+test('PvP challenges have a 24-hour persisted deadline and cannot be accepted after it', async () => {
+  const s = await sessions.createChallengeSession({challengerId:'u1',challengerToken:'alpha_token_1234567890',challengerName:'Alpha',opponentId:'u2',opponentToken:'bravo_token_1234567890',opponentName:'Bravo'});
+  assert.equal(sessions.challengeDeadline(s) - Date.parse(s.createdAt), 24 * 60 * 60 * 1000);
+  const pending = (await sessions.listSessions()).find(row => row.id === s.id);
+  assert.equal(pending.expiresAt, s.expiresAt);
+  await sessions.mutateSession(s.id, row => { row.expiresAt = new Date(Date.now() - 1000).toISOString(); return row; });
+  await assert.rejects(() => sessions.decideChallenge(s.id,'bravo_token_1234567890','accept'), { status:410 });
+  assert.equal((await sessions.getSession(s.id)).status, 'expired');
+});
+
 test('PvP challenge stores token hashes, resolves seats, and finalizes stats exactly once', async () => {
   const s=await sessions.createChallengeSession({challengerId:'u1',challengerToken:'alpha_token_1234567890',challengerName:'Alpha',opponentId:'u2',opponentToken:'bravo_token_1234567890',opponentName:'Bravo'});
   const persisted=await storage.loadJSON(storage.PATHS.duelSessionFor(s.id));
@@ -199,3 +209,5 @@ test('Discord/API sell service shares a single 5-card daily ledger', async () =>
 });
 
 test.after(async()=>{await new Promise(resolve=>fake.server.close(resolve));});
+
+
