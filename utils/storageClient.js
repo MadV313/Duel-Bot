@@ -55,7 +55,7 @@ async function parseJson(res, path) {
 
 async function throwFor(res, path) {
   const body = await res.text().catch(() => '');
-  throw new StorageError(`Storage ${res.status} for ${path}`, { status: res.status, path, body: body.slice(0, 1000) });
+  throw new StorageError(res.status === 403 ? `Storage authentication rejected (403) for ${path}; verify matching STORAGE_KEY values between Duel Bot and sv13-tcg-data` : `Storage ${res.status} for ${path}`, { status: res.status, path, body: body.slice(0, 1000) });
 }
 
 export async function loadJSONWithMeta(filename, { allowMissing = false } = {}) {
