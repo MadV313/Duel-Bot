@@ -10,7 +10,8 @@
     "lint": "eslint . --ext .js",
     "test": "node --test",
     "check:active": "node scripts/check-active.mjs",
-    "test:recovery": "node --test test/recovery-contracts.test.js"
+    "test:recovery": "node --test test/recovery-contracts.test.js",
+    "check:storage": "node scripts/check-storage-access.mjs"
   },
   "keywords": [
     "discord",
